@@ -111,3 +111,20 @@ O `checkpoint` não é uma asserção rígida de igualdade de texto (*string mat
 - A IA analisa a imagem renderizada com os olhos de um usuário experiente.
 - Ela lê o que você declarou em `expected_behavior` como o gabarito de conformidade da sua empresa.
 - Caso a tela viole alguma regra (ex: um campo não coube, um texto em inglês apareceu, o botão sumiu na rolagem), ela emite uma `Issue` detalhada com severidade, localização e print anotado.
+
+---
+
+## 4. Resolução e Execução de Cenários na CLI
+
+O UXSentinel implementa um mecanismo determinístico de resolução de arquivos de cenário para garantir previsibilidade nas esteiras de automação e na linha de comando:
+
+1. **Passagem Explícita de Cenário**:
+   - Por flag: `uxsentinel -s scenarios/meu_fluxo.yaml`
+   - Por argumento posicional: `uxsentinel scenarios/meu_fluxo.yaml`
+2. **Execução Sem Informar Cenário (`uxsentinel`)**:
+   - O agente busca automaticamente a pasta `./scenarios/` no diretório atual de trabalho.
+   - ❌ **Pasta inexistente ou vazia**: Retorna erro claro (`FileNotFoundError`) informando que nenhum cenário foi passado e a pasta `scenarios/` não foi localizada.
+   - ❌ **Múltiplos cenários detectados na pasta**: Retorna erro (`ValueError`) alertando que existem múltiplos cenários disponíveis e que o parâmetro `-s` / `--scenario` é obrigatório para evitar ambiguidades.
+   - ✅ **Exatamente 1 cenário presente**: Executa automaticamente o único cenário sem necessidade de parâmetros adicionais.
+3. **Listagem de Cenários**:
+   - Execute `uxsentinel --list-scenarios` para visualizar todos os cenários disponíveis no projeto local e na biblioteca interna integrada.

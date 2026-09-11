@@ -1,23 +1,24 @@
 # Configuração Unificada de Modelos de Linguagem e Visão (LLMs)
 
-O **UXSentinel** possui uma camada de abstração de inteligência artificial agnóstica. Todas as preferências de modelos de visão, chaves de acesso e conexões são orquestradas a partir de um único arquivo de configuração: `config/config.yaml`.
+O **UXSentinel** possui uma camada de abstração de inteligência artificial agnóstica. Todas as preferências de modelos de visão, chaves de acesso e conexões são orquestradas a partir de um único arquivo de configuração: `config/config.yaml` (ou `~/.config/uxsentinel/config.yaml`).
 
 ---
 
 ## 1. Categorias de Provedores Suportadas
 
-Para atender desde o desenvolvedor individual até ambientes corporativos rigorosos com segurança de dados, o UXSentinel suporta três tipos fundamentais de provedores:
+Para atender desde o desenvolvedor individual até ambientes corporativos rigorosos com governança de dados e identidade centralizada, o UXSentinel suporta três tipos fundamentais de provedores:
 
 1. **`api` (Provedores Cloud Públicos)**:
-   - **Anthropic**: Claude 3.5 Sonnet, Claude 3 Opus.
-   - **OpenAI**: GPT-4o, GPT-4o-mini.
-   - **Google Gemini**: Gemini 1.5 Pro, Gemini 1.5 Flash.
-2. **`local` (Inferência Local / On-Premise)**:
-   - **Ollama**: Modelos multimodais locais como `qwen2-vl`, `llava`, `minicpm-v` rodando em GPU/CPU própria sem enviar nenhum dado para a nuvem.
+   - **Google Gemini**: Gemini 1.5 Pro, Gemini 1.5 Flash (via chave de API pública).
+   - **Anthropic Claude**: Claude 3.5 Sonnet, Claude 3 Opus (via `x-api-key`).
+   - **OpenAI**: GPT-4o, GPT-4o-mini (via `api_key`).
+2. **`sso` / `gateway` (Gateways Corporativos e Nuvem Privada com Autenticação SSO)**:
+   - **`gemini_sso`**: Google Gemini consumido através de Single Sign-On corporativo (Google Cloud Vertex / Workspace SSO), autenticado via token JWT/OAuth2 no header `Authorization: Bearer <token>`.
+   - **`claude_sso`**: Anthropic Claude consumido através de autenticação corporativa centralizada (SSO corporativo / Proxy Bedrock / IAM OIDC), autenticado via Bearer token no cabeçalho HTTP.
+   - **`corporate_gateway`**: Gateways internos genéricos (ex: LiteLLM, Azure OpenAI Gateway, proxy corporativo com headers `X-Corporate-ID`, mTLS ou certificados internos).
+3. **`local` (Inferência Local / On-Premise)**:
+   - **Ollama**: Modelos multimodais locais como `qwen2-vl:7b`, `llava`, `minicpm-v` rodando em GPU/CPU própria sem enviar nenhum dado para a nuvem.
    - **vLLM / LocalAI**: Endpoints locais de alta performance compatíveis com a API do OpenAI.
-3. **`sso` / `gateway` (Gateways Corporativos e Nuvem Privada)**:
-   - Servidores intermediários corporativos (ex: LiteLLM, Azure OpenAI Gateway, AWS Bedrock via proxy interno).
-   - Autenticação com Bearer Token de SSO, certificados mTLS ou headers corporativos customizados (ex: `X-Corporate-ID`, `Authorization: Bearer <SSO_TOKEN>`).
 
 ---
 
@@ -29,7 +30,7 @@ Para atender desde o desenvolvedor individual até ambientes corporativos rigoro
 # ==============================================================================
 
 # Define qual provedor está ativo no momento
-active_provider: "anthropic_cloud"   # Opções: anthropic_cloud, openai_cloud, gemini_cloud, ollama_local, corporate_gateway
+active_provider: "gemini_sso"   # Opções: gemini_sso, claude_sso, gemini_cloud, anthropic_cloud, openai_cloud, ollama_local, corporate_gateway
 
 # Configuração de fallback caso o provedor principal atinja rate limit ou caia
 fallback_provider: "ollama_local"
@@ -37,8 +38,51 @@ fallback_provider: "ollama_local"
 # Catálogo de Provedores Configurados
 providers:
   # ----------------------------------------------------------------------------
-  # Categoria 1: Provedores Cloud (API Pública)
+  # Categoria 1: Provedores com SSO Corporativo (Bearer Token / OAuth2)
   # ----------------------------------------------------------------------------
+  gemini_sso:
+    type: "sso"
+    service: "gemini"
+    model: "gemini-1.5-pro"
+    api_key: "${GEMINI_SSO_TOKEN}"
+    headers:
+      Authorization: "Bearer ${GEMINI_SSO_TOKEN}"
+    max_tokens: 2000
+    temperature: 0.1
+
+  claude_sso:
+    type: "sso"
+    service: "anthropic"
+    model: "claude-3-5-sonnet-latest"
+    api_key: "${CLAUDE_SSO_TOKEN}"
+    headers:
+      Authorization: "Bearer ${CLAUDE_SSO_TOKEN}"
+    max_tokens: 2000
+    temperature: 0.1
+
+  corporate_gateway:
+    type: "sso"
+    service: "openai_compatible"
+    base_url: "https://ai-gateway.suaempresa.com.br/v1"
+    model: "corporate-gpt4o-vision"
+    api_key: "${SSO_CORPORATE_TOKEN}"
+    headers:
+      X-Enterprise-Client-Id: "${ENTERPRISE_CLIENT_ID:-uxsentinel-qa}"
+      X-Corporate-Department: "QualityAssurance"
+    timeout: 45
+    verify_ssl: true
+
+  # ----------------------------------------------------------------------------
+  # Categoria 2: Provedores Cloud (API Pública com Chaves Nativas)
+  # ----------------------------------------------------------------------------
+  gemini_cloud:
+    type: "api"
+    service: "gemini"
+    model: "gemini-1.5-pro"
+    api_key: "${GEMINI_API_KEY}"
+    max_tokens: 2000
+    temperature: 0.1
+
   anthropic_cloud:
     type: "api"
     service: "anthropic"
@@ -55,16 +99,8 @@ providers:
     max_tokens: 2000
     temperature: 0.1
 
-  gemini_cloud:
-    type: "api"
-    service: "gemini"
-    model: "gemini-1.5-pro"
-    api_key: "${GEMINI_API_KEY}"
-    max_tokens: 2000
-    temperature: 0.1
-
   # ----------------------------------------------------------------------------
-  # Categoria 2: Modelos Locais (Air-Gapped / Privacidade Total)
+  # Categoria 3: Modelos Locais (Air-Gapped / Privacidade Total)
   # ----------------------------------------------------------------------------
   ollama_local:
     type: "local"
@@ -81,42 +117,59 @@ providers:
     model: "Qwen/Qwen2-VL-7B-Instruct"
     api_key: "none"
     timeout: 60
-
-  # ----------------------------------------------------------------------------
-  # Categoria 3: Gateway Corporativo / SSO / Enterprise Proxy
-  # ----------------------------------------------------------------------------
-  corporate_gateway:
-    type: "sso"
-    service: "openai_compatible"
-    base_url: "https://ai-gateway.suaempresa.com.br/v1"
-    model: "corporate-gpt4o-vision"
-    api_key: "${SSO_CORPORATE_TOKEN}"
-    headers:
-      X-Enterprise-Client-Id: "${ENTERPRISE_CLIENT_ID:-uxsentinel-qa}"
-      X-Corporate-Department: "QualityAssurance"
-    timeout: 45
-    verify_ssl: true
 ```
 
 ---
 
-## 3. Alternância Rápida entre Provedores
+## 3. Como Utilizar Provedores via SSO Corporativo
 
-Você pode alternar o provedor ativo de três maneiras:
+Muitas empresas bloqueiam o uso de chaves de API estáticas e exigem que todo o tráfego de IA seja auditado e autenticado através de um provedor de identidade corporativo (Google Cloud Identity, Okta, Microsoft Entra ID / Azure AD, Ping Identity).
 
-1. **Pelo arquivo `config.yaml`**: Alterando o campo `active_provider`.
-2. **Via Variável de Ambiente**:
+### 3.1 Google Gemini via SSO (`gemini_sso`)
+1. Gere o token de acesso da sua conta corporativa via Google Cloud CLI:
    ```bash
-   export UXSENTINEL_ACTIVE_PROVIDER=ollama_local
+   export GEMINI_SSO_TOKEN=$(gcloud auth print-access-token)
    ```
-3. **Via Linha de Comando (CLI)**:
+2. Dispare a auditoria visual com o UXSentinel:
    ```bash
-   python main.py --provider gemini_cloud --scenario scenarios/login.yaml
+   uxsentinel -s scenarios/meu_teste.yaml -p gemini_sso
    ```
+O cliente HTTP do UXSentinel enviará o cabeçalho `Authorization: Bearer <seu_token>` diretamente para o endpoint oficial do Google Gemini, sem requerer chave de API estática no código ou na URL.
+
+### 3.2 Anthropic Claude via SSO (`claude_sso`)
+1. Obtenha o token temporário de sessão gerado pelo portal de SSO ou IAM da sua empresa:
+   ```bash
+   export CLAUDE_SSO_TOKEN="ey..."
+   ```
+2. Execute o UXSentinel informando o provedor:
+   ```bash
+   uxsentinel -s scenarios/meu_teste.yaml -p claude_sso
+   ```
+O cliente do UXSentinel configurará automaticamente o cabeçalho `Authorization: Bearer <token>` e respeitará as políticas de inspeção da organização.
 
 ---
 
-## 4. Segurança e Segredos
+## 4. Alternância Rápida entre Provedores
 
-- Nenhuma chave de API ou token de SSO deve ser gravado diretamente em texto plano no arquivo de configuração caso o projeto seja versionado em Git.
-- O parser do UXSentinel suporta a interpolação automática de variáveis de ambiente no padrão `${NOME_DA_VARIAVEL}` e com valores padrão `${VARIAVEL:-padrao}`.
+Você pode alternar o provedor ativo de três maneiras, em ordem de precedência:
+
+1. **Via Linha de Comando (CLI)** (Maior precedência):
+   ```bash
+   uxsentinel -s scenarios/login.yaml -p gemini_sso
+   uxsentinel -s scenarios/login.yaml -p claude_sso
+   uxsentinel -s scenarios/login.yaml -p ollama_local
+   ```
+2. **Definido Diretamente no Arquivo de Cenário (`.yaml`)**:
+   ```yaml
+   provider: "gemini_sso"
+   ```
+3. **Pelo arquivo `config.yaml`**:
+   Alterando o valor da chave `active_provider`.
+
+---
+
+## 5. Segurança e Segredos
+
+- **Nunca comite chaves ou tokens no Git**: O UXSentinel ignora arquivos de segredos locais via `.gitignore`.
+- **Interpolação de Variáveis**: O parser do UXSentinel suporta a interpolação automática de variáveis de ambiente no formato `${NOME_DA_VARIAVEL}` e valores padrão com `${VARIAVEL:-padrao}`.
+- **Validação de Fallback**: Caso o token de SSO expire durante a execução de uma suíte extensa de testes, o UXSentinel aciona graciosamente o `fallback_provider` (ex: `ollama_local`) sem interromper a execução do fluxo.

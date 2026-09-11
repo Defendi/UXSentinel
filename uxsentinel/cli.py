@@ -166,15 +166,18 @@ async def async_main() -> int:
 Audita aplicações web (Odoo, React, Vue, Angular, Django) navegando com ritmo humano
 visível na tela e inspecionando cada checkpoint com Inteligência Artificial Multimodal.""",
         epilog="""Exemplos de Execução:
-  uxsentinel                                      # Executa o primeiro cenário detectado em ./scenarios/
-  uxsentinel --version                            # Exibe a versão instalada (ou -v)
-  uxsentinel --list-scenarios                     # Lista todos os cenários disponíveis no projeto e biblioteca
-  uxsentinel -s scenarios/fluxo_vendas.yaml       # Executa um cenário específico
-  uxsentinel -s scenarios/meu_teste.yaml --slowmo 500  # Executa com delay de 500ms entre ações
+  uxsentinel                                           # Executa o cenário único em ./scenarios/
+  uxsentinel -s scenarios/fluxo_vendas.yaml            # Executa um cenário específico
+  uxsentinel scenarios/fluxo_vendas.yaml               # Executa passando o cenário como argumento direto
+  uxsentinel -s scenarios/teste.yaml -p gemini_sso     # Executa com Google Gemini via SSO
+  uxsentinel -s scenarios/teste.yaml -p claude_sso     # Executa com Anthropic Claude via SSO
+  uxsentinel -s scenarios/teste.yaml -p ollama_local  # Executa com IA 100% local (Ollama)
   uxsentinel -s scenarios/odoo_teste.yaml --profile odoo # Executa com driver especializado para Odoo OWL
-  uxsentinel -s scenarios/teste.yaml -p ollama_local     # Usa IA local via Ollama (sem custos de nuvem)
-  uxsentinel -s scenarios/teste.yaml --headless   # Executa sem interface gráfica (modo CI/CD)
-  uxsentinel --init-config                        # Cria o arquivo de configuração em ~/.config/uxsentinel/config.yaml
+  uxsentinel -s scenarios/teste.yaml --slowmo 500       # Executa com delay de 500ms entre passos
+  uxsentinel -s scenarios/teste.yaml --headless        # Executa sem interface gráfica (modo CI/CD)
+  uxsentinel --list-scenarios                          # Lista todos os cenários disponíveis no projeto e biblioteca
+  uxsentinel --version                                 # Exibe a versão instalada (ou -v)
+  uxsentinel --init-config                             # Cria o arquivo de configuração em ~/.config/uxsentinel/config.yaml
 
 Documentação completa: https://github.com/Defendi/UXSentinel""",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -203,7 +206,7 @@ Documentação completa: https://github.com/Defendi/UXSentinel""",
     parser.add_argument(
         "-p",
         "--provider",
-        help="Sobrescreve o provedor de IA ativo (ex: anthropic_cloud, openai_cloud, gemini_cloud, ollama_local, corporate_gateway).",
+        help="Sobrescreve o provedor de IA ativo (ex: gemini_cloud, gemini_sso, claude_sso, anthropic_cloud, openai_cloud, ollama_local, corporate_gateway).",
     )
     parser.add_argument(
         "--profile",

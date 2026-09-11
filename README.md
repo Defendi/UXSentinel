@@ -176,8 +176,10 @@ O **UXSentinel** permite alternar com total liberdade entre diferentes modelos d
 
 | Provedor | Identificador no UXSentinel | Modelo Padrão | Protocolo / Integração |
 | :--- | :--- | :--- | :--- |
-| **Google Gemini** | `gemini_cloud` | `gemini-1.5-pro` | REST API Google Gemini (`generateContent` com imagens) |
-| **Anthropic Claude** | `anthropic_cloud` | `claude-3-5-sonnet-latest` | REST API Anthropic Messages (base64) |
+| **Google Gemini Cloud** | `gemini_cloud` | `gemini-1.5-pro` | REST API Google Gemini com API Key |
+| **Google Gemini SSO** | `gemini_sso` | `gemini-1.5-pro` | Google Gemini via OAuth2 / Bearer Token SSO corporativo |
+| **Anthropic Claude Cloud** | `anthropic_cloud` | `claude-3-5-sonnet-latest` | REST API Anthropic Messages com API Key |
+| **Anthropic Claude SSO** | `claude_sso` | `claude-3-5-sonnet-latest` | Anthropic Messages via OAuth2 / Bearer Token SSO corporativo |
 | **OpenAI GPT** | `openai_cloud` | `gpt-4o` | REST API OpenAI Chat Completions com Vision |
 | **Ollama Local** | `ollama_local` | `qwen2-vl:7b` ou `llava` | Endpoint local `/api/generate` (Privacidade 100% local) |
 | **vLLM / Compatível** | `vllm_local` | `Qwen/Qwen2-VL-7B` | API local compatível com padrão OpenAI Chat |
@@ -195,17 +197,23 @@ O UXSentinel adota a seguinte **ordem de precedência** para definir qual modelo
 #### 1. Via Linha de Comando (CLI)
 Defina o provedor diretamente ao disparar o teste:
 ```bash
-# Executar auditoria visual com Google Gemini
-uxsentinel run scenarios/meu_cenario.yaml -p gemini_cloud
+# Executar auditoria visual com Google Gemini Cloud (API Key)
+uxsentinel -s scenarios/meu_cenario.yaml -p gemini_cloud
+
+# Executar com Google Gemini via SSO Corporativo (Bearer Token OAuth2)
+uxsentinel -s scenarios/meu_cenario.yaml -p gemini_sso
+
+# Executar com Anthropic Claude Cloud (API Key)
+uxsentinel -s scenarios/meu_cenario.yaml -p anthropic_cloud
+
+# Executar com Anthropic Claude via SSO Corporativo (Bearer Token OAuth2)
+uxsentinel -s scenarios/meu_cenario.yaml -p claude_sso
 
 # Executar com OpenAI GPT-4o
-uxsentinel run scenarios/meu_cenario.yaml -p openai_cloud
-
-# Executar com Anthropic Claude 3.5 Sonnet
-uxsentinel run scenarios/meu_cenario.yaml -p anthropic_cloud
+uxsentinel -s scenarios/meu_cenario.yaml -p openai_cloud
 
 # Executar 100% localmente sem envio de dados para fora (Ollama)
-uxsentinel run scenarios/meu_cenario.yaml -p ollama_local
+uxsentinel -s scenarios/meu_cenario.yaml -p ollama_local
 ```
 
 #### 2. Definido Diretamente no Arquivo de Cenário (`.yaml`)
@@ -215,7 +223,7 @@ version: "1.0"
 id: "auditoria_faturamento"
 title: "Auditoria Visual do Módulo Financeiro"
 profile: "generic"
-provider: "gemini_cloud"   # <-- Fixa o uso do Gemini para este cenário
+provider: "gemini_sso"   # <-- Fixa o uso do Gemini SSO para este cenário
 
 variables:
   base_url: "https://sistema.exemplo.com.br"
@@ -229,9 +237,9 @@ steps:
 ```
 
 #### 3. No Arquivo de Configuração Global (`~/.config/uxsentinel/config.yaml`)
-Você pode definir os modelos padrão e suas respectivas chaves de API:
+Você pode definir os modelos padrão e suas respectivas chaves de API ou tokens de SSO:
 ```yaml
-active_provider: "gemini_cloud"      # Provedor principal
+active_provider: "gemini_sso"        # Provedor principal
 fallback_provider: "ollama_local"    # Contingência automática
 
 providers:
@@ -239,15 +247,17 @@ providers:
     type: "api"
     service: "gemini"
     model: "gemini-1.5-pro"
-    api_key: "${GEMINI_API_KEY}"     # Ou informe a chave 'AIzaSy...' diretamente
+    api_key: "${GEMINI_API_KEY}"
     temperature: 0.1
     max_tokens: 2000
 
-  openai_cloud:
-    type: "api"
-    service: "openai"
-    model: "gpt-4o"
-    api_key: "${OPENAI_API_KEY}"
+  gemini_sso:
+    type: "sso"
+    service: "gemini"
+    model: "gemini-1.5-pro"
+    api_key: "${GEMINI_SSO_TOKEN}"
+    headers:
+      Authorization: "Bearer ${GEMINI_SSO_TOKEN}"
     temperature: 0.1
     max_tokens: 2000
 
@@ -256,6 +266,24 @@ providers:
     service: "anthropic"
     model: "claude-3-5-sonnet-latest"
     api_key: "${ANTHROPIC_API_KEY}"
+    temperature: 0.1
+    max_tokens: 2000
+
+  claude_sso:
+    type: "sso"
+    service: "anthropic"
+    model: "claude-3-5-sonnet-latest"
+    api_key: "${CLAUDE_SSO_TOKEN}"
+    headers:
+      Authorization: "Bearer ${CLAUDE_SSO_TOKEN}"
+    temperature: 0.1
+    max_tokens: 2000
+
+  openai_cloud:
+    type: "api"
+    service: "openai"
+    model: "gpt-4o"
+    api_key: "${OPENAI_API_KEY}"
     temperature: 0.1
     max_tokens: 2000
 
@@ -285,65 +313,79 @@ O UXSentinel foi projetado para **analisar aplicações a partir da própria pas
 1. **Coloque os cenários dentro do projeto cliente**:
    Crie uma pasta `scenarios/` na raiz do projeto alvo (ex: `/caminho/meu-projeto/scenarios/fluxo_vendas.yaml`). As URLs e credenciais de acesso ficam gravadas diretamente dentro do próprio arquivo `.yaml` do cenário, sem exigir nenhum `.env`.
 
-2. **Execute o comando diretamente de dentro da pasta do projeto alvo**:
-   ```bash
-   cd /caminho/do/meu-projeto
-
-   # Auto-detecta os cenários da pasta scenarios/ local:
-   uxsentinel
-
-   # Ou especifique um cenário específico daquele projeto:
-   uxsentinel --scenario scenarios/fluxo_vendas.yaml --slowmo 400
-   ```
+2. **Regras Obrigatórias de Resolução de Cenário**:
+   - **Argumento Explícito**: Você pode passar o cenário pela flag `-s` / `--scenario` ou como argumento posicional direto:
+     ```bash
+     uxsentinel -s scenarios/fluxo_vendas.yaml
+     uxsentinel scenarios/fluxo_vendas.yaml
+     ```
+   - **Execução Sem Argumento (`uxsentinel`)**:
+     - O UXSentinel verifica se o diretório `scenarios/` existe na pasta atual.
+     - ❌ **Se a pasta `scenarios/` NÃO existir (ou estiver vazia)**: O comando aborta com erro orientando você a fornecer o caminho do cenário ou criar a pasta.
+     - ❌ **Se a pasta `scenarios/` contiver MÚLTIPLOS cenários**: O comando aborta com erro para evitar ambiguidades, exigindo que você informe qual cenário deseja rodar ou use `uxsentinel --list-scenarios`.
+     - ✅ **Se a pasta `scenarios/` contiver EXATAMENTE 1 cenário**: O UXSentinel detecta e executa automaticamente esse único cenário!
 
 3. **Relatórios Salvos Localmente**:
    - O dashboard visual HTML e as capturas são salvos automaticamente dentro da pasta `report/` do próprio projeto cliente!
 
 ---
 
-### 1. Listar os Cenários Disponíveis
+### 1. Consultar a Versão Instalada
+```bash
+uxsentinel --version   # ou: uxsentinel -v
+```
+
+### 2. Listar os Cenários Disponíveis
 Exibe os cenários do projeto local onde você está e os cenários da biblioteca interna:
 ```bash
 uxsentinel --list-scenarios
 ```
 
-### 2. Executar um Cenário no Navegador Visível (Padrão)
-A janela do Chromium se abrirá na tela e você acompanhará cada ação:
+### 3. Executar um Cenário no Navegador Visível (Padrão)
+A janela do Chromium se abrirá na tela e você acompanhará cada ação com cursor animado e destaques visuais:
 ```bash
-uxsentinel --scenario scenarios/meu_cenario.yaml
+uxsentinel -s scenarios/meu_cenario.yaml
+# Ou passando diretamente como argumento:
+uxsentinel scenarios/meu_cenario.yaml
 ```
 
-### 3. Executar Cenário Especializado para Odoo
+### 4. Executar Cenário Especializado para Odoo (OWL)
 Aguardando estabilização do loader `.o_loading` e modais OWL:
 ```bash
-uxsentinel --scenario scenarios/cenario_odoo.yaml --profile odoo
+uxsentinel -s scenarios/cenario_odoo.yaml --profile odoo
 ```
 
-### 4. Ajustar a Velocidade do Acompanhamento Visual (`--slowmo`)
+### 5. Ajustar a Velocidade do Acompanhamento Visual (`--slowmo`)
 Para apresentações ou auditorias minuciosas, aumente o delay (ex: 500ms):
 ```bash
-uxsentinel --scenario scenarios/meu_cenario.yaml --slowmo 500
+uxsentinel -s scenarios/meu_cenario.yaml --slowmo 500
 ```
 
-### 5. Alternar o Provedor de IA via Linha de Comando (`-p` / `--provider`)
+### 6. Alternar o Provedor de IA via Linha de Comando (`-p` / `--provider`)
 Substitua o provedor na hora da execução sem mexer no arquivo de configuração:
 ```bash
-# Usar Google Gemini 1.5 Pro
-uxsentinel --scenario scenarios/meu_cenario.yaml -p gemini_cloud
+# Usar Google Gemini via SSO Corporativo (Bearer Token)
+uxsentinel -s scenarios/meu_cenario.yaml -p gemini_sso
+
+# Usar Anthropic Claude via SSO Corporativo (Bearer Token)
+uxsentinel -s scenarios/meu_cenario.yaml -p claude_sso
+
+# Usar Google Gemini 1.5 Pro via Cloud API Key
+uxsentinel -s scenarios/meu_cenario.yaml -p gemini_cloud
+
+# Usar Anthropic Claude 3.5 Sonnet via Cloud API Key
+uxsentinel -s scenarios/meu_cenario.yaml -p anthropic_cloud
 
 # Usar OpenAI GPT-4o
-uxsentinel --scenario scenarios/meu_cenario.yaml -p openai_cloud
+uxsentinel -s scenarios/meu_cenario.yaml -p openai_cloud
 
-# Usar Anthropic Claude 3.5 Sonnet
-uxsentinel --scenario scenarios/meu_cenario.yaml -p anthropic_cloud
-
-# Usar inferência local com Ollama (100% privado)
-uxsentinel --scenario scenarios/meu_cenario.yaml -p ollama_local
+# Usar inferência local com Ollama (100% privado, sem nuvem)
+uxsentinel -s scenarios/meu_cenario.yaml -p ollama_local
 ```
 
-### 6. Executar em Background / Modo Headless (Esteiras CI/CD)
+### 7. Executar em Background / Modo Headless (Esteiras CI/CD)
 ```bash
-uxsentinel --scenario scenarios/meu_cenario.yaml --headless
+uxsentinel -s scenarios/meu_cenario.yaml --headless
 ```
 
 ---
