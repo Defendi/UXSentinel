@@ -42,6 +42,8 @@ htmlcov/
 .env
 .env.*
 !.env.example
+.pypi
+.pypirc
 
 # OS files
 .DS_Store
@@ -53,7 +55,5 @@ Thumbs.db
 # Reports e screenshots gerados localmente
 report/
 
-# AIs e Skills locais
-.gemini/*
-!.gemini/skills
-!.gemini/skills/**
+# AIs e Skills locais (Antigravity / Gemini)
+.gemini/

@@ -1,0 +1,25 @@
+services:
+  uxsentinel-desktop:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: uxsentinel_desktop
+    ports:
+      # noVNC: Acesse a tela gráfica diretamente pelo navegador web!
+      - "6080:6080"
+      # Porta VNC nativa (caso utilize Remmina, TigerVNC ou similar):
+      - "5901:5901"
+    volumes:
+      # Persistência dos relatórios gerados
+      - ./report:/workspace/report
+      # Biblioteca de cenários mapeada para a pasta local de cenários do workspace
+      - ./uxsentinel/scenarios/library:/workspace/scenarios:ro
+      # Arquivo .env com credenciais/chaves de IA (se existir)
+      - ./.env:/workspace/.env:ro
+    environment:
+      - PYTHONUNBUFFERED=1
+      - DISPLAY=:1
+      - VNC_RESOLUTION=1440x900
+      - APP_BASE_URL=https://news.ycombinator.com
+    # Mantém o container aberto com o Desktop ativo
+    command: []

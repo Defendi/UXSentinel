@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.12"
 license = { text = "MIT" }
 authors = [
-    { name = "Equipe UXSentinel", email = "dev@uxsentinel.local" }
+    { name = "Equipe UXSentinel", email = "contato@gotryx.com.br" }
 ]
 keywords = [
     "qa",
@@ -53,6 +53,7 @@ uxsentinel = "uxsentinel.cli:main"
 [project.urls]
 Homepage = "https://github.com/Defendi/UXSentinel"
 Documentation = "https://github.com/Defendi/UXSentinel/tree/main/docs"
+"PyPI" = "https://pypi.org/project/uxsentinel/"
 
 [tool.setuptools.packages.find]
 where = ["."]

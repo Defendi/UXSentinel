@@ -1,7 +1,31 @@
 # UXSentinel 🛡️👁️
 ### Agente Universal de QA Visual, Auditoria de UX e Proteção de Regras de Negócio
 
+[![PyPI version](https://img.shields.io/pypi/v/uxsentinel.svg)](https://pypi.org/project/uxsentinel/)
+[![Python versions](https://img.shields.io/pypi/pyversions/uxsentinel.svg)](https://pypi.org/project/uxsentinel/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
+
 O **UXSentinel** é um agente autônomo e inteligente projetado para auditar **qualquer aplicação web** (Odoo, React, Vue, Angular, Django, SaaS e portais corporativos). Ele opera abrindo o navegador em **modo visível na sua tela**, navegando como um usuário humano rigoroso com velocidade cadenciada e inspecionando visualmente cada tela com **Modelos Multimodais de IA (Visão Computacional)**.
+
+---
+
+## ⚡ Instalação Rápida via PyPI
+
+Você pode instalar o **UXSentinel** diretamente do PyPI em qualquer ambiente Python 3.12+:
+
+```bash
+# Instalação padrão via pip
+pip install uxsentinel
+
+# Instalar os navegadores do Playwright
+playwright install chromium
+```
+
+Após a instalação, o executável `uxsentinel` estará disponível globalmente no seu terminal:
+```bash
+uxsentinel --help
+```
 
 ---
 
@@ -67,6 +91,29 @@ ambiente/bin/pip install -e .
 ```bash
 ambiente/bin/playwright install chromium
 ```
+
+---
+
+## 🐳 Execução em Container com Ubuntu Desktop (noVNC)
+
+Se você preferir executar o **UXSentinel** de forma 100% isolada em container Docker sem instalar dependências no host, incluímos um ambiente completo com **Ubuntu 24.04 Desktop (XFCE4 + noVNC)**:
+
+### 1. Iniciar o Container
+```bash
+docker compose up -d
+```
+
+### 2. Acompanhar a Interface Gráfica no Navegador
+Abra no seu navegador web:
+👉 **`http://localhost:6080/vnc.html`** (clique em *Connect*)  
+*(Ou utilize um cliente VNC nativo em `localhost:5901`)*
+
+### 3. Disparar Cenários pelo Terminal do Container
+```bash
+# Executa o agente abrindo o Chromium na tela do Desktop virtual:
+docker exec -it uxsentinel_desktop uxsentinel --scenario scenarios/exemplo_web_geral.yaml --slowmo 350
+```
+Os relatórios e capturas gerados dentro do container serão salvos automaticamente na pasta `./report` do seu computador.
 
 ---
 
