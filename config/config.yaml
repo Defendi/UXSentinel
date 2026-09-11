@@ -86,6 +86,19 @@ providers:
       Authorization: "Bearer ${GOOGLE_OAUTH_TOKEN}"
     timeout: 60
 
+  claude_sso:
+    type: "sso"
+    service: "anthropic"
+    base_url: "https://ai-gateway.suaempresa.com.br/anthropic/v1"   # ou endpoint do proxy/gateway corporativo
+    model: "claude-3-5-sonnet-latest"
+    api_key: "${CLAUDE_SSO_TOKEN}"       # Token JWT / Bearer fornecido pelo SSO corporativo
+    headers:
+      Authorization: "Bearer ${CLAUDE_SSO_TOKEN}"
+      X-Enterprise-Client-Id: "${ENTERPRISE_CLIENT_ID:-uxsentinel-qa}"
+      X-Corporate-Department: "QualityAssurance"
+    timeout: 60
+    verify_ssl: true
+
   corporate_gateway:
     type: "sso"
     service: "openai_compatible"

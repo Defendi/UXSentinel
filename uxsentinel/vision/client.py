@@ -61,11 +61,23 @@ class UnifiedVisionClient:
     ) -> str:
         url = (p.base_url or "https://api.anthropic.com/v1").rstrip("/") + "/messages"
         headers = {
-            "x-api-key": p.api_key or "",
             "anthropic-version": "2023-06-01",
             "content-type": "application/json",
             **p.headers,
         }
+        api_key = p.api_key or ""
+
+        # Suporte a SSO (OAuth2 / JWT Bearer Token / Gateway Corporativo)
+        if "Authorization" in headers:
+            pass
+        elif api_key.startswith("Bearer "):
+            headers["Authorization"] = api_key
+        elif api_key and not api_key.startswith("sk-ant-"):
+            # Token corporativo SSO / Gateway
+            headers["Authorization"] = f"Bearer {api_key}"
+            headers["x-api-key"] = api_key
+        elif api_key:
+            headers["x-api-key"] = api_key
         payload = {
             "model": p.model,
             "max_tokens": p.max_tokens,

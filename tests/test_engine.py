@@ -24,6 +24,8 @@ def test_config_and_scenarios():
     assert "anthropic_cloud" in cfg.providers
     assert "openai_cloud" in cfg.providers
     assert "gemini_cloud" in cfg.providers
+    assert "gemini_sso" in cfg.providers
+    assert "claude_sso" in cfg.providers
     assert "ollama_local" in cfg.providers
     assert "corporate_gateway" in cfg.providers
 
