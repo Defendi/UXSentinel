@@ -173,3 +173,34 @@ Você pode alternar o provedor ativo de três maneiras, em ordem de precedência
 - **Nunca comite chaves ou tokens no Git**: O UXSentinel ignora arquivos de segredos locais via `.gitignore`.
 - **Interpolação de Variáveis**: O parser do UXSentinel suporta a interpolação automática de variáveis de ambiente no formato `${NOME_DA_VARIAVEL}` e valores padrão com `${VARIAVEL:-padrao}`.
 - **Validação de Fallback**: Caso o token de SSO expire durante a execução de uma suíte extensa de testes, o UXSentinel aciona graciosamente o `fallback_provider` (ex: `ollama_local`) sem interromper a execução do fluxo.
+
+---
+
+## 6. Verificação Prévia de Conectividade com a IA (Pre-flight Check)
+
+Para evitar consumo desnecessário de recursos do sistema e aberturas de janelas de navegador Playwright que falhariam no meio do fluxo, o UXSentinel conta com um mecanismo automático de **Pre-flight Check**.
+
+### 6.1 Pré-validação Automática ao Iniciar Cenários
+Antes de abrir o navegador e executar qualquer passo, o agente realiza um probe ultraleve (timeout de 8s) com o provedor de IA configurado:
+- Se a IA estiver acessível, o cenário inicia normalmente.
+- Se a chave estiver ausente, expirada ou o serviço offline (e não houver fallback válido), a execução é **imediatamente abortada**, emitindo uma mensagem de erro detalhada em português com orientações de correção.
+
+### 6.2 Teste Direto de Conexão via CLI (`--check-ai`)
+Você pode testar a conectividade de qualquer provedor configurado diretamente pelo terminal, sem rodar nenhum teste de UI:
+
+```bash
+# Testa o provedor padrão ativo (active_provider)
+uxsentinel --check-ai
+
+# Testa um provedor específico (ex: Gemini via SSO)
+uxsentinel --check-ai -p gemini_sso
+
+# Testa Claude via SSO
+uxsentinel --check-ai -p claude_sso
+
+# Testa servidor Ollama local
+uxsentinel --check-ai -p ollama_local
+```
+
+Se tudo estiver correto, o UXSentinel exibe uma mensagem de sucesso confirmando a prontidão do modelo. Caso ocorra erro, são informadas as instruções exatas para regularização (ex: exportar variável de ambiente, verificar token SSO ou baixar o modelo no Ollama).
+

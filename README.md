@@ -388,7 +388,27 @@ uxsentinel -s scenarios/meu_cenario.yaml -p openai_cloud
 uxsentinel -s scenarios/meu_cenario.yaml -p ollama_local
 ```
 
-### 7. Executar em Background / Modo Headless (Esteiras CI/CD)
+### 7. Testar Conexão com o Provedor de IA (`--check-ai`)
+Você pode validar se o provedor de IA e suas credenciais estão funcionando antes de disparar qualquer teste:
+```bash
+# Testa a conectividade com o provedor configurado como ativo:
+uxsentinel --check-ai
+
+# Testa especificamente o Google Gemini via SSO:
+uxsentinel --check-ai -p gemini_sso
+
+# Testa o Anthropic Claude via SSO corporativo:
+uxsentinel --check-ai -p claude_sso
+
+# Testa a instância local do Ollama:
+uxsentinel --check-ai -p ollama_local
+```
+
+> [!TIP]
+> **Pre-flight Check Automático de IA**:
+> Ao iniciar qualquer cenário de teste, o UXSentinel **valida previamente** a conectividade com a IA antes de abrir a janela do navegador. Caso as credenciais estejam ausentes, o token tenha expirado ou o serviço esteja offline, a execução aborta imediatamente com mensagem explicativa em português e dicas de correção, poupando tempo e recursos.
+
+### 8. Executar em Background / Modo Headless (Esteiras CI/CD)
 ```bash
 uxsentinel -s scenarios/meu_cenario.yaml --headless
 ```

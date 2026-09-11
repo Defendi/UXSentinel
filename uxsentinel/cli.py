@@ -175,6 +175,8 @@ visível na tela e inspecionando cada checkpoint com Inteligência Artificial Mu
   uxsentinel -s scenarios/odoo_teste.yaml --profile odoo # Executa com driver especializado para Odoo OWL
   uxsentinel -s scenarios/teste.yaml --slowmo 500       # Executa com delay de 500ms entre passos
   uxsentinel -s scenarios/teste.yaml --headless        # Executa sem interface gráfica (modo CI/CD)
+  uxsentinel --check-ai                                # Testa a conexão com o provedor de IA configurado
+  uxsentinel --check-ai -p gemini_sso                  # Testa a conexão com o Gemini via SSO
   uxsentinel --list-scenarios                          # Lista todos os cenários disponíveis no projeto e biblioteca
   uxsentinel --version                                 # Exibe a versão instalada (ou -v)
   uxsentinel --init-config                             # Cria o arquivo de configuração em ~/.config/uxsentinel/config.yaml
@@ -242,6 +244,11 @@ Documentação completa: https://github.com/Defendi/UXSentinel""",
         action="store_true",
         help="Lista os cenários do projeto atual e da biblioteca interna e encerra.",
     )
+    parser.add_argument(
+        "--check-ai",
+        action="store_true",
+        help="Testa a conectividade com o provedor de IA configurado e encerra.",
+    )
 
     args = parser.parse_args()
 
@@ -267,6 +274,21 @@ Documentação completa: https://github.com/Defendi/UXSentinel""",
 
     if args.provider:
         cfg.active_provider = args.provider
+
+    if args.check_ai:
+        from uxsentinel.vision.client import UnifiedVisionClient
+
+        client = UnifiedVisionClient(cfg)
+        console.print(
+            f"🔍 Testando conexão com o provedor de IA: [bold yellow]{cfg.active_provider}[/bold yellow]..."
+        )
+        ok, msg = await client.test_connection(check_fallback=(args.provider is None))
+        if ok:
+            console.print(f"[bold green]✓ Conexão bem-sucedida:[/bold green] {msg}")
+            return 0
+        else:
+            console.print(f"[bold red]❌ Falha na conexão com a IA:[/bold red] {msg}")
+            return 1
     if args.headless:
         cfg.browser.headless = True
     if args.slowmo is not None:

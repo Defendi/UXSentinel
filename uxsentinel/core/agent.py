@@ -47,6 +47,24 @@ class UXSentinelAgent:
         out_dir = Path(self.config.reporting.output_dir)
         out_dir.mkdir(parents=True, exist_ok=True)
 
+        console.print(
+            f"🔍 Verificando conectividade com o provedor de IA ([yellow]{self.config.active_provider}[/yellow])..."
+        )
+        ai_ok, ai_msg = await self.inspector.client.test_connection()
+        if not ai_ok:
+            console.print(f"\n[bold red]❌ Erro de Conexão com a IA:[/bold red] {ai_msg}")
+            console.print(
+                "[yellow]Dica:[/yellow] Verifique suas credenciais no arquivo de configuração "
+                "ou alterne o provedor com [bold]-p[/bold] (ex: [bold]-p gemini_sso[/bold] ou [bold]-p ollama_local[/bold]).\n"
+            )
+            report.error_message = f"Falha de conexão com a IA: {ai_msg}"
+            report.success = False
+            report.finished_at = datetime.now()
+            report.duration_seconds = time.time() - start_time
+            return report
+
+        console.print(f"[bold green]✓ Conexão com a IA estabelecida:[/bold green] {ai_msg}\n")
+
         try:
             async with open_browser_session(self.config.browser, profile=profile) as driver:
                 for idx, step in enumerate(scenario.steps, start=1):

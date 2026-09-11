@@ -178,10 +178,54 @@ def test_resolve_scenario_path_rules():
     print("✓ Teste de Regras de Resolução de Cenário Obrigatório passou!")
 
 
+async def test_ai_preflight_check():
+    from unittest.mock import AsyncMock, patch
+
+    from uxsentinel.core.agent import UXSentinelAgent
+    from uxsentinel.core.models import Scenario
+    from uxsentinel.vision.client import UnifiedVisionClient
+
+    cfg = load_config("config/config.yaml")
+    client = UnifiedVisionClient(cfg)
+
+    # 1. Teste de pre-flight check com sucesso simulado
+    with patch.object(client, "_probe_provider", new=AsyncMock(return_value=(True, "OK simulado"))):
+        ok, msg = await client.test_connection(check_fallback=False)
+        assert ok is True
+        assert "operacional" in msg
+
+    # 2. Teste de pre-flight check com falha sem fallback
+    with patch.object(
+        client, "_probe_provider", new=AsyncMock(return_value=(False, "Credencial inválida simulada"))
+    ):
+        ok, msg = await client.test_connection(check_fallback=False)
+        assert ok is False
+        assert "Credencial inválida simulada" in msg
+
+    # 3. Teste de aborto no UXSentinelAgent quando a IA está desconectada (não deve abrir o navegador)
+    agent = UXSentinelAgent(cfg)
+    scenario = Scenario(id="abort_test", title="Teste de Aborto", steps=[])
+    with (
+        patch.object(
+            agent.inspector.client,
+            "test_connection",
+            new=AsyncMock(return_value=(False, "Token corporativo expirado")),
+        ),
+        patch("uxsentinel.core.agent.open_browser_session") as mock_browser,
+    ):
+        report = await agent.run_scenario(scenario)
+        assert report.success is False
+        assert "Falha de conexão com a IA" in (report.error_message or "")
+        mock_browser.assert_not_called()
+
+    print("✓ Teste de Pre-flight Check de Conexão com a IA passou!")
+
+
 if __name__ == "__main__":
     test_cli_version()
     test_resolve_scenario_path_rules()
     test_config_and_scenarios()
     test_reporting()
     asyncio.run(test_browser_session_headless())
+    asyncio.run(test_ai_preflight_check())
     print("\n🎉 TODOS OS TESTES INTERNOS PASSARAM COM SUCESSO!")
