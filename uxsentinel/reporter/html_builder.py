@@ -1,3 +1,4 @@
+import base64
 from pathlib import Path
 
 from jinja2 import Template
@@ -46,7 +47,18 @@ HTML_TEMPLATE = """
             flex-wrap: wrap;
             gap: 1rem;
         }
-        .title-area h1 { font-size: 1.8rem; margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.5rem; }
+        .title-area { display: flex; align-items: center; gap: 1.25rem; }
+        .header-logo {
+            height: 60px;
+            width: auto;
+            border-radius: 8px;
+            object-fit: contain;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+            background: rgba(255, 255, 255, 0.05);
+            padding: 4px;
+            border: 1px solid var(--border);
+        }
+        .title-area h1 { font-size: 1.8rem; margin-bottom: 0.3rem; display: flex; align-items: center; gap: 0.5rem; }
         .meta-info { color: var(--text-muted); font-size: 0.9rem; }
         .badge {
             display: inline-block;
@@ -154,12 +166,17 @@ HTML_TEMPLATE = """
     <div class="container">
         <header>
             <div class="title-area">
-                <h1>🛡️ UXSentinel QA Report</h1>
-                <div class="meta-info">
-                    Cenário: <strong>{{ report.scenario_title }}</strong> (ID: {{ report.scenario_id }}) |
-                    Perfil: <strong>{{ report.profile }}</strong> |
-                    Provedor IA: <strong>{{ report.provider_used }}</strong> |
-                    Duração: <strong>{{ "%.1f"|format(report.duration_seconds) }}s</strong>
+                {% if logo_base64 %}
+                    <img src="{{ logo_base64 }}" alt="UXSentinel" class="header-logo">
+                {% endif %}
+                <div>
+                    <h1>🛡️ UXSentinel QA Report</h1>
+                    <div class="meta-info">
+                        Cenário: <strong>{{ report.scenario_title }}</strong> (ID: {{ report.scenario_id }}) |
+                        Perfil: <strong>{{ report.profile }}</strong> |
+                        Provedor IA: <strong>{{ report.provider_used }}</strong> |
+                        Duração: <strong>{{ "%.1f"|format(report.duration_seconds) }}s</strong>
+                    </div>
                 </div>
             </div>
             <div>
@@ -265,12 +282,34 @@ HTML_TEMPLATE = """
 """
 
 
+def get_logo_base64() -> str:
+    """Busca o logo oficial do UXSentinel e converte para string base64 data-URI."""
+    candidates = [
+        Path(__file__).resolve().parent.parent / "assets" / "logo.png",
+        Path(__file__).resolve().parent.parent.parent / "images" / "logo.png",
+        Path.cwd() / "images" / "logo.png",
+        Path(__file__).resolve().parent.parent / "assets" / "logo_completa.png",
+        Path(__file__).resolve().parent.parent.parent / "images" / "logo_completa.png",
+        Path.cwd() / "images" / "logo_completa.png",
+    ]
+    for p in candidates:
+        if p.is_file():
+            try:
+                data = p.read_bytes()
+                encoded = base64.b64encode(data).decode("ascii")
+                return f"data:image/png;base64,{encoded}"
+            except Exception:
+                continue
+    return ""
+
+
 def save_html_report(report: TestReport, output_dir: str) -> Path:
     out_path = Path(output_dir)
     out_path.mkdir(parents=True, exist_ok=True)
     report_file = out_path / f"{report.scenario_id}_report.html"
 
+    logo_data = get_logo_base64()
     template = Template(HTML_TEMPLATE)
-    rendered_html = template.render(report=report)
+    rendered_html = template.render(report=report, logo_base64=logo_data)
     report_file.write_text(rendered_html, encoding="utf-8")
     return report_file

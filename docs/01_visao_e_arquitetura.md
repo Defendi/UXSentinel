@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="../images/logo_completa.png" alt="UXSentinel Logo" width="450"/>
+</p>
+
 # UXSentinel: Visão Geral e Arquitetura Universal
 
 O **UXSentinel** é um agente autônomo e inteligente de **Garantia de Qualidade Visual (QA) e Auditoria de Experiência do Usuário (UX)**, projetado para operar em **qualquer aplicação web moderna** (ecossistemas Odoo, React, Vue, Angular, Next.js, Django, portais corporativos e SaaS em geral).

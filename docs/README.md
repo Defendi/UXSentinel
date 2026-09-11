@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="../images/logo_completa.png" alt="UXSentinel Logo" width="500"/>
+</p>
+
 # Documentação Técnica e de Contexto — UXSentinel
 
 Bem-vindo à central de documentação e engenharia do **UXSentinel**, o agente inteligente universal de QA visual, inspeção de UX e validação de regras de negócio para aplicações web (Odoo, React, Vue, Angular, Django, SaaS e portais corporativos).

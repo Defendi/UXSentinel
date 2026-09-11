@@ -1,10 +1,15 @@
-# UXSentinel 🛡️👁️
-### Agente Universal de QA Visual, Auditoria de UX e Proteção de Regras de Negócio
+<p align="center">
+  <img src="images/logo_completa.png" alt="UXSentinel Logo" width="600"/>
+</p>
 
-[![PyPI version](https://img.shields.io/pypi/v/uxsentinel.svg)](https://pypi.org/project/uxsentinel/)
-[![Python versions](https://img.shields.io/pypi/pyversions/uxsentinel.svg)](https://pypi.org/project/uxsentinel/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
+<h3 align="center">Agente Universal de QA Visual, Auditoria de UX e Proteção de Regras de Negócio</h3>
+
+<p align="center">
+  <a href="https://pypi.org/project/uxsentinel/"><img src="https://img.shields.io/pypi/v/uxsentinel.svg" alt="PyPI version"/></a>
+  <a href="https://pypi.org/project/uxsentinel/"><img src="https://img.shields.io/pypi/pyversions/uxsentinel.svg" alt="Python versions"/></a>
+  <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"/></a>
+  <a href="https://github.com/astral-sh/ruff"><img src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json" alt="Ruff"/></a>
+</p>
 
 O **UXSentinel** é um agente autônomo e inteligente projetado para auditar **qualquer aplicação web** (Odoo, React, Vue, Angular, Django, SaaS e portais corporativos). Ele opera abrindo o navegador em **modo visível na sua tela**, navegando como um usuário humano rigoroso com velocidade cadenciada e inspecionando visualmente cada tela com **Modelos Multimodais de IA (Visão Computacional)**.
 

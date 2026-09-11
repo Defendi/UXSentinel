@@ -62,6 +62,7 @@ include = ["uxsentinel*"]
 uxsentinel = [
     "config/*.yaml",
     "scenarios/library/*.yaml",
+    "assets/*.png",
 ]
 
 # ==============================================================================
