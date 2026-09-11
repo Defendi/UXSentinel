@@ -152,8 +152,20 @@ class UnifiedVisionClient:
         media_type: str,
     ) -> str:
         base = (p.base_url or "https://generativelanguage.googleapis.com/v1beta").rstrip("/")
-        url = f"{base}/models/{p.model}:generateContent?key={p.api_key or ''}"
         headers = {"Content-Type": "application/json", **p.headers}
+        api_key = p.api_key or ""
+
+        # Suporte a SSO (OAuth2 Bearer Token / GCP / Vertex AI / Gateway Corporativo)
+        if api_key.startswith("ya29.") or "Authorization" in headers:
+            if "Authorization" not in headers and api_key:
+                headers["Authorization"] = f"Bearer {api_key}"
+            url = f"{base}/models/{p.model}:generateContent"
+        elif api_key:
+            # API Key direta (Google AI Studio) - suporta header x-goog-api-key e query param
+            headers["x-goog-api-key"] = api_key
+            url = f"{base}/models/{p.model}:generateContent"
+        else:
+            url = f"{base}/models/{p.model}:generateContent"
 
         payload = {
             "system_instruction": {"parts": [{"text": QA_SYSTEM_PROMPT}]},

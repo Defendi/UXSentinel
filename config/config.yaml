@@ -76,6 +76,16 @@ providers:
   # ----------------------------------------------------------------------------
   # Categoria 3: Gateway Corporativo / SSO / Nuvem Privada
   # ----------------------------------------------------------------------------
+  gemini_sso:
+    type: "sso"
+    service: "gemini"
+    base_url: "https://generativelanguage.googleapis.com/v1beta"
+    model: "gemini-1.5-pro"
+    api_key: "${GOOGLE_OAUTH_TOKEN}"   # Token Bearer OAuth2 (iniciado em ya29... ou via gcloud auth print-access-token)
+    headers:
+      Authorization: "Bearer ${GOOGLE_OAUTH_TOKEN}"
+    timeout: 60
+
   corporate_gateway:
     type: "sso"
     service: "openai_compatible"
