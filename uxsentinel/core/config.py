@@ -55,6 +55,60 @@ class ProviderSettings(BaseModel):
     token_url: str | None = None
 
 
+BUILTIN_PROVIDERS: dict[str, ProviderSettings] = {
+    "gemini_sso": ProviderSettings(
+        type="sso",
+        service="gemini",
+        model="gemini-1.5-pro",
+        api_key="${GEMINI_SSO_TOKEN}",
+        headers={"Authorization": "Bearer ${GEMINI_SSO_TOKEN}"},
+        max_tokens=2000,
+        temperature=0.1,
+    ),
+    "claude_sso": ProviderSettings(
+        type="sso",
+        service="anthropic",
+        model="claude-3-5-sonnet-latest",
+        api_key="${CLAUDE_SSO_TOKEN}",
+        headers={"Authorization": "Bearer ${CLAUDE_SSO_TOKEN}"},
+        max_tokens=2000,
+        temperature=0.1,
+    ),
+    "gemini_cloud": ProviderSettings(
+        type="api",
+        service="gemini",
+        model="gemini-1.5-pro",
+        api_key="${GEMINI_API_KEY}",
+        max_tokens=2000,
+        temperature=0.1,
+    ),
+    "anthropic_cloud": ProviderSettings(
+        type="api",
+        service="anthropic",
+        model="claude-3-5-sonnet-latest",
+        api_key="${ANTHROPIC_API_KEY}",
+        max_tokens=2000,
+        temperature=0.1,
+    ),
+    "openai_cloud": ProviderSettings(
+        type="api",
+        service="openai",
+        model="gpt-4o",
+        api_key="${OPENAI_API_KEY}",
+        max_tokens=2000,
+        temperature=0.1,
+    ),
+    "ollama_local": ProviderSettings(
+        type="local",
+        service="ollama",
+        base_url="http://localhost:11434",
+        model="qwen2-vl:7b",
+        temperature=0.1,
+        timeout=60,
+    ),
+}
+
+
 class GlobalConfig(BaseModel):
     active_provider: str = "anthropic_cloud"
     fallback_provider: str | None = "ollama_local"
@@ -63,15 +117,24 @@ class GlobalConfig(BaseModel):
     providers: dict[str, ProviderSettings] = Field(default_factory=dict)
 
     def get_active_provider(self) -> ProviderSettings:
-        if self.active_provider not in self.providers:
-            if self.providers:
-                return next(iter(self.providers.values()))
-            raise ValueError(f"Provedor ativo '{self.active_provider}' não encontrado na configuração.")
-        return self.providers[self.active_provider]
+        if self.active_provider in self.providers:
+            return self.providers[self.active_provider]
+        if self.active_provider in BUILTIN_PROVIDERS:
+            return BUILTIN_PROVIDERS[self.active_provider]
+
+        avail = ", ".join(sorted(set(self.providers.keys()).union(BUILTIN_PROVIDERS.keys())))
+        raise ValueError(
+            f"Provedor ativo '{self.active_provider}' não encontrado na configuração. "
+            f"Opções disponíveis: {avail}"
+        )
 
     def get_fallback_provider(self) -> ProviderSettings | None:
-        if self.fallback_provider and self.fallback_provider in self.providers:
+        if not self.fallback_provider:
+            return None
+        if self.fallback_provider in self.providers:
             return self.providers[self.fallback_provider]
+        if self.fallback_provider in BUILTIN_PROVIDERS:
+            return BUILTIN_PROVIDERS[self.fallback_provider]
         return None
 
 
@@ -100,6 +163,26 @@ reporting:
   save_screenshots: true
 
 providers:
+  gemini_sso:
+    type: "sso"
+    service: "gemini"
+    model: "gemini-1.5-pro"
+    api_key: "${GEMINI_SSO_TOKEN}"
+    headers:
+      Authorization: "Bearer ${GEMINI_SSO_TOKEN}"
+    max_tokens: 2000
+    temperature: 0.1
+
+  claude_sso:
+    type: "sso"
+    service: "anthropic"
+    model: "claude-3-5-sonnet-latest"
+    api_key: "${CLAUDE_SSO_TOKEN}"
+    headers:
+      Authorization: "Bearer ${CLAUDE_SSO_TOKEN}"
+    max_tokens: 2000
+    temperature: 0.1
+
   anthropic_cloud:
     type: "api"
     service: "anthropic"
@@ -238,7 +321,8 @@ def load_config(config_path: str | None = None) -> GlobalConfig:
         save_screenshots=reporting_dict.get("save_screenshots", True),
     )
 
-    providers_dict: dict[str, ProviderSettings] = {}
+    # Inicializa com provedores padrão embutidos e mescla com os definidos pelo usuário
+    providers_dict: dict[str, ProviderSettings] = {k: v.model_copy() for k, v in BUILTIN_PROVIDERS.items()}
     for p_name, p_data in raw_dict.get("providers", {}).items():
         providers_dict[p_name] = ProviderSettings(
             type=p_data.get("type", "api"),
