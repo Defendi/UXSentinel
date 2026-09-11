@@ -1,0 +1,38 @@
+version: "1.0"
+id: "login_e_dashboard_geral"
+title: "Autenticação e Auditoria Visual do Dashboard Geral"
+description: >
+  Demonstra a navegação em uma aplicação web padrão, preenchimento de login
+  e inspeção visual da tela inicial contra termos em inglês e disposição de menus.
+
+profile: "generic"
+tags:
+  - "smoke"
+  - "autenticacao"
+  - "dashboard"
+
+env:
+  base_url: "${APP_BASE_URL:-https://example.com}"
+  usuario: "${QA_USER:-usuario_teste}"
+  senha: "${QA_PASSWORD:-senha_segura}"
+
+steps:
+  - action: "goto"
+    url: "${base_url}"
+    description: "Acessa a página inicial da aplicação"
+
+  - action: "pause"
+    duration: 1
+    description: "Pausa visual para o operador acompanhar"
+
+  - action: "checkpoint"
+    name: "tela_inicial"
+    description: "Auditoria visual da página inicial"
+    expected_behavior: >
+      A página inicial deve carregar perfeitamente, sem sobreposição de cabeçalho,
+      com textos amigáveis em português, sem erros técnicos aparentes no console
+      ou na interface, e com layout responsivo limpo.
+    criteria:
+      - "i18n_pt_br"
+      - "no_technical_jargon"
+      - "layout_harmony"

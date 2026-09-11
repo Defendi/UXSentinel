@@ -32,6 +32,8 @@ htmlcov/
 # IDEs
 .vscode/
 .idea/
+.project
+.pydevproject
 
 # Jupyter
 .ipynb_checkpoints/
@@ -47,3 +49,11 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Reports e screenshots gerados localmente
+report/
+
+# AIs e Skills locais
+.gemini/*
+!.gemini/skills
+!.gemini/skills/**

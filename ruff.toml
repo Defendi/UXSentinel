@@ -1,0 +1,31 @@
+# ==============================================================================
+# UXSentinel - Configuração do Ruff Linter & Formatter (Python 3.12 / PEPs)
+# ==============================================================================
+
+target-version = "py312"
+line-length = 110
+src = ["uxsentinel", "tests"]
+
+[lint]
+select = [
+    "E",     # pycodestyle errors (PEP 8)
+    "W",     # pycodestyle warnings (PEP 8)
+    "F",     # Pyflakes
+    "I",     # isort (organização de imports - PEP 8)
+    "UP",    # pyupgrade (conformidade com Python 3.12 nativo)
+    "B",     # flake8-bugbear (prevenção de bugs)
+    "SIM",   # flake8-simplify (simplificação de código Pythonico)
+]
+ignore = [
+    "E501",  # Comprimento de linha gerido pelo formatador
+]
+
+[lint.isort]
+known-first-party = ["uxsentinel"]
+
+[format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
+docstring-code-format = true

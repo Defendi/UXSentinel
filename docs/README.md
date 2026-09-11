@@ -1,0 +1,36 @@
+# Documentação Técnica e de Contexto — UXSentinel
+
+Bem-vindo à central de documentação e engenharia do **UXSentinel**, o agente inteligente universal de QA visual, inspeção de UX e validação de regras de negócio para aplicações web (Odoo, React, Vue, Angular, Django, SaaS e portais corporativos).
+
+---
+
+## 📚 Índice da Documentação
+
+Os documentos abaixo fornecem o embasamento teórico, técnico e operacional do projeto:
+
+1. **[01. Visão Geral e Arquitetura Universal](01_visao_e_arquitetura.md)**  
+   Conheça a proposta de valor, a arquitetura em camadas, a neutralidade de frameworks e a orquestração entre Playwright (Navegador com acompanhamento visual ao vivo), Visão Computacional e Motores de Relatório.
+
+2. **[02. Heurísticas Universais de Inspeção de QA e UX](02_heuristicas_de_inspecao.md)**  
+   Catálogo completo de heurísticas de auditoria visual: internacionalização (i18n), prevenção de vazamento de jargões técnicos e nomes de banco (`snake_case`), ergonomia e geometria de modais, integridade de regras de negócio e matriz de severidade (Bloqueante, Alta, Média, Baixa).
+
+3. **[03. Motor do Agente: Navegação Visual e Inspeção Cognitiva](03_agente_navegador_e_visao.md)**  
+   Como o agente opera em modo visual humano (`headless=False`, `slow_mo`, cursor animado e highlights de clique na tela), as diferenças entre o Modo Roteirizado (YAML) e o Modo Autônomo Exploratório, e os mecanismos de auto-estabilização de tela.
+
+4. **[04. Especificação Declarativa de Cenários (YAML)](04_especificacao_cenarios_yaml.md)**  
+   Manual e gramática para escrita de cenários e fluxos de teste em arquivos YAML, dicionário de ações suportadas (`goto`, `click`, `fill`, `wait_modal`, etc.) e definição de checkpoints com regras de negócio em português.
+
+5. **[05. Configuração Unificada de Modelos de Linguagem e Visão (LLMs)](05_configuracao_llm_e_provedores.md)**  
+   Arquitetura de conexão agnóstica para inteligência artificial via `config/config.yaml`. Suporte aos três pilares: **APIs Cloud** (Anthropic Claude, OpenAI GPT-4o, Google Gemini), **Modelos Locais** (Ollama, vLLM, Qwen2-VL) e **Gateways Corporativos / SSO** com tokens e cabeçalhos customizados.
+
+6. **[06. Perfis e Plugins de Frameworks](06_plugins_e_perfis_frameworks.md)**  
+   Como a arquitetura extensível adapta o agente a ecossistemas específicos: perfil universal `generic`, perfil especializado `odoo` (tratamento de `.o_loading`, diálogos OWL e ActionManager) e perfis para SPAs modernas.
+
+---
+
+## 🎯 Pilares Estratégicos do UXSentinel
+
+- **Acompanhamento Visual ao Vivo**: O agente navega com o navegador visível na tela e velocidade humanizada, permitindo que a equipe audite visualmente a execução.
+- **Universalidade Real**: Funciona com qualquer interface web, com adaptadores opcionais para frameworks complexos.
+- **Liberdade de Provedores de IA**: Alternância fluida entre APIs proprietárias na nuvem, inferência 100% local com Ollama ou gateways corporativos com SSO.
+- **Decisões Baseadas em Regras de Negócio**: Não é apenas um detector de quebras de layout, mas um validador cognitivo que confronta a tela com o que foi especificado para o fluxo.

@@ -1,0 +1,52 @@
+version: "1.0"
+id: "odoo_login_e_modal_sinistro"
+title: "Odoo - Login, Navegação e Auditoria de Modal"
+description: >
+  Demonstra o fluxo no Odoo com autenticação, espera pelo loader .o_loading,
+  abertura de visão de formulário/modal e inspeção rigorosa contra termos técnicos (x_studio_).
+
+profile: "odoo"
+tags:
+  - "odoo"
+  - "seguros"
+  - "modais"
+
+env:
+  base_url: "${QA_BASE_URL:-http://localhost:8069}"
+  usuario: "${QA_USER:-admin}"
+  senha: "${QA_PASSWORD:-admin}"
+
+steps:
+  - action: "goto"
+    url: "${base_url}/web/login"
+    description: "Navega para tela de login do Odoo"
+
+  - action: "fill"
+    selector: "input#login"
+    value: "${usuario}"
+    description: "Preenche usuário"
+
+  - action: "fill"
+    selector: "input#password"
+    value: "${senha}"
+    description: "Preenche senha"
+
+  - action: "click"
+    selector: "button[type='submit']"
+    description: "Clica para entrar"
+
+  - action: "wait_until_ready"
+    description: "Aguarda o carregamento do Web Client do Odoo e sumiço do .o_loading"
+
+  - action: "checkpoint"
+    name: "odoo_dashboard_pos_login"
+    description: "Auditoria do dashboard principal após login"
+    expected_behavior: >
+      O usuário autenticado deve visualizar o dashboard ou menu de aplicativos do Odoo.
+      Não deve haver diálogos de erro (ex: .o_error_dialog), nem notificações de falha de conexão.
+      Os nomes dos módulos e menus devem estar em português (PT-BR).
+      Nenhum nome técnico ou de model (ex: 'res.company', 'ir.module') deve estar visível.
+    criteria:
+      - "i18n_pt_br"
+      - "no_technical_jargon"
+      - "no_odoo_errors"

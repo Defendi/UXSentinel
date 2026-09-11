@@ -1,0 +1,89 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "uxsentinel"
+version = "1.0.0"
+description = "Agente Universal de QA Visual, UX e Proteção de Regras de Negócio com IA Multimodal"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+authors = [
+    { name = "Equipe UXSentinel", email = "dev@uxsentinel.local" }
+]
+keywords = [
+    "qa",
+    "ux",
+    "playwright",
+    "visual-testing",
+    "multimodal-ai",
+    "odoo",
+    "test-automation",
+    "pypi"
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Quality Assurance",
+    "Topic :: Software Development :: Testing",
+]
+dependencies = [
+    "playwright>=1.47.0",
+    "pydantic>=2.7.0",
+    "pyyaml>=6.0.1",
+    "httpx>=0.27.0",
+    "jinja2>=3.1.4",
+    "rich>=13.7.0",
+    "python-dotenv>=1.0.1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "ruff>=0.5.0",
+    "pytest>=8.0.0",
+]
+
+[project.scripts]
+uxsentinel = "uxsentinel.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/Defendi/UXSentinel"
+Documentation = "https://github.com/Defendi/UXSentinel/tree/main/docs"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["uxsentinel*"]
+
+# ==============================================================================
+# Configuração do Linter e Formatador Ruff (Normas Técnicas PEPs)
+# ==============================================================================
+[tool.ruff]
+target-version = "py312"
+line-length = 110
+
+[tool.ruff.lint]
+select = [
+    "E",     # pycodestyle errors (PEP 8)
+    "W",     # pycodestyle warnings (PEP 8)
+    "F",     # Pyflakes
+    "I",     # isort (organização de imports - PEP 8)
+    "UP",    # pyupgrade (conformidade com recursos modernos do Python 3.12)
+    "B",     # flake8-bugbear (prevenção de bugs)
+    "SIM",   # flake8-simplify (simplificação de código)
+]
+ignore = [
+    "E501",  # line length gerido pelo formatter
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["uxsentinel"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"

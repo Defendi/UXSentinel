@@ -1,0 +1,89 @@
+# ==============================================================================
+# UXSentinel - Arquivo de Configuração Global
+# ==============================================================================
+
+# Provedor ativo de IA para auditoria de visão
+active_provider: "anthropic_cloud"   # Opções: anthropic_cloud, openai_cloud, gemini_cloud, ollama_local, corporate_gateway
+
+# Provedor de fallback caso o principal sofra timeout ou rate limit
+fallback_provider: "ollama_local"
+
+# Configurações do Navegador e Acompanhamento Visual
+browser:
+  headless: false              # 'false' para abrir a janela e acompanhar na tela
+  slow_mo_ms: 350              # Delay entre ações em milissegundos para ritmo humano
+  viewport:
+    width: 1440
+    height: 900
+  highlight_clicks: true       # Injeta halo visual no elemento onde o agente clica
+  timeout_ms: 15000            # Timeout padrão para operações de navegação
+
+# Relatórios
+reporting:
+  output_dir: "report"
+  generate_html: true
+  generate_json: true
+  save_screenshots: true
+
+# Catálogo de Provedores de LLM / Visão
+providers:
+  # ----------------------------------------------------------------------------
+  # Categoria 1: Provedores Cloud (API Pública)
+  # ----------------------------------------------------------------------------
+  anthropic_cloud:
+    type: "api"
+    service: "anthropic"
+    model: "claude-3-5-sonnet-latest"
+    api_key: "${ANTHROPIC_API_KEY}"
+    max_tokens: 2000
+    temperature: 0.1
+
+  openai_cloud:
+    type: "api"
+    service: "openai"
+    model: "gpt-4o"
+    api_key: "${OPENAI_API_KEY}"
+    max_tokens: 2000
+    temperature: 0.1
+
+  gemini_cloud:
+    type: "api"
+    service: "gemini"
+    model: "gemini-1.5-pro"
+    api_key: "${GEMINI_API_KEY}"
+    max_tokens: 2000
+    temperature: 0.1
+
+  # ----------------------------------------------------------------------------
+  # Categoria 2: Modelos Locais (Ollama / vLLM - Privacidade Total)
+  # ----------------------------------------------------------------------------
+  ollama_local:
+    type: "local"
+    service: "ollama"
+    base_url: "http://localhost:11434"
+    model: "qwen2-vl:7b"               # Modelo local multimodal com suporte a imagem
+    temperature: 0.1
+    timeout: 60
+
+  vllm_local:
+    type: "local"
+    service: "openai_compatible"
+    base_url: "http://localhost:8000/v1"
+    model: "Qwen/Qwen2-VL-7B-Instruct"
+    api_key: "none"
+    timeout: 60
+
+  # ----------------------------------------------------------------------------
+  # Categoria 3: Gateway Corporativo / SSO / Nuvem Privada
+  # ----------------------------------------------------------------------------
+  corporate_gateway:
+    type: "sso"
+    service: "openai_compatible"
+    base_url: "https://ai-gateway.suaempresa.com.br/v1"
+    model: "corporate-vision-model"
+    api_key: "${SSO_CORPORATE_TOKEN}"
+    headers:
+      X-Enterprise-Client-Id: "${ENTERPRISE_CLIENT_ID:-uxsentinel-qa}"
+      X-Corporate-Department: "QualityAssurance"
+    timeout: 45
+    verify_ssl: true
