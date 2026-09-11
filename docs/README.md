@@ -26,6 +26,9 @@ Os documentos abaixo fornecem o embasamento teórico, técnico e operacional do 
 6. **[06. Perfis e Plugins de Frameworks](06_plugins_e_perfis_frameworks.md)**  
    Como a arquitetura extensível adapta o agente a ecossistemas específicos: perfil universal `generic`, perfil especializado `odoo` (tratamento de `.o_loading`, diálogos OWL e ActionManager) e perfis para SPAs modernas.
 
+7. **[07. Guia de Criação de Releases e Publicação no PyPI](07_guia_de_publicacao_e_releases.md)**  
+   Procedimento passo a passo para criar novas releases no GitHub (via CLI `gh` ou interface web) e acionar a esteira de CI/CD automatizada com validação e deploy no PyPI.
+
 ---
 
 ## 🎯 Pilares Estratégicos do UXSentinel

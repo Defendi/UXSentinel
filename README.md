@@ -464,4 +464,5 @@ Para aprofundar na arquitetura e especificações do projeto, consulte a pasta [
 | 📝 [**04. Especificação de Cenários (YAML)**](docs/04_especificacao_cenarios_yaml.md) | Sintaxe dos arquivos de teste e definição de checkpoints de regras de negócio. |
 | 🤖 [**05. Configuração de LLMs e Provedores**](docs/05_configuracao_llm_e_provedores.md) | Especificação do `config.yaml` para alternar entre Cloud, Local (Ollama) e SSO/Gateway. |
 | 🔌 [**06. Perfis e Plugins de Frameworks**](docs/06_plugins_e_perfis_frameworks.md) | Detalhes do perfil universal e do plugin especializado para Odoo (OWL). |
+| 🚀 [**07. Guia de Releases e PyPI**](docs/07_guia_de_publicacao_e_releases.md) | Guia oficial para criar releases no GitHub e publicação automatizada no PyPI. |
 | 🤖 [**Skill do Projeto (.gemini/skills)**](.gemini/skills/uxsentinel-guide/SKILL.md) | Skill interna para agentes de IA atuarem com máxima consistência no repositório. |
