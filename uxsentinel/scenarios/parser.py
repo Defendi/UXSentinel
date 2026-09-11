@@ -72,6 +72,7 @@ def load_scenario(file_path: str) -> Scenario:
         title=parsed_dict.get("title", path.stem),
         description=parsed_dict.get("description"),
         profile=parsed_dict.get("profile", "generic"),
+        provider=parsed_dict.get("provider"),
         tags=parsed_dict.get("tags", []),
         env=resolved_env,
         steps=steps,

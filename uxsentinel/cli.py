@@ -6,6 +6,7 @@ from pathlib import Path
 from rich.console import Console
 from rich.table import Table
 
+from uxsentinel import __version__
 from uxsentinel.core.agent import UXSentinelAgent
 from uxsentinel.core.config import load_config
 from uxsentinel.scenarios.parser import load_scenario
@@ -75,51 +76,124 @@ def list_available_scenarios() -> None:
     console.print(table)
 
 
-def resolve_scenario_path(scenario_arg: str | None) -> Path | None:
+def resolve_scenario_path(scenario_arg: str | None = None) -> Path:
+    """Resolve o arquivo de cenário obrigatório.
+
+    1. Primeiro verifica se a pasta 'scenarios/' existe no projeto atual.
+    2. Se a pasta não existir, verifica se o cenário foi passado como parâmetro.
+    3. Se em nenhum dos casos, levanta FileNotFoundError.
+    """
     cwd = Path.cwd()
+    scenarios_dir = cwd / "scenarios"
     pkg_lib = Path(__file__).resolve().parent / "scenarios" / "library"
 
+    # Caso 1: A pasta scenarios/ NÃO existe no projeto atual
+    if not scenarios_dir.is_dir():
+        if not scenario_arg:
+            raise FileNotFoundError(
+                "A pasta de cenários 'scenarios/' não existe no diretório atual e nenhum cenário foi informado como parâmetro (-s / --scenario)."
+            )
+
+        candidates = [
+            cwd / scenario_arg,
+            Path(scenario_arg),
+            pkg_lib / scenario_arg,
+        ]
+        for c in candidates:
+            if c.is_file():
+                return c
+            if c.with_suffix(".yaml").is_file():
+                return c.with_suffix(".yaml")
+            if c.with_suffix(".yml").is_file():
+                return c.with_suffix(".yml")
+
+        raise FileNotFoundError(
+            f"A pasta 'scenarios/' não existe e o arquivo de cenário '{scenario_arg}' informado como parâmetro não foi encontrado."
+        )
+
+    # Caso 2: A pasta scenarios/ EXISTE no projeto atual
     if scenario_arg:
-        candidate1 = cwd / scenario_arg
-        if candidate1.is_file():
-            return candidate1
+        candidates = [
+            cwd / scenario_arg,
+            scenarios_dir / scenario_arg,
+            Path(scenario_arg),
+            pkg_lib / scenario_arg,
+        ]
+        for c in candidates:
+            if c.is_file():
+                return c
+            if c.with_suffix(".yaml").is_file():
+                return c.with_suffix(".yaml")
+            if c.with_suffix(".yml").is_file():
+                return c.with_suffix(".yml")
 
-        candidate2 = Path(scenario_arg)
-        if candidate2.is_file():
-            return candidate2
+        raise FileNotFoundError(
+            f"Arquivo de cenário '{scenario_arg}' informado como parâmetro não foi encontrado no projeto nem na pasta 'scenarios/'."
+        )
 
-        candidate3 = cwd / "scenarios" / scenario_arg
-        if candidate3.is_file():
-            return candidate3
+    # A pasta scenarios/ existe e nenhum parâmetro foi passado: busca arquivos dentro dela
+    found_scenarios: list[Path] = []
+    for ext in ("*.yaml", "*.yml"):
+        for yml in scenarios_dir.glob(ext):
+            if yml.name not in (
+                "config.yaml",
+                "config.example.yaml",
+                "uxsentinel.yaml",
+                ".uxsentinel.yaml",
+            ):
+                found_scenarios.append(yml)
 
-        candidate4 = pkg_lib / scenario_arg
-        if candidate4.is_file():
-            return candidate4
+    if not found_scenarios:
+        raise FileNotFoundError(
+            f"A pasta de cenários '{scenarios_dir}' existe, mas não contém nenhum arquivo de cenário (.yaml/.yml) válido."
+        )
 
-        for c in (candidate1, candidate2, candidate3, candidate4):
-            with_yaml = c.with_suffix(".yaml")
-            if with_yaml.is_file():
-                return with_yaml
+    found_scenarios.sort()
+    if len(found_scenarios) > 1:
+        names = ", ".join(f"'{f.name}'" for f in found_scenarios)
+        raise ValueError(
+            f"A pasta de cenários '{scenarios_dir}' contém múltiplos cenários ({names}). "
+            "É obrigatório informar o parâmetro (-s / --scenario) para especificar qual cenário executar."
+        )
 
-        return None
-
-    project_scenarios = find_project_scenarios()
-    if project_scenarios:
-        return project_scenarios[0]
-
-    default_pkg = pkg_lib / "exemplo_web_geral.yaml"
-    if default_pkg.is_file():
-        return default_pkg
-
-    return None
+    return found_scenarios[0]
 
 
 async def async_main() -> int:
     parser = argparse.ArgumentParser(
-        description="UXSentinel 🛡️👁️ - Agente Universal de QA Visual, UX e Proteção de Regras de Negócio",
+        description="""UXSentinel 🛡️👁️ - Agente Universal de QA Visual, UX e Proteção de Regras de Negócio
+
+Audita aplicações web (Odoo, React, Vue, Angular, Django) navegando com ritmo humano
+visível na tela e inspecionando cada checkpoint com Inteligência Artificial Multimodal.""",
+        epilog="""Exemplos de Execução:
+  uxsentinel                                      # Executa o primeiro cenário detectado em ./scenarios/
+  uxsentinel --version                            # Exibe a versão instalada (ou -v)
+  uxsentinel --list-scenarios                     # Lista todos os cenários disponíveis no projeto e biblioteca
+  uxsentinel -s scenarios/fluxo_vendas.yaml       # Executa um cenário específico
+  uxsentinel -s scenarios/meu_teste.yaml --slowmo 500  # Executa com delay de 500ms entre ações
+  uxsentinel -s scenarios/odoo_teste.yaml --profile odoo # Executa com driver especializado para Odoo OWL
+  uxsentinel -s scenarios/teste.yaml -p ollama_local     # Usa IA local via Ollama (sem custos de nuvem)
+  uxsentinel -s scenarios/teste.yaml --headless   # Executa sem interface gráfica (modo CI/CD)
+  uxsentinel --init-config                        # Cria o arquivo de configuração em ~/.config/uxsentinel/config.yaml
+
+Documentação completa: https://github.com/Defendi/UXSentinel""",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
 
+    parser.add_argument(
+        "-v",
+        "--version",
+        action="version",
+        version=f"%(prog)s {__version__}",
+        help="Exibe a versão do UXSentinel e encerra.",
+    )
+    parser.add_argument(
+        "scenario_pos",
+        nargs="?",
+        default=None,
+        metavar="SCENARIO",
+        help="Caminho do arquivo YAML do cenário (opcional se passado via -s/--scenario ou se existir a pasta scenarios/).",
+    )
     parser.add_argument(
         "-s",
         "--scenario",
@@ -156,12 +230,31 @@ async def async_main() -> int:
         help="Caminho do arquivo de configuração (padrão: busca no projeto atual ou no pacote).",
     )
     parser.add_argument(
+        "--init-config",
+        action="store_true",
+        help="Cria o arquivo de configuração padrão do usuário em ~/.config/uxsentinel/config.yaml (sem precisar de sudo).",
+    )
+    parser.add_argument(
         "--list-scenarios",
         action="store_true",
         help="Lista os cenários do projeto atual e da biblioteca interna e encerra.",
     )
 
     args = parser.parse_args()
+
+    if args.init_config:
+        from uxsentinel.core.config import ensure_user_config, get_user_config_dir
+
+        cfg_file = ensure_user_config()
+        cfg_dir = get_user_config_dir()
+        console.print(f"[bold green]✓[/bold green] Diretório de configuração: [cyan]{cfg_dir}[/cyan]")
+        console.print(
+            f"[bold green]✓[/bold green] Arquivo de configuração criado/pronto: [cyan]{cfg_file}[/cyan]"
+        )
+        console.print(
+            "[dim]Você pode editar este arquivo livremente sem privilégios de administrador (sudo).[/dim]"
+        )
+        return 0
 
     if args.list_scenarios:
         list_available_scenarios()
@@ -178,19 +271,23 @@ async def async_main() -> int:
     if args.output_dir:
         cfg.reporting.output_dir = args.output_dir
 
-    scenario_path = resolve_scenario_path(args.scenario)
-    if not scenario_path or not scenario_path.is_file():
+    scenario_arg = args.scenario or args.scenario_pos
+    try:
+        scenario_path = resolve_scenario_path(scenario_arg)
+    except (FileNotFoundError, ValueError) as err:
+        console.print(f"[bold red]Erro de Cenário:[/bold red] {err}")
         console.print(
-            f"[bold red]Erro:[/bold red] Nenhum arquivo de cenário encontrado para: '{args.scenario or 'auto-discovery'}'"
-        )
-        console.print(
-            "[yellow]Dica:[/yellow] Crie uma pasta [bold]scenarios/[/bold] com arquivos [bold].yaml[/bold] no seu projeto ou use [bold]--list-scenarios[/bold]."
+            "[yellow]Dica:[/yellow] Especifique o cenário usando [bold]-s caminho/do/cenario.yaml[/bold] ou liste os cenários com [bold]--list-scenarios[/bold]."
         )
         return 1
 
     scenario = load_scenario(str(scenario_path))
     if args.profile:
         scenario.profile = args.profile
+    if args.provider:
+        cfg.active_provider = args.provider
+    elif scenario.provider:
+        cfg.active_provider = scenario.provider
 
     agent = UXSentinelAgent(cfg)
     report = await agent.run_scenario(scenario)

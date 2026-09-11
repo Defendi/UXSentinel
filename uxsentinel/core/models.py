@@ -57,6 +57,7 @@ class Scenario(BaseModel):
     title: str
     description: str | None = None
     profile: str = "generic"
+    provider: str | None = None
     tags: list[str] = Field(default_factory=list)
     env: dict[str, str] = Field(default_factory=dict)
     steps: list[StepAction] = Field(default_factory=list)

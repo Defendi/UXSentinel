@@ -73,9 +73,121 @@ class GlobalConfig(BaseModel):
         return None
 
 
+DEFAULT_CONFIG_TEMPLATE = """# ==============================================================================
+# UXSentinel - Configuração do Usuário
+# Localização: ~/.config/uxsentinel/config.yaml
+# Não requer permissões de administrador (sudo)
+# ==============================================================================
+
+active_provider: "anthropic_cloud"
+fallback_provider: "ollama_local"
+
+browser:
+  headless: false              # 'false' para acompanhar o navegador abrindo na tela
+  slow_mo_ms: 350              # Delay em milissegundos entre passos (ritmo humano)
+  viewport:
+    width: 1440
+    height: 900
+  highlight_clicks: true       # Halo visual no elemento clicado ou focado
+  timeout_ms: 15000
+
+reporting:
+  output_dir: "report"
+  generate_html: true
+  generate_json: true
+  save_screenshots: true
+
+providers:
+  anthropic_cloud:
+    type: "api"
+    service: "anthropic"
+    model: "claude-3-5-sonnet-latest"
+    api_key: "${ANTHROPIC_API_KEY}"
+    max_tokens: 2000
+    temperature: 0.1
+
+  openai_cloud:
+    type: "api"
+    service: "openai"
+    model: "gpt-4o"
+    api_key: "${OPENAI_API_KEY}"
+    max_tokens: 2000
+    temperature: 0.1
+
+  gemini_cloud:
+    type: "api"
+    service: "gemini"
+    model: "gemini-1.5-pro"
+    api_key: "${GEMINI_API_KEY}"
+    max_tokens: 2000
+    temperature: 0.1
+
+  ollama_local:
+    type: "local"
+    service: "ollama"
+    base_url: "http://localhost:11434"
+    model: "qwen2-vl:7b"
+    temperature: 0.1
+    timeout: 60
+
+  corporate_gateway:
+    type: "sso"
+    service: "openai_compatible"
+    base_url: "https://ai-gateway.suaempresa.com.br/v1"
+    model: "corporate-vision-model"
+    api_key: "${SSO_CORPORATE_TOKEN}"
+    headers:
+      X-Enterprise-Client-Id: "${ENTERPRISE_CLIENT_ID:-uxsentinel-qa}"
+    timeout: 45
+    verify_ssl: true
+"""
+
+
+def get_user_config_dir() -> Path:
+    """Retorna o diretório de configuração do usuário no padrão XDG (~/.config/uxsentinel).
+
+    Totalmente acessível e editável pelo usuário sem necessidade de permissões de sudo.
+    """
+    xdg_config = os.environ.get("XDG_CONFIG_HOME")
+    base_dir = Path(xdg_config) if xdg_config else Path.home() / ".config"
+    return base_dir / "uxsentinel"
+
+
+def ensure_user_config() -> Path:
+    """Garante a existência do arquivo de configuração do usuário (~/.config/uxsentinel/config.yaml).
+
+    Se não existir, cria o diretório e o arquivo automaticamente a partir do template padrão
+    ou do config.example.yaml incluído no pacote.
+    """
+    config_dir = get_user_config_dir()
+    config_file = config_dir / "config.yaml"
+
+    if not config_file.is_file():
+        try:
+            config_dir.mkdir(parents=True, exist_ok=True)
+            # Tenta copiar o modelo empacotado se disponível
+            pkg_config = Path(__file__).resolve().parent.parent / "config" / "config.example.yaml"
+            if pkg_config.is_file():
+                config_file.write_text(pkg_config.read_text(encoding="utf-8"), encoding="utf-8")
+            else:
+                config_file.write_text(DEFAULT_CONFIG_TEMPLATE, encoding="utf-8")
+        except OSError:
+            # Caso não seja possível gravar (ex: ambiente efêmero ou somente-leitura)
+            pass
+
+    return config_file
+
+
 def load_config(config_path: str | None = None) -> GlobalConfig:
-    """Carrega o arquivo de configuração YAML com prioridade para o projeto cliente corrente."""
+    """Carrega o arquivo de configuração YAML com prioridade para:
+    1. Parâmetro explícito passado (--config)
+    2. Variável de ambiente UXSENTINEL_CONFIG_PATH
+    3. Projeto cliente corrente (onde o comando foi invocado): uxsentinel.yaml, .uxsentinel.yaml, config/config.yaml
+    4. Diretório de configuração do usuário sem sudo: ~/.config/uxsentinel/config.yaml
+    5. Fallback padrão seguro em memória
+    """
     cwd = Path.cwd()
+    user_cfg_file = ensure_user_config()
     pkg_dir = Path(__file__).resolve().parent.parent.parent
 
     candidate_paths = [
@@ -85,6 +197,7 @@ def load_config(config_path: str | None = None) -> GlobalConfig:
         cwd / ".uxsentinel.yaml",
         cwd / "config" / "config.yaml",
         cwd / "config" / "config.example.yaml",
+        user_cfg_file,
         pkg_dir / "config" / "config.yaml",
         pkg_dir / "config" / "config.example.yaml",
     ]

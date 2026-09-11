@@ -14,8 +14,6 @@ services:
       - ./report:/workspace/report
       # Biblioteca de cenários mapeada para a pasta local de cenários do workspace
       - ./uxsentinel/scenarios/library:/workspace/scenarios:ro
-      # Arquivo .env com credenciais/chaves de IA (se existir)
-      - ./.env:/workspace/.env:ro
     environment:
       - PYTHONUNBUFFERED=1
       - DISPLAY=:1

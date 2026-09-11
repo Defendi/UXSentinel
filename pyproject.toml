@@ -4,11 +4,11 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "uxsentinel"
-version = "1.0.0"
+version = "1.0.2"
 description = "Agente Universal de QA Visual, UX e Proteção de Regras de Negócio com IA Multimodal"
 readme = "README.md"
 requires-python = ">=3.12"
-license = { text = "MIT" }
+license = "MIT"
 authors = [
     { name = "Equipe UXSentinel", email = "contato@gotryx.com.br" }
 ]
@@ -25,7 +25,6 @@ keywords = [
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.12",
     "Topic :: Software Development :: Quality Assurance",
@@ -58,6 +57,12 @@ Documentation = "https://github.com/Defendi/UXSentinel/tree/main/docs"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["uxsentinel*"]
+
+[tool.setuptools.package-data]
+uxsentinel = [
+    "config/*.yaml",
+    "scenarios/library/*.yaml",
+]
 
 # ==============================================================================
 # Configuração do Linter e Formatador Ruff (Normas Técnicas PEPs)

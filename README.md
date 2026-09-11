@@ -117,15 +117,25 @@ Os relatórios e capturas gerados dentro do container serão salvos automaticame
 
 ---
 
-## ⚙️ Configuração
+## ⚙️ Configuração Sem Privilégios de Administrador (Sem Sudo)
 
-### 1. Arquivo Global de Configuração (`config/config.yaml`)
-Copie o modelo de exemplo para criar a sua configuração local:
+Ao instalar via `pip install uxsentinel`, você **não precisa de sudo** para configurar o agente. A configuração do usuário fica localizada no diretório padrão XDG:
+👉 **`~/.config/uxsentinel/config.yaml`**
+
+### 1. Inicializar a Configuração Padrão do Usuário
+Execute em qualquer terminal:
 ```bash
-cp config/config.example.yaml config/config.yaml
+uxsentinel --init-config
 ```
+*(Esse comando cria automaticamente a pasta `~/.config/uxsentinel/` e o arquivo `config.yaml` pronto para edição, caso ainda não existam).*
 
-No `config/config.yaml`, você pode definir o provedor de IA ativo, opções de viewport e delay visual:
+### 2. Prioridade de Carregamento de Configuração:
+1. Argumento explícito: `--config /caminho/meu_config.yaml`
+2. Variável de ambiente: `export UXSENTINEL_CONFIG_PATH=/meu/caminho`
+3. Configuração do Projeto Alvo (se existir no diretório atual): `./uxsentinel.yaml`, `./.uxsentinel.yaml` ou `./config/config.yaml`
+4. Configuração Global do Usuário: **`~/.config/uxsentinel/config.yaml`** (sem sudo)
+
+No arquivo de configuração, você pode definir o provedor de IA ativo, opções de viewport e delay visual:
 ```yaml
 # Provedor ativo: anthropic_cloud, openai_cloud, gemini_cloud, ollama_local ou corporate_gateway
 active_provider: "anthropic_cloud"
@@ -145,44 +155,137 @@ reporting:
   generate_json: true
 ```
 
-### 2. Variáveis de Ambiente (`.env`)
-Crie um arquivo `.env` na raiz do projeto com as chaves do provedor que desejar utilizar:
-```env
-# Provedores Cloud (opcional, dependendo de qual você ativar)
-ANTHROPIC_API_KEY=sk-ant-api03-...
-OPENAI_API_KEY=sk-proj-...
-GEMINI_API_KEY=AIzaSy...
-
-# Aplicação Alvo de Teste (opcional)
-APP_BASE_URL=https://meu-ambiente-de-teste.com
-QA_BASE_URL=http://localhost:8069
-QA_USER=admin
-QA_PASSWORD=senha_segura
+### 2. Configuração de Chaves de IA (Opcional)
+Se você for utilizar provedores de IA Cloud pagos (Anthropic Claude, OpenAI, Gemini), você pode salvar suas chaves diretamente no seu arquivo de configuração `~/.config/uxsentinel/config.yaml` ou exportá-las no seu shell:
+```bash
+export GEMINI_API_KEY="AIzaSy..."
+export OPENAI_API_KEY="sk-proj-..."
+export ANTHROPIC_API_KEY="sk-ant-api03-..."
 ```
 
 > [!TIP]
-> **Privacidade Total com Ollama**: Se você configurar `active_provider: "ollama_local"`, nenhuma chave de API externa é necessária! O agente fará a inferência visual 100% no seu hardware local usando modelos como `qwen2-vl:7b`.
+> **Privacidade Total com Ollama**: Se você configurar `active_provider: "ollama_local"`, nenhuma chave de API externa ou token é necessário! O agente fará a inferência visual 100% no seu hardware local usando modelos como `qwen2-vl:7b`.
+
+---
+
+## 🧠 Suporte a Múltiplos Provedores de IA (Gemini, Claude, GPT, Ollama)
+
+O **UXSentinel** permite alternar com total liberdade entre diferentes modelos de visão multimodal, garantindo flexibilidade de custos, precisão e privacidade.
+
+### 📋 Catálogo de Provedores Mapeados
+
+| Provedor | Identificador no UXSentinel | Modelo Padrão | Protocolo / Integração |
+| :--- | :--- | :--- | :--- |
+| **Google Gemini** | `gemini_cloud` | `gemini-1.5-pro` | REST API Google Gemini (`generateContent` com imagens) |
+| **Anthropic Claude** | `anthropic_cloud` | `claude-3-5-sonnet-latest` | REST API Anthropic Messages (base64) |
+| **OpenAI GPT** | `openai_cloud` | `gpt-4o` | REST API OpenAI Chat Completions com Vision |
+| **Ollama Local** | `ollama_local` | `qwen2-vl:7b` ou `llava` | Endpoint local `/api/generate` (Privacidade 100% local) |
+| **vLLM / Compatível** | `vllm_local` | `Qwen/Qwen2-VL-7B` | API local compatível com padrão OpenAI Chat |
+| **Gateway Corporativo**| `corporate_gateway` | Customizado | SSO / Headers empresariais customizados |
+
+---
+
+### 🎯 Formas de Seleção e Ordem de Precedência
+
+O UXSentinel adota a seguinte **ordem de precedência** para definir qual modelo auditará a tela:
+1. **Flag na Linha de Comando (`-p` / `--provider`)** *(prioridade máxima)*
+2. **Campo `provider` dentro do arquivo `.yaml` do cenário**
+3. **Configuração ativa do usuário (`~/.config/uxsentinel/config.yaml`)**
+
+#### 1. Via Linha de Comando (CLI)
+Defina o provedor diretamente ao disparar o teste:
+```bash
+# Executar auditoria visual com Google Gemini
+uxsentinel run scenarios/meu_cenario.yaml -p gemini_cloud
+
+# Executar com OpenAI GPT-4o
+uxsentinel run scenarios/meu_cenario.yaml -p openai_cloud
+
+# Executar com Anthropic Claude 3.5 Sonnet
+uxsentinel run scenarios/meu_cenario.yaml -p anthropic_cloud
+
+# Executar 100% localmente sem envio de dados para fora (Ollama)
+uxsentinel run scenarios/meu_cenario.yaml -p ollama_local
+```
+
+#### 2. Definido Diretamente no Arquivo de Cenário (`.yaml`)
+Se um cenário específico exigir um modelo com características particulares, defina `provider` no cabeçalho:
+```yaml
+version: "1.0"
+id: "auditoria_faturamento"
+title: "Auditoria Visual do Módulo Financeiro"
+profile: "generic"
+provider: "gemini_cloud"   # <-- Fixa o uso do Gemini para este cenário
+
+variables:
+  base_url: "https://sistema.exemplo.com.br"
+
+steps:
+  - action: "goto"
+    url: "{{ base_url }}/financeiro"
+  - action: "inspect_visual"
+    checkpoint: "validacao_dashboard"
+    expected: "Gráficos de receita visíveis e sem textos em inglês"
+```
+
+#### 3. No Arquivo de Configuração Global (`~/.config/uxsentinel/config.yaml`)
+Você pode definir os modelos padrão e suas respectivas chaves de API:
+```yaml
+active_provider: "gemini_cloud"      # Provedor principal
+fallback_provider: "ollama_local"    # Contingência automática
+
+providers:
+  gemini_cloud:
+    type: "api"
+    service: "gemini"
+    model: "gemini-1.5-pro"
+    api_key: "${GEMINI_API_KEY}"     # Ou informe a chave 'AIzaSy...' diretamente
+    temperature: 0.1
+    max_tokens: 2000
+
+  openai_cloud:
+    type: "api"
+    service: "openai"
+    model: "gpt-4o"
+    api_key: "${OPENAI_API_KEY}"
+    temperature: 0.1
+    max_tokens: 2000
+
+  anthropic_cloud:
+    type: "api"
+    service: "anthropic"
+    model: "claude-3-5-sonnet-latest"
+    api_key: "${ANTHROPIC_API_KEY}"
+    temperature: 0.1
+    max_tokens: 2000
+
+  ollama_local:
+    type: "local"
+    service: "ollama"
+    base_url: "http://localhost:11434"
+    model: "qwen2-vl:7b"
+    temperature: 0.1
+    timeout: 60
+```
+
+---
+
+### 🛡️ Fallback Automático de Alta Disponibilidade
+Caso o provedor principal sofra falha de rede, *timeout* ou atinja o limite de requisições (*rate limit* da API), o `UnifiedVisionClient` do UXSentinel automaticamente aciona o `fallback_provider` configurado (padrão: `ollama_local`), garantindo que seus testes não sejam interrompidos.
 
 ---
 
 ## 🕹️ Como Usar
 
-Você pode executar o agente via `ambiente/bin/python3 main.py` ou diretamente através do comando de pacote `ambiente/bin/uxsentinel`.
+Você pode executar o agente via `ambiente/bin/python3 main.py` ou diretamente através do comando de pacote `uxsentinel`.
 
 ### 🏢 Executando o UXSentinel a Partir de Qualquer Projeto Cliente
 O UXSentinel foi projetado para **analisar aplicações a partir da própria pasta do projeto alvo** (por exemplo, na pasta de módulos do Odoo da Gotryx, ou no repositório de um portal React/Django):
 
-1. **Disponibilização do comando global (`uxsentinel`)**:
-   Ao instalar o pacote no sistema ou ambiente com `pip install -e .`, o comando binário `uxsentinel` é criado. Com `~/.local/bin` no seu `$PATH`, você pode chamá-lo globalmente de qualquer diretório:
-   ```bash
-   # Link simbólico para uso global rápido:
-   ln -sf /mnt/home/alexandre/Projetos/UXSentinel/ambiente/bin/uxsentinel ~/.local/bin/uxsentinel
-   ```
+1. **Coloque os cenários dentro do projeto cliente**:
+   Crie uma pasta `scenarios/` na raiz do projeto alvo (ex: `/caminho/meu-projeto/scenarios/fluxo_vendas.yaml`). As URLs e credenciais de acesso ficam gravadas diretamente dentro do próprio arquivo `.yaml` do cenário, sem exigir nenhum `.env`.
 
-2. **Coloque os cenários dentro do projeto cliente**:
-   Crie uma pasta `scenarios/` na raiz do projeto alvo (ex: `/caminho/meu-projeto/scenarios/fluxo_vendas.yaml`).
-
-3. **Execute o comando diretamente de dentro da pasta do projeto alvo**:
+2. **Execute o comando diretamente de dentro da pasta do projeto alvo**:
    ```bash
    cd /caminho/do/meu-projeto
 
@@ -193,52 +296,54 @@ O UXSentinel foi projetado para **analisar aplicações a partir da própria pas
    uxsentinel --scenario scenarios/fluxo_vendas.yaml --slowmo 400
    ```
 
-4. **Isolamento de Credenciais e Relatórios**:
-   - O UXSentinel lê o `.env` local presente na pasta do projeto cliente (carregando URLs, logins e tokens daquele projeto).
-   - O dashboard visual e as capturas são salvos automaticamente dentro da pasta `report/` do próprio projeto cliente!
+3. **Relatórios Salvos Localmente**:
+   - O dashboard visual HTML e as capturas são salvos automaticamente dentro da pasta `report/` do próprio projeto cliente!
 
 ---
 
 ### 1. Listar os Cenários Disponíveis
 Exibe os cenários do projeto local onde você está e os cenários da biblioteca interna:
 ```bash
-ambiente/bin/uxsentinel --list-scenarios
+uxsentinel --list-scenarios
 ```
 
 ### 2. Executar um Cenário no Navegador Visível (Padrão)
 A janela do Chromium se abrirá na tela e você acompanhará cada ação:
 ```bash
-ambiente/bin/uxsentinel --scenario scenarios/meu_cenario.yaml
+uxsentinel --scenario scenarios/meu_cenario.yaml
 ```
 
 ### 3. Executar Cenário Especializado para Odoo
 Aguardando estabilização do loader `.o_loading` e modais OWL:
 ```bash
-ambiente/bin/uxsentinel --scenario scenarios/cenario_odoo.yaml --profile odoo
+uxsentinel --scenario scenarios/cenario_odoo.yaml --profile odoo
 ```
 
 ### 4. Ajustar a Velocidade do Acompanhamento Visual (`--slowmo`)
 Para apresentações ou auditorias minuciosas, aumente o delay (ex: 500ms):
 ```bash
-ambiente/bin/uxsentinel --scenario scenarios/meu_cenario.yaml --slowmo 500
+uxsentinel --scenario scenarios/meu_cenario.yaml --slowmo 500
 ```
 
-### 5. Alternar o Provedor de IA via Linha de Comando
+### 5. Alternar o Provedor de IA via Linha de Comando (`-p` / `--provider`)
 Substitua o provedor na hora da execução sem mexer no arquivo de configuração:
 ```bash
-# Usar OpenAI GPT-4o
-ambiente/bin/uxsentinel --scenario scenarios/meu_cenario.yaml --provider openai_cloud
+# Usar Google Gemini 1.5 Pro
+uxsentinel --scenario scenarios/meu_cenario.yaml -p gemini_cloud
 
-# Usar Google Gemini 1.5
-ambiente/bin/uxsentinel --scenario scenarios/meu_cenario.yaml --provider gemini_cloud
+# Usar OpenAI GPT-4o
+uxsentinel --scenario scenarios/meu_cenario.yaml -p openai_cloud
+
+# Usar Anthropic Claude 3.5 Sonnet
+uxsentinel --scenario scenarios/meu_cenario.yaml -p anthropic_cloud
 
 # Usar inferência local com Ollama (100% privado)
-ambiente/bin/uxsentinel --scenario scenarios/meu_cenario.yaml --provider ollama_local
+uxsentinel --scenario scenarios/meu_cenario.yaml -p ollama_local
 ```
 
 ### 6. Executar em Background / Modo Headless (Esteiras CI/CD)
 ```bash
-ambiente/bin/uxsentinel --scenario scenarios/meu_cenario.yaml --headless
+uxsentinel --scenario scenarios/meu_cenario.yaml --headless
 ```
 
 ---

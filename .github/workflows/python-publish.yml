@@ -1,51 +1,64 @@
-# This workflow will upload a Python Package using Twine when a release is created
-# For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-python#publishing-to-package-registries
+# ==============================================================================
+# Pipeline de CI/CD: Qualidade, Testes e Publicação do UXSentinel no PyPI
+# ==============================================================================
 
-# This workflow uses actions that are not certified by GitHub.
-# They are provided by a third-party and are governed by
-# separate terms of service, privacy policy, and support
-# documentation.
-
-name: Upload Python Package
+name: Publish UXSentinel to PyPI
 
 on:
   release:
     types: [published]
+  workflow_dispatch: # Permite disparo manual pelo painel de Actions do GitHub
 
 permissions:
   contents: read
 
 jobs:
-  deploy:
-
+  validate-and-publish:
+    name: Build, Test & Publish
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v3
-    
-    - name: Set up Python
-      uses: actions/setup-python@v3
-      with:
-        python-version: '3.x'
-        
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install build
-        
-    - name: Extract tag name
-      id: tag
-      run: echo ::set-output name=TAG_NAME::$(echo $GITHUB_REF | cut -d / -f 3)
-      
-    - name: Update version in setup.py
-      run: >-
-           sed -i "s/{{VERSION_PLACEHOLDER}}/${{ steps.tag.outputs.TAG_NAME }}/g" setup.py
-           
-    - name: Build package
-      run: python -m build
-      
-    - name: Publish package
-      uses: pypa/gh-action-pypi-publish@27b31702a0e7fc50959f5ad993c78deac1bdfc29
-      with:
-        user: __token__
-        password: ${{ secrets.PYPI_API_TOKEN }}
+      - name: Checkout do Repositório
+        uses: actions/checkout@v4
+
+      - name: Configurar Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Instalar Ferramentas de Build, Linter e Dependências
+        run: |
+          python -m pip install --upgrade pip
+          pip install build twine ruff
+          pip install -r requirements.txt
+          pip install -e .
+
+      - name: Instalar Navegadores do Playwright
+        run: |
+          playwright install --with-deps chromium
+
+      - name: Quality Gate - Linter e Formatação (Ruff / PEPs)
+        run: |
+          ruff check .
+          ruff format --check .
+
+      - name: Executar Bateria de Testes Automatizados
+        run: |
+          python tests/test_engine.py
+
+      - name: Construir Pacotes de Distribuição (Wheel e Sdist)
+        run: |
+          python -m build
+
+      - name: Validar Integridade dos Pacotes (Twine)
+        run: |
+          twine check --strict dist/*
+
+      - name: Publicar Pacote no PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          user: __token__
+          password: ${{ secrets.PYPI_API_TOKEN || secrets.PYPI_TOKEN }}
+          skip-existing: false
+
