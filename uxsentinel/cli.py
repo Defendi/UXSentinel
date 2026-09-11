@@ -227,7 +227,10 @@ Documentação completa: https://github.com/Defendi/UXSentinel""",
     parser.add_argument(
         "-o",
         "--output-dir",
-        help="Diretório onde relatórios e screenshots serão salvos (padrão: ./report dentro do projeto analisado).",
+        "--report-dir",
+        dest="output_dir",
+        default=None,
+        help="Diretório onde relatórios e screenshots serão salvos (opcional; se não informado, usa 'scenarios/report').",
     )
     parser.add_argument(
         "-c",
@@ -295,6 +298,8 @@ Documentação completa: https://github.com/Defendi/UXSentinel""",
         cfg.browser.slow_mo_ms = args.slowmo
     if args.output_dir:
         cfg.reporting.output_dir = args.output_dir
+    elif not cfg.reporting.output_dir or cfg.reporting.output_dir == "report":
+        cfg.reporting.output_dir = "scenarios/report"
 
     scenario_arg = args.scenario or args.scenario_pos
     try:

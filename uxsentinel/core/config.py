@@ -34,7 +34,7 @@ class BrowserSettings(BaseModel):
 
 
 class ReportingSettings(BaseModel):
-    output_dir: str = "report"
+    output_dir: str = "scenarios/report"
     generate_html: bool = True
     generate_json: bool = True
     save_screenshots: bool = True
@@ -92,7 +92,7 @@ browser:
   timeout_ms: 15000
 
 reporting:
-  output_dir: "report"
+  output_dir: "scenarios/report"
   generate_html: true
   generate_json: true
   save_screenshots: true
@@ -230,7 +230,7 @@ def load_config(config_path: str | None = None) -> GlobalConfig:
 
     reporting_dict = raw_dict.get("reporting", {})
     reporting_settings = ReportingSettings(
-        output_dir=reporting_dict.get("output_dir", "report"),
+        output_dir=reporting_dict.get("output_dir", "scenarios/report"),
         generate_html=reporting_dict.get("generate_html", True),
         generate_json=reporting_dict.get("generate_json", True),
         save_screenshots=reporting_dict.get("save_screenshots", True),

@@ -20,7 +20,7 @@ browser:
 
 # Relatórios
 reporting:
-  output_dir: "report"
+  output_dir: "scenarios/report"
   generate_html: true
   generate_json: true
   save_screenshots: true

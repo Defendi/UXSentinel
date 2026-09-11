@@ -118,7 +118,7 @@ Abra no seu navegador web:
 # Executa o agente abrindo o Chromium na tela do Desktop virtual:
 docker exec -it uxsentinel_desktop uxsentinel --scenario scenarios/exemplo_web_geral.yaml --slowmo 350
 ```
-Os relatórios e capturas gerados dentro do container serão salvos automaticamente na pasta `./report` do seu computador.
+Os relatórios e capturas gerados dentro do container serão salvos automaticamente na pasta `./scenarios/report` do seu computador.
 
 ---
 
@@ -155,7 +155,7 @@ browser:
   highlight_clicks: true       # Efeito visual no ponto do clique
 
 reporting:
-  output_dir: "report"
+  output_dir: "scenarios/report"
   generate_html: true
   generate_json: true
 ```
@@ -331,7 +331,7 @@ O UXSentinel foi projetado para **analisar aplicações a partir da própria pas
      - ✅ **Se a pasta `scenarios/` contiver EXATAMENTE 1 cenário**: O UXSentinel detecta e executa automaticamente esse único cenário!
 
 3. **Relatórios Salvos Localmente**:
-   - O dashboard visual HTML e as capturas são salvos automaticamente dentro da pasta `report/` do próprio projeto cliente!
+   - O dashboard visual HTML e as capturas são salvos automaticamente dentro da pasta `scenarios/report/` do próprio projeto cliente!
 
 ---
 
@@ -354,19 +354,28 @@ uxsentinel -s scenarios/meu_cenario.yaml
 uxsentinel scenarios/meu_cenario.yaml
 ```
 
-### 4. Executar Cenário Especializado para Odoo (OWL)
+### 4. Customizar o Diretório de Relatórios (`-o` / `--output-dir` / `--report-dir`)
+Por padrão, relatórios e screenshots são salvos em `scenarios/report/`. Caso queira salvar em outro local, use o parâmetro opcional:
+```bash
+# Salvar em uma pasta específica:
+uxsentinel -s scenarios/meu_cenario.yaml -o ./meus_relatorios/qa
+# Ou usando --report-dir:
+uxsentinel -s scenarios/meu_cenario.yaml --report-dir /tmp/uxsentinel_reports
+```
+
+### 5. Executar Cenário Especializado para Odoo (OWL)
 Aguardando estabilização do loader `.o_loading` e modais OWL:
 ```bash
 uxsentinel -s scenarios/cenario_odoo.yaml --profile odoo
 ```
 
-### 5. Ajustar a Velocidade do Acompanhamento Visual (`--slowmo`)
+### 6. Ajustar a Velocidade do Acompanhamento Visual (`--slowmo`)
 Para apresentações ou auditorias minuciosas, aumente o delay (ex: 500ms):
 ```bash
 uxsentinel -s scenarios/meu_cenario.yaml --slowmo 500
 ```
 
-### 6. Alternar o Provedor de IA via Linha de Comando (`-p` / `--provider`)
+### 7. Alternar o Provedor de IA via Linha de Comando (`-p` / `--provider`)
 Substitua o provedor na hora da execução sem mexer no arquivo de configuração:
 ```bash
 # Usar Google Gemini via SSO Corporativo (Bearer Token)
@@ -388,7 +397,7 @@ uxsentinel -s scenarios/meu_cenario.yaml -p openai_cloud
 uxsentinel -s scenarios/meu_cenario.yaml -p ollama_local
 ```
 
-### 7. Testar Conexão com o Provedor de IA (`--check-ai`)
+### 8. Testar Conexão com o Provedor de IA (`--check-ai`)
 Você pode validar se o provedor de IA e suas credenciais estão funcionando antes de disparar qualquer teste:
 ```bash
 # Testa a conectividade com o provedor configurado como ativo:
@@ -408,7 +417,7 @@ uxsentinel --check-ai -p ollama_local
 > **Pre-flight Check Automático de IA**:
 > Ao iniciar qualquer cenário de teste, o UXSentinel **valida previamente** a conectividade com a IA antes de abrir a janela do navegador. Caso as credenciais estejam ausentes, o token tenha expirado ou o serviço esteja offline, a execução aborta imediatamente com mensagem explicativa em português e dicas de correção, poupando tempo e recursos.
 
-### 8. Executar em Background / Modo Headless (Esteiras CI/CD)
+### 9. Executar em Background / Modo Headless (Esteiras CI/CD)
 ```bash
 uxsentinel -s scenarios/meu_cenario.yaml --headless
 ```
@@ -475,16 +484,16 @@ steps:
 
 ## 📊 Relatórios de Execução
 
-Ao término de cada execução, os resultados são salvos no diretório configurado (`report/`):
+Ao término de cada execução, os resultados são salvos no diretório configurado (padrão: `scenarios/report/` ou no caminho passado via `-o` / `--report-dir`):
 
-1. **Dashboard Visual HTML (`report/<id>_report.html`)**:
+1. **Dashboard Visual HTML (`scenarios/report/<id>_report.html`)**:
    - Página interativa e independente com galeria de capturas de tela.
    - Detalhamento de cada checkpoint com descrição do comportamento esperado.
    - Lista categorizada de inconformidades visuais com badges de severidade (**Bloqueante**, **Alta**, **Média**, **Baixa**).
    - Recomendações acionáveis de correção para o time de desenvolvimento.
-2. **Relatório Estruturado JSON (`report/<id>_report.json`)**:
+2. **Relatório Estruturado JSON (`scenarios/report/<id>_report.json`)**:
    - Contém métricas brutas, timestamps, contagem de falhas e logs para fácil integração com esteiras de CI/CD (GitHub Actions, GitLab CI, Jenkins).
-3. **Screenshots em Alta Resolução (`report/<id>_<checkpoint>.png`)**:
+3. **Screenshots em Alta Resolução (`scenarios/report/<id>_<checkpoint>.png`)**:
    - Imagens completas capturadas no momento exato de cada checkpoint.
 
 ---

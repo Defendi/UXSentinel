@@ -54,6 +54,7 @@ Thumbs.db
 
 # Reports e screenshots gerados localmente
 report/
+scenarios/report/
 
 # AIs e Skills locais (Antigravity / Gemini)
 .gemini/

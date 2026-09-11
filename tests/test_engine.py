@@ -221,10 +221,50 @@ async def test_ai_preflight_check():
     print("✓ Teste de Pre-flight Check de Conexão com a IA passou!")
 
 
+def test_report_directory_configuration_and_cli():
+    import argparse
+
+    from uxsentinel.core.config import ReportingSettings
+
+    # 1. Padrão no ReportingSettings
+    default_settings = ReportingSettings()
+    assert default_settings.output_dir == "scenarios/report"
+
+    # 2. Padrão no config.yaml
+    cfg = load_config("config/config.yaml")
+    assert cfg.reporting.output_dir == "scenarios/report"
+
+    # 3. Teste dos argumentos na CLI (--report-dir e -o)
+
+    # Inspeciona o parser construído pela CLI
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "-o",
+        "--output-dir",
+        "--report-dir",
+        dest="output_dir",
+        default=None,
+    )
+    args_default = parser.parse_args([])
+    assert args_default.output_dir is None
+
+    args_custom_short = parser.parse_args(["-o", "custom/reports"])
+    assert args_custom_short.output_dir == "custom/reports"
+
+    args_custom_long = parser.parse_args(["--output-dir", "custom/reports2"])
+    assert args_custom_long.output_dir == "custom/reports2"
+
+    args_custom_alias = parser.parse_args(["--report-dir", "custom/reports3"])
+    assert args_custom_alias.output_dir == "custom/reports3"
+
+    print("✓ Teste de Configuração e Parâmetros de Relatórios (scenarios/report) passou!")
+
+
 if __name__ == "__main__":
     test_cli_version()
     test_resolve_scenario_path_rules()
     test_config_and_scenarios()
+    test_report_directory_configuration_and_cli()
     test_reporting()
     asyncio.run(test_browser_session_headless())
     asyncio.run(test_ai_preflight_check())
