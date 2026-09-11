@@ -260,11 +260,112 @@ def test_report_directory_configuration_and_cli():
     print("✓ Teste de Configuração e Parâmetros de Relatórios (scenarios/report) passou!")
 
 
+def test_sso_authentication_and_loopback():
+    import os
+    import tempfile
+    import threading
+    import urllib.request
+
+    from uxsentinel.core.config import ProviderSettings
+    from uxsentinel.core.sso import (
+        LoopbackAuthServer,
+        _find_available_port,
+        clear_cached_token,
+        get_cached_token,
+        save_cached_token,
+    )
+    from uxsentinel.vision.client import UnifiedVisionClient
+
+    # 1. Teste de Cache Isolado em Diretório Temporário
+    with tempfile.TemporaryDirectory() as tmpdir:
+        orig_xdg = os.environ.get("XDG_CONFIG_HOME")
+        try:
+            os.environ["XDG_CONFIG_HOME"] = tmpdir
+
+            # Inicialmente não há token
+            assert get_cached_token("gemini_sso") is None
+
+            # Salva token
+            save_cached_token("gemini_sso", "token_secreto_teste_123")
+            assert get_cached_token("gemini_sso") == "token_secreto_teste_123"
+
+            # Limpa token
+            assert clear_cached_token("gemini_sso") is True
+            assert get_cached_token("gemini_sso") is None
+        finally:
+            if orig_xdg:
+                os.environ["XDG_CONFIG_HOME"] = orig_xdg
+            else:
+                os.environ.pop("XDG_CONFIG_HOME", None)
+
+    # 2. Teste do Servidor de Loopback HTTP
+    port = _find_available_port(8096, 8105)
+    server = LoopbackAuthServer(
+        ("127.0.0.1", port),
+        provider_name="gemini_sso",
+        instructions_html="Teste",
+    )
+    th = threading.Thread(target=server.serve_forever, daemon=True)
+    th.start()
+
+    try:
+        url = f"http://127.0.0.1:{port}"
+
+        # GET na página de login
+        with urllib.request.urlopen(url) as resp:
+            body = resp.read().decode("utf-8")
+            assert resp.status == 200
+            assert "UXSentinel SSO Login" in body
+
+        # POST no /callback com token
+        req = urllib.request.Request(
+            f"{url}/callback",
+            data=b"token=meu_token_via_post",
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req) as resp:
+            assert resp.status == 200
+            assert server.captured_token == "meu_token_via_post"
+
+    finally:
+        server.shutdown()
+        server.server_close()
+
+    # 3. Teste de Injeção de Token SSO no UnifiedVisionClient
+    cfg = load_config("config/config.yaml")
+    client = UnifiedVisionClient(cfg)
+    p_sso = ProviderSettings(
+        type="sso",
+        service="gemini",
+        model="gemini-1.5-pro",
+        api_key="",
+        headers={},
+    )
+    with tempfile.TemporaryDirectory() as tmpdir:
+        orig_xdg = os.environ.get("XDG_CONFIG_HOME")
+        try:
+            os.environ["XDG_CONFIG_HOME"] = tmpdir
+            save_cached_token("gemini_sso", "jwt_token_em_cache_abc")
+
+            token_resolved = client._ensure_provider_auth(p_sso, interactive=False)
+            assert token_resolved == "jwt_token_em_cache_abc"
+            assert p_sso.headers.get("Authorization") == "Bearer jwt_token_em_cache_abc"
+        finally:
+            if orig_xdg:
+                os.environ["XDG_CONFIG_HOME"] = orig_xdg
+            else:
+                os.environ.pop("XDG_CONFIG_HOME", None)
+
+    print("✓ Teste de Autenticação SSO e Servidor Loopback passou!")
+
+
 if __name__ == "__main__":
     test_cli_version()
     test_resolve_scenario_path_rules()
     test_config_and_scenarios()
     test_report_directory_configuration_and_cli()
+    test_sso_authentication_and_loopback()
     test_reporting()
     asyncio.run(test_browser_session_headless())
     asyncio.run(test_ai_preflight_check())

@@ -14,6 +14,60 @@ class UnifiedVisionClient:
     def __init__(self, config: GlobalConfig):
         self.config = config
 
+    def _find_provider_name(self, provider: ProviderSettings) -> str:
+        """Localiza a chave do provedor no catálogo de configurações."""
+        for name, p in self.config.providers.items():
+            if p == provider or (
+                p.model == provider.model and p.service == provider.service and p.type == provider.type
+            ):
+                return name
+        return self.config.active_provider
+
+    def _ensure_provider_auth(self, provider: ProviderSettings, interactive: bool = True) -> str | None:
+        """Garante que provedores do tipo SSO possuam token Bearer válido, abrindo o navegador se necessário."""
+        p_name = self._find_provider_name(provider)
+        is_sso = provider.type == "sso" or "_sso" in p_name
+
+        if not is_sso:
+            return provider.api_key
+
+        from uxsentinel.core.sso import get_cached_token, login_via_browser
+
+        auth_header = provider.headers.get("Authorization", "").strip()
+        if auth_header in ("Bearer", "Bearer "):
+            auth_header = ""
+
+        token = ""
+        if auth_header.startswith("Bearer "):
+            token = auth_header[7:].strip()
+        elif auth_header:
+            token = auth_header
+        elif provider.api_key and provider.api_key.startswith("Bearer "):
+            token = provider.api_key[7:].strip()
+        elif provider.api_key and not provider.api_key.startswith("${"):
+            token = provider.api_key.strip()
+
+        # Se não houver token no config ou variável de ambiente, busca no cache local seguro
+        if not token:
+            cached = get_cached_token(p_name)
+            if cached:
+                token = cached
+            elif interactive:
+                # Dispara abertura do navegador para login SSO interativo
+                try:
+                    token = login_via_browser(p_name, provider)
+                except Exception as exc:
+                    logger.warning("Falha ao autenticar via SSO no navegador: %s", exc)
+                    return None
+
+        if token:
+            provider.headers["Authorization"] = f"Bearer {token}"
+            if not provider.api_key or provider.api_key.startswith("${"):
+                provider.api_key = token
+            return token
+
+        return None
+
     async def test_connection(self, check_fallback: bool = True) -> tuple[bool, str]:
         """Testa se a IA está acessível e pronta para auditar telas antes de iniciar os testes."""
         active = self.config.get_active_provider()
@@ -34,9 +88,20 @@ class UnifiedVisionClient:
                         )
         return False, f"Provedor '{self.config.active_provider}' indisponível: {msg}"
 
-    async def _probe_provider(self, provider: ProviderSettings) -> tuple[bool, str]:
+    async def _probe_provider(self, provider: ProviderSettings, interactive: bool = True) -> tuple[bool, str]:
+        p_name = self._find_provider_name(provider)
         service = provider.service.lower().strip()
         timeout = min(provider.timeout, 8.0)
+
+        # Se o provedor for SSO, resolve credencial ou abre o navegador
+        if provider.type == "sso" or "_sso" in p_name:
+            token = self._ensure_provider_auth(provider, interactive=interactive)
+            if not token:
+                return False, (
+                    f"Autenticação SSO não realizada para o provedor '{p_name}'. "
+                    "Execute 'uxsentinel --login-sso' ou realize o login via navegador."
+                )
+
         api_key = (provider.api_key or "").strip()
 
         try:
@@ -163,9 +228,13 @@ class UnifiedVisionClient:
         except httpx.HTTPStatusError as exc:
             code = exc.response.status_code
             if code in (401, 403):
+                if provider.type == "sso" or "_sso" in p_name:
+                    from uxsentinel.core.sso import clear_cached_token
+
+                    clear_cached_token(p_name)
                 return False, (
                     f"Autenticação recusada (HTTP {code}). Verifique sua chave de API ou token SSO "
-                    f"para o modelo '{provider.model}'."
+                    f"para o modelo '{provider.model}' (ou execute 'uxsentinel --login-sso -p {p_name}')."
                 )
             elif code == 404:
                 return False, (
@@ -218,6 +287,7 @@ class UnifiedVisionClient:
         user_prompt: str,
         media_type: str,
     ) -> str:
+        self._ensure_provider_auth(provider, interactive=True)
         service = provider.service.lower().strip()
 
         if service == "anthropic":

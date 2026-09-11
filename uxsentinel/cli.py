@@ -177,6 +177,9 @@ visível na tela e inspecionando cada checkpoint com Inteligência Artificial Mu
   uxsentinel -s scenarios/teste.yaml --headless        # Executa sem interface gráfica (modo CI/CD)
   uxsentinel --check-ai                                # Testa a conexão com o provedor de IA configurado
   uxsentinel --check-ai -p gemini_sso                  # Testa a conexão com o Gemini via SSO
+  uxsentinel --login-sso -p gemini_sso                 # Abre o navegador para autenticar no Gemini via SSO
+  uxsentinel --login-sso -p claude_sso                 # Abre o navegador para autenticar no Claude via SSO
+  uxsentinel --logout-sso                              # Remove a sessão SSO salva em cache
   uxsentinel --list-scenarios                          # Lista todos os cenários disponíveis no projeto e biblioteca
   uxsentinel --version                                 # Exibe a versão instalada (ou -v)
   uxsentinel --init-config                             # Cria o arquivo de configuração em ~/.config/uxsentinel/config.yaml
@@ -252,6 +255,16 @@ Documentação completa: https://github.com/Defendi/UXSentinel""",
         action="store_true",
         help="Testa a conectividade com o provedor de IA configurado e encerra.",
     )
+    parser.add_argument(
+        "--login-sso",
+        action="store_true",
+        help="Abre o navegador para autenticação SSO com o serviço de LLM e salva a sessão em cache.",
+    )
+    parser.add_argument(
+        "--logout-sso",
+        action="store_true",
+        help="Remove as credenciais SSO em cache do provedor e encerra.",
+    )
 
     args = parser.parse_args()
 
@@ -277,6 +290,36 @@ Documentação completa: https://github.com/Defendi/UXSentinel""",
 
     if args.provider:
         cfg.active_provider = args.provider
+
+    if args.logout_sso:
+        from uxsentinel.core.sso import clear_cached_token
+
+        target = args.provider or cfg.active_provider
+        cleared = clear_cached_token(target)
+        if cleared:
+            console.print(
+                f"[bold green]✓[/bold green] Credenciais SSO do provedor [bold yellow]{target}[/bold yellow] removidas com sucesso."
+            )
+        else:
+            console.print(f"[dim]Nenhuma credencial SSO em cache encontrada para '{target}'.[/dim]")
+        return 0
+
+    if args.login_sso:
+        from uxsentinel.core.sso import login_via_browser
+
+        target_provider_name = args.provider or cfg.active_provider
+        if target_provider_name not in cfg.providers:
+            console.print(
+                f"[bold red]Erro:[/bold red] Provedor '{target_provider_name}' não encontrado no arquivo de configuração."
+            )
+            return 1
+        provider = cfg.providers[target_provider_name]
+        try:
+            login_via_browser(target_provider_name, provider)
+            return 0
+        except Exception as exc:
+            console.print(f"[bold red]❌ Falha no login SSO:[/bold red] {exc}")
+            return 1
 
     if args.check_ai:
         from uxsentinel.vision.client import UnifiedVisionClient

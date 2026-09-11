@@ -51,6 +51,8 @@ class ProviderSettings(BaseModel):
     timeout: int = 45
     headers: dict[str, str] = Field(default_factory=dict)
     verify_ssl: bool = True
+    auth_url: str | None = None
+    token_url: str | None = None
 
 
 class GlobalConfig(BaseModel):
@@ -249,6 +251,8 @@ def load_config(config_path: str | None = None) -> GlobalConfig:
             timeout=p_data.get("timeout", 45),
             headers=p_data.get("headers") or {},
             verify_ssl=p_data.get("verify_ssl", True),
+            auth_url=p_data.get("auth_url"),
+            token_url=p_data.get("token_url"),
         )
 
     active_p = os.environ.get(

@@ -121,31 +121,48 @@ providers:
 
 ---
 
-## 3. Como Utilizar Provedores via SSO Corporativo
+## 3. Como Utilizar Provedores via SSO Corporativo com Login no Navegador
 
 Muitas empresas bloqueiam o uso de chaves de API estáticas e exigem que todo o tráfego de IA seja auditado e autenticado através de um provedor de identidade corporativo (Google Cloud Identity, Okta, Microsoft Entra ID / Azure AD, Ping Identity).
 
-### 3.1 Google Gemini via SSO (`gemini_sso`)
-1. Gere o token de acesso da sua conta corporativa via Google Cloud CLI:
-   ```bash
-   export GEMINI_SSO_TOKEN=$(gcloud auth print-access-token)
-   ```
-2. Dispare a auditoria visual com o UXSentinel:
-   ```bash
-   uxsentinel -s scenarios/meu_teste.yaml -p gemini_sso
-   ```
-O cliente HTTP do UXSentinel enviará o cabeçalho `Authorization: Bearer <seu_token>` diretamente para o endpoint oficial do Google Gemini, sem requerer chave de API estática no código ou na URL.
+### 3.1 Abertura Automática do Navegador (Recomendado)
+Quando você utiliza um provedor do tipo `sso` (como `gemini_sso`, `claude_sso` ou `corporate_gateway`) e seu token não estiver definido no ambiente ou expirado, o **UXSentinel abre automaticamente o seu navegador padrão**:
+1. O agente inicia um servidor de callback local temporário (`http://127.0.0.1:8085`).
+2. Abre uma interface elegante e segura orientando a autorização SSO.
+3. Ao concluir a autenticação, o token é capturado e gravado com permissões restritas (`0600`) em `~/.config/uxsentinel/sso_cache.json`.
+4. Os próximos testes reutilizam o token em cache automaticamente, sem abrir novas janelas!
 
-### 3.2 Anthropic Claude via SSO (`claude_sso`)
-1. Obtenha o token temporário de sessão gerado pelo portal de SSO ou IAM da sua empresa:
-   ```bash
-   export CLAUDE_SSO_TOKEN="ey..."
-   ```
-2. Execute o UXSentinel informando o provedor:
-   ```bash
-   uxsentinel -s scenarios/meu_teste.yaml -p claude_sso
-   ```
-O cliente do UXSentinel configurará automaticamente o cabeçalho `Authorization: Bearer <token>` e respeitará as políticas de inspeção da organização.
+### 3.2 Comandos Manuais de Login e Logout SSO via CLI
+Você pode efetuar o login ou renovar sua sessão a qualquer momento:
+
+```bash
+# Abre o navegador e realiza o login SSO para o provedor Gemini:
+uxsentinel --login-sso -p gemini_sso
+
+# Abre o navegador e realiza o login SSO para o provedor Claude:
+uxsentinel --login-sso -p claude_sso
+
+# Remove o token SSO salvo em cache:
+uxsentinel --logout-sso -p gemini_sso
+# Ou remove a sessão ativa:
+uxsentinel --logout-sso
+```
+
+### 3.3 Autenticação Alternativa via Variáveis de Ambiente
+Caso prefira não utilizar o navegador (ex: esteiras automatizadas de CI/CD), você pode exportar o token diretamente no ambiente:
+
+- **Google Gemini via SSO (`gemini_sso`)**:
+  ```bash
+  export GEMINI_SSO_TOKEN=$(gcloud auth print-access-token)
+  uxsentinel -s scenarios/meu_teste.yaml -p gemini_sso
+  ```
+
+- **Anthropic Claude via SSO (`claude_sso`)**:
+  ```bash
+  export CLAUDE_SSO_TOKEN="ey..."
+  uxsentinel -s scenarios/meu_teste.yaml -p claude_sso
+  ```
+
 
 ---
 

@@ -413,11 +413,25 @@ uxsentinel --check-ai -p claude_sso
 uxsentinel --check-ai -p ollama_local
 ```
 
-> [!TIP]
-> **Pre-flight Check Automático de IA**:
-> Ao iniciar qualquer cenário de teste, o UXSentinel **valida previamente** a conectividade com a IA antes de abrir a janela do navegador. Caso as credenciais estejam ausentes, o token tenha expirado ou o serviço esteja offline, a execução aborta imediatamente com mensagem explicativa em português e dicas de correção, poupando tempo e recursos.
+### 9. Autenticação SSO Interativa no Navegador (`--login-sso`)
+Quando for utilizar modelos corporativos via SSO (`gemini_sso`, `claude_sso` ou gateways internos), o **UXSentinel abre o navegador** para permitir a autenticação rápida e segura:
+```bash
+# Abre o navegador padrão para login SSO no Google Gemini:
+uxsentinel --login-sso -p gemini_sso
 
-### 9. Executar em Background / Modo Headless (Esteiras CI/CD)
+# Abre o navegador padrão para login SSO no Anthropic Claude:
+uxsentinel --login-sso -p claude_sso
+
+# Limpa o token salvo em cache (logout):
+uxsentinel --logout-sso
+```
+*(O token é gravado com permissões restritas em `~/.config/uxsentinel/sso_cache.json` e reaproveitado automaticamente nos próximos testes sem exigir novo login).*
+
+> [!TIP]
+> **Pre-flight Check Automático de IA com SSO**:
+> Ao iniciar qualquer cenário, se o provedor for do tipo `sso` e o token não estiver presente ou estiver expirado, o agente **abre o navegador automaticamente**, aguarda você concluir o login e prossegue imediatamente com a auditoria!
+
+### 10. Executar em Background / Modo Headless (Esteiras CI/CD)
 ```bash
 uxsentinel -s scenarios/meu_cenario.yaml --headless
 ```
