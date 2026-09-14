@@ -1,7 +1,7 @@
 # 10. Estado Atual do Desenvolvimento, Inventário e Registro de Riscos
 
 > **Data de Atualização:** 14 de Setembro de 2026  
-> **Status do Repositório:** Estável / Produção v1.1.1  
+> **Status do Repositório:** Estável / Produção v1.1.2  
 > **Ambiente de Testes:** 100% verde (`uv run pytest` — 139 testes aprovados)
 
 Este documento foi concebido em atendimento às recomendações levantadas na [Análise da Memória Compactada (Doc 09)](09_analise_memoria_compactada.md). Seu objetivo é estabelecer um **retrato fiel, auditável e sem ambiguidades** do estado de engenharia do UXSentinel, distinguindo rigorosamente o que já está compilado e testado no código do que reside como planejamento nas Fases do Roadmap.

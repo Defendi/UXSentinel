@@ -31,12 +31,10 @@ DEFAULT_SSO_PORT_START = 8085
 DEFAULT_SSO_PORT_END = 8095
 
 # Constantes OAuth 2.0 PKCE para Claude.ai (Contas Pro / Team)
-CLAUDE_OAUTH_CLIENT_ID = "22422756-60c9-4084-8eb7-27705fd5cf9a"
+CLAUDE_OAUTH_CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
 CLAUDE_OAUTH_AUTHORIZE_URL = "https://claude.com/cai/oauth/authorize"
 CLAUDE_OAUTH_TOKEN_URL = "https://platform.claude.com/v1/oauth/token"
-CLAUDE_OAUTH_SCOPES = (
-    "user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload"
-)
+CLAUDE_OAUTH_SCOPES = "user:profile user:inference user:sessions:claude_code"
 
 
 def generate_pkce_pair() -> tuple[str, str]:
@@ -59,6 +57,36 @@ def get_sso_cache_dir() -> Path:
 def get_sso_cache_file() -> Path:
     """Retorna o arquivo de cache de tokens SSO."""
     return get_sso_cache_dir() / "sso_cache.json"
+
+
+def refresh_claude_oauth_token(refresh_token: str) -> str | None:
+    """Renova o token OAuth do Claude.ai usando o refresh_token."""
+    payload = {
+        "grant_type": "refresh_token",
+        "refresh_token": refresh_token.strip(),
+        "client_id": CLAUDE_OAUTH_CLIENT_ID,
+        "scope": CLAUDE_OAUTH_SCOPES,
+    }
+    try:
+        req = urllib.request.Request(
+            CLAUDE_OAUTH_TOKEN_URL,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={
+                "Content-Type": "application/json",
+                "User-Agent": "claude-cli/2.1.267",
+            },
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            token = data.get("accessToken") or data.get("access_token")
+            expires_in = data.get("expires_in")
+            if token:
+                save_cached_token("claude_sso", str(token).strip(), expires_in)
+                return str(token).strip()
+    except Exception:
+        pass
+    return None
 
 
 def get_cached_token(provider_name: str) -> str | None:
@@ -97,6 +125,13 @@ def get_cached_token(provider_name: str) -> str | None:
                             return str(token).strip()
                     else:
                         return str(token).strip()
+
+                # Se o token expirou, tenta renovar via refresh_token
+                ref_tok = oauth.get("refreshToken")
+                if ref_tok:
+                    refreshed = refresh_claude_oauth_token(ref_tok)
+                    if refreshed:
+                        return refreshed
             except Exception:
                 pass
 
@@ -436,7 +471,10 @@ class LoopbackAuthHandler(http.server.BaseHTTPRequestHandler):
                     req = urllib.request.Request(
                         CLAUDE_OAUTH_TOKEN_URL,
                         data=json.dumps(token_payload).encode("utf-8"),
-                        headers={"Content-Type": "application/json"},
+                        headers={
+                            "Content-Type": "application/json",
+                            "User-Agent": "claude-cli/2.1.267",
+                        },
                         method="POST",
                     )
                     with urllib.request.urlopen(req, timeout=30) as resp:
