@@ -1,3 +1,4 @@
+import contextlib
 import os
 import re
 from pathlib import Path
@@ -38,6 +39,17 @@ class ReportingSettings(BaseModel):
     generate_html: bool = True
     generate_json: bool = True
     save_screenshots: bool = True
+    generate_fix_prompt: bool = False
+
+
+class JiraSettings(BaseModel):
+    enabled: bool = False
+    url: str = Field(default="", description="URL base do Jira (ex: https://empresa.atlassian.net)")
+    email: str = Field(default="${JIRA_EMAIL}", description="Email do usuário Atlassian")
+    api_token: str = Field(default="${JIRA_API_TOKEN}", description="Token de API do Jira")
+    project_key: str = Field(default="${JIRA_PROJECT_KEY}", description="Chave do projeto (ex: UX, QA)")
+    issue_type: str = Field(default="Bug", description="Tipo da issue")
+    labels: list[str] = Field(default_factory=lambda: ["uxsentinel", "qa-audit"])
 
 
 class ProviderSettings(BaseModel):
@@ -68,9 +80,13 @@ BUILTIN_PROVIDERS: dict[str, ProviderSettings] = {
     "claude_sso": ProviderSettings(
         type="sso",
         service="anthropic",
-        model="claude-3-5-sonnet-latest",
+        model="claude-haiku-4-5",
         api_key="${CLAUDE_SSO_TOKEN}",
-        headers={"Authorization": "Bearer ${CLAUDE_SSO_TOKEN}"},
+        headers={
+            "Authorization": "Bearer ${CLAUDE_SSO_TOKEN}",
+            "anthropic-beta": "oauth-2025-04-20",
+            "User-Agent": "claude-cli/2.1.267",
+        },
         max_tokens=2000,
         temperature=0.1,
     ),
@@ -114,6 +130,7 @@ class GlobalConfig(BaseModel):
     fallback_provider: str | None = "ollama_local"
     browser: BrowserSettings = Field(default_factory=BrowserSettings)
     reporting: ReportingSettings = Field(default_factory=ReportingSettings)
+    jira: JiraSettings = Field(default_factory=JiraSettings)
     providers: dict[str, ProviderSettings] = Field(default_factory=dict)
 
     def get_active_provider(self) -> ProviderSettings:
@@ -161,6 +178,22 @@ reporting:
   generate_html: true
   generate_json: true
   save_screenshots: true
+  generate_fix_prompt: false
+
+# ==============================================================================
+# Integração Atlassian Jira (Abertura Automática de Cards)
+# ==============================================================================
+jira:
+  enabled: false
+  url: "https://sua-empresa.atlassian.net"
+  email: "${JIRA_EMAIL}"
+  api_token: "${JIRA_API_TOKEN}"
+  project_key: "${JIRA_PROJECT_KEY}"
+  issue_type: "Bug"
+  labels:
+    - "uxsentinel"
+    - "qa-audit"
+
 
 providers:
   gemini_sso:
@@ -176,10 +209,12 @@ providers:
   claude_sso:
     type: "sso"
     service: "anthropic"
-    model: "claude-3-5-sonnet-latest"
+    model: "claude-haiku-4-5"
     api_key: "${CLAUDE_SSO_TOKEN}"
     headers:
       Authorization: "Bearer ${CLAUDE_SSO_TOKEN}"
+      anthropic-beta: "oauth-2025-04-20"
+      User-Agent: "claude-cli/2.1.267"
     max_tokens: 2000
     temperature: 0.1
 
@@ -236,6 +271,11 @@ def get_user_config_dir() -> Path:
     xdg_config = os.environ.get("XDG_CONFIG_HOME")
     base_dir = Path(xdg_config) if xdg_config else Path.home() / ".config"
     return base_dir / "uxsentinel"
+
+
+def get_user_config_path() -> Path:
+    """Retorna o caminho do arquivo de configuração do usuário (~/.config/uxsentinel/config.yaml)."""
+    return get_user_config_dir() / "config.yaml"
 
 
 def ensure_user_config() -> Path:
@@ -319,6 +359,18 @@ def load_config(config_path: str | None = None) -> GlobalConfig:
         generate_html=reporting_dict.get("generate_html", True),
         generate_json=reporting_dict.get("generate_json", True),
         save_screenshots=reporting_dict.get("save_screenshots", True),
+        generate_fix_prompt=reporting_dict.get("generate_fix_prompt", False),
+    )
+
+    jira_dict = raw_dict.get("jira", {})
+    jira_settings = JiraSettings(
+        enabled=jira_dict.get("enabled", False),
+        url=jira_dict.get("url", ""),
+        email=jira_dict.get("email", "${JIRA_EMAIL}"),
+        api_token=jira_dict.get("api_token", "${JIRA_API_TOKEN}"),
+        project_key=jira_dict.get("project_key", "${JIRA_PROJECT_KEY}"),
+        issue_type=jira_dict.get("issue_type", "Bug"),
+        labels=jira_dict.get("labels") or ["uxsentinel", "qa-audit"],
     )
 
     # Inicializa com provedores padrão embutidos e mescla com os definidos pelo usuário
@@ -348,5 +400,38 @@ def load_config(config_path: str | None = None) -> GlobalConfig:
         fallback_provider=raw_dict.get("fallback_provider", "ollama_local"),
         browser=browser_settings,
         reporting=reporting_settings,
+        jira=jira_settings,
         providers=providers_dict,
     )
+
+
+def save_jira_config(
+    url: str | None = None,
+    email: str | None = None,
+    api_token: str | None = None,
+    project_key: str | None = None,
+    enabled: bool | None = None,
+) -> Path:
+    """Salva ou atualiza a seção 'jira' no arquivo de configuração do usuário (~/.config/uxsentinel/config.yaml)."""
+    cfg_file = ensure_user_config()
+    content = cfg_file.read_text(encoding="utf-8")
+    data = yaml.safe_load(content) or {}
+
+    if "jira" not in data or not isinstance(data["jira"], dict):
+        data["jira"] = {}
+
+    if url is not None:
+        data["jira"]["url"] = url.strip()
+    if email is not None:
+        data["jira"]["email"] = email.strip()
+    if api_token is not None:
+        data["jira"]["api_token"] = api_token.strip()
+    if project_key is not None:
+        data["jira"]["project_key"] = project_key.strip().upper()
+    if enabled is not None:
+        data["jira"]["enabled"] = enabled
+
+    cfg_file.write_text(yaml.safe_dump(data, sort_keys=False, allow_unicode=True), encoding="utf-8")
+    with contextlib.suppress(Exception):
+        cfg_file.chmod(0o600)
+    return cfg_file

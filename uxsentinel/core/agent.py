@@ -90,6 +90,37 @@ class UXSentinelAgent:
                     f"[bold green]📊 Dashboard Visual HTML gerado em:[/bold green] [underline]{html_path}[/underline]"
                 )
 
+            if self.config.reporting.generate_fix_prompt:
+                from uxsentinel.reporter.prompt_builder import save_fix_prompt
+
+                prompt_path = save_fix_prompt(report, self.config.reporting.output_dir)
+                console.print(
+                    f"[bold green]🛠️ Documento de Prompt para Correção gerado em:[/bold green] [underline]{prompt_path}[/underline]"
+                )
+
+            if self.config.jira.enabled:
+                from uxsentinel.integrations.jira import JiraClient
+
+                jira_client = JiraClient(self.config.jira)
+                console.print(
+                    "\n[bold cyan]📋 Sincronizando inconformidades com o Atlassian Jira...[/bold cyan]"
+                )
+                created_cards = await jira_client.create_issues_from_report(report)
+                if created_cards:
+                    console.print(
+                        f"[bold green]✓ {len(created_cards)} card(s) criado(s) no Jira com sucesso![/bold green]"
+                    )
+                    for card_url in created_cards:
+                        console.print(f"  - [link={card_url}]{card_url}[/link]")
+                elif report.total_issues == 0:
+                    console.print(
+                        "[dim]Nenhuma inconformidade encontrada para abertura de cards no Jira.[/dim]"
+                    )
+                else:
+                    console.print(
+                        "[yellow]⚠️ Nenhum card foi criado no Jira. Verifique as credenciais e permissões no projeto.[/yellow]"
+                    )
+
             self._print_summary(report)
 
         return report

@@ -2,16 +2,20 @@
 
 from __future__ import annotations
 
+import base64
 import contextlib
+import hashlib
 import html
 import http.server
 import json
 import os
+import secrets
 import socket
 import sys
 import threading
 import time
 import urllib.parse
+import urllib.request
 import webbrowser
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -25,6 +29,22 @@ console = Console()
 
 DEFAULT_SSO_PORT_START = 8085
 DEFAULT_SSO_PORT_END = 8095
+
+# Constantes OAuth 2.0 PKCE para Claude.ai (Contas Pro / Team)
+CLAUDE_OAUTH_CLIENT_ID = "22422756-60c9-4084-8eb7-27705fd5cf9a"
+CLAUDE_OAUTH_AUTHORIZE_URL = "https://claude.com/cai/oauth/authorize"
+CLAUDE_OAUTH_TOKEN_URL = "https://platform.claude.com/v1/oauth/token"
+CLAUDE_OAUTH_SCOPES = (
+    "user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload"
+)
+
+
+def generate_pkce_pair() -> tuple[str, str]:
+    """Gera code_verifier e code_challenge (S256 base64url) conforme RFC 7636."""
+    verifier = secrets.token_urlsafe(64)
+    digest = hashlib.sha256(verifier.encode("ascii")).digest()
+    challenge = base64.urlsafe_b64encode(digest).decode("ascii").rstrip("=")
+    return verifier, challenge
 
 
 def get_sso_cache_dir() -> Path:
@@ -44,25 +64,42 @@ def get_sso_cache_file() -> Path:
 def get_cached_token(provider_name: str) -> str | None:
     """Recupera o token SSO armazenado em cache para o provedor, se válido."""
     cache_file = get_sso_cache_file()
-    if not cache_file.is_file():
-        return None
+    if cache_file.is_file():
+        try:
+            data = json.loads(cache_file.read_text(encoding="utf-8"))
+            item = data.get(provider_name)
+            if item:
+                # Verifica expiração se houver
+                expires_at = item.get("expires_at")
+                if not expires_at or time.time() <= float(expires_at):
+                    token = item.get("token")
+                    if token and str(token).strip():
+                        return str(token).strip()
+        except Exception:
+            pass
 
-    try:
-        data = json.loads(cache_file.read_text(encoding="utf-8"))
-        item = data.get(provider_name)
-        if not item:
-            return None
+    # Fallback inteligente para sessão do Claude Pro existente na máquina (~/.claude/.credentials.json)
+    if provider_name == "claude_sso":
+        claude_creds = Path.home() / ".claude" / ".credentials.json"
+        if claude_creds.is_file():
+            try:
+                cdata = json.loads(claude_creds.read_text(encoding="utf-8"))
+                oauth = cdata.get("claudeAiOauth", {})
+                token = oauth.get("accessToken")
+                expires_at = oauth.get("expiresAt")
+                if token:
+                    if expires_at:
+                        # Se expiresAt estiver em ms, converte para segundos
+                        exp_sec = (
+                            float(expires_at) / 1000.0 if float(expires_at) > 1e11 else float(expires_at)
+                        )
+                        if time.time() < exp_sec:
+                            return str(token).strip()
+                    else:
+                        return str(token).strip()
+            except Exception:
+                pass
 
-        # Verifica expiração se houver
-        expires_at = item.get("expires_at")
-        if expires_at and time.time() > float(expires_at):
-            return None
-
-        token = item.get("token")
-        if token and str(token).strip():
-            return str(token).strip()
-    except Exception:
-        return None
     return None
 
 
@@ -270,6 +307,8 @@ HTML_LOGIN_PAGE = """<!DOCTYPE html>
       {instructions_html}
     </div>
 
+    {extra_action_html}
+
     <form method="POST" action="/callback">
       <label for="token">Token de Acesso / Bearer SSO:</label>
       <input type="password" id="token" name="token" placeholder="Cole aqui seu token de sessão SSO (Bearer ou JWT)..." required autofocus>
@@ -312,7 +351,7 @@ HTML_SUCCESS_PAGE = """<!DOCTYPE html>
       box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
     }}
     .icon {{ font-size: 52px; margin-bottom: 16px; }}
-    h1 {{ font-size: 24px; color: #34d399; margin-bottom: 12px; }}
+    <h1>{{ font-size: 24px; color: #34d399; margin-bottom: 12px; }}
     p {{ color: #cbd5e1; font-size: 15px; line-height: 1.6; margin-bottom: 24px; }}
     .badge {{
       background: rgba(16, 185, 129, 0.15);
@@ -351,10 +390,66 @@ class LoopbackAuthHandler(http.server.BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         parsed = urllib.parse.urlparse(self.path)
 
+        # Rota para iniciar fluxo OAuth PKCE oficial com Claude.ai
+        if parsed.path == "/oauth/claude/login":
+            verifier, challenge = generate_pkce_pair()
+            state = secrets.token_urlsafe(16)
+            self.server_instance.code_verifier = verifier
+            self.server_instance.oauth_state = state
+
+            port = self.server_instance.server_address[1]
+            oauth_params = {
+                "code": "true",
+                "client_id": CLAUDE_OAUTH_CLIENT_ID,
+                "response_type": "code",
+                "redirect_uri": f"http://localhost:{port}/callback",
+                "scope": CLAUDE_OAUTH_SCOPES,
+                "code_challenge": challenge,
+                "code_challenge_method": "S256",
+                "state": state,
+            }
+            auth_url = f"{CLAUDE_OAUTH_AUTHORIZE_URL}?{urllib.parse.urlencode(oauth_params)}"
+
+            self.send_response(302)
+            self.send_header("Location", auth_url)
+            self.end_headers()
+            return
+
         # Se o token vier via query param (/callback?token=... ou /callback?code=...)
         if parsed.path == "/callback":
             params = urllib.parse.parse_qs(parsed.query)
-            token = params.get("token", [None])[0] or params.get("code", [None])[0]
+            code = params.get("code", [None])[0]
+            token = params.get("token", [None])[0]
+
+            # Se recebemos um authorization_code do Claude.ai e temos o code_verifier
+            if code and self.server_instance.code_verifier:
+                port = self.server_instance.server_address[1]
+                token_payload = {
+                    "grant_type": "authorization_code",
+                    "code": code,
+                    "redirect_uri": f"http://localhost:{port}/callback",
+                    "client_id": CLAUDE_OAUTH_CLIENT_ID,
+                    "code_verifier": self.server_instance.code_verifier,
+                    "state": self.server_instance.oauth_state or "",
+                }
+                try:
+                    req = urllib.request.Request(
+                        CLAUDE_OAUTH_TOKEN_URL,
+                        data=json.dumps(token_payload).encode("utf-8"),
+                        headers={"Content-Type": "application/json"},
+                        method="POST",
+                    )
+                    with urllib.request.urlopen(req, timeout=30) as resp:
+                        resp_data = json.loads(resp.read().decode("utf-8"))
+                        token = resp_data.get("accessToken") or resp_data.get("access_token")
+                        expires_in = resp_data.get("expires_in")
+                        if token:
+                            save_cached_token(self.server_instance.provider_name, token, expires_in)
+                except Exception:
+                    token = code
+            elif code and not token:
+                token = code
+
             if token:
                 self.server_instance.captured_token = token.strip()
                 self._send_success_response()
@@ -393,9 +488,21 @@ class LoopbackAuthHandler(http.server.BaseHTTPRequestHandler):
         provider_name = self.server_instance.provider_name
         instructions = self.server_instance.instructions_html
 
+        extra_action_html = ""
+        if "claude" in provider_name.lower():
+            extra_action_html = """
+            <div style="margin-bottom: 24px; text-align: center;">
+              <a href="/oauth/claude/login" style="display: block; width: 100%; text-decoration: none; background: linear-gradient(135deg, #d97706 0%, #b45309 100%); color: #fff; border-radius: 10px; padding: 14px; font-weight: 700; font-size: 15px; box-shadow: 0 4px 14px rgba(217, 119, 6, 0.4);">
+                ✨ Conectar com Conta Claude Pro / Team no Navegador
+              </a>
+              <p style="color: #94a3b8; font-size: 12px; margin-top: 8px;">Ou informe o token manualmente abaixo caso já possua:</p>
+            </div>
+            """
+
         content = HTML_LOGIN_PAGE.format(
             provider_name=html.escape(provider_name),
             instructions_html=instructions,
+            extra_action_html=extra_action_html,
         ).encode("utf-8")
 
         self.send_response(200)
@@ -428,6 +535,8 @@ class LoopbackAuthServer(http.server.HTTPServer):
         self.provider_name = provider_name
         self.instructions_html = instructions_html
         self.captured_token: str | None = None
+        self.code_verifier: str | None = None
+        self.oauth_state: str | None = None
 
 
 def login_via_browser(
@@ -454,8 +563,9 @@ def login_via_browser(
         )
     elif service == "anthropic":
         instructions = (
-            "Para autenticar no <strong>Anthropic Claude SSO</strong>, informe o token "
-            "de sessão ou Bearer token fornecido pelo portal de identidade/SSO da sua organização."
+            "Para autenticar no <strong>Claude (Anthropic)</strong> com sua <strong>Conta Pro / Team</strong>, "
+            "clique no botão laranja abaixo para autorizar no navegador via fluxo OAuth oficial.<br>"
+            "Caso prefira utilizar credenciais manuais de um gateway corporativo, cole o token no campo abaixo."
         )
     else:
         instructions = f"Informe o token corporativo de sessão para o provedor <strong>{html.escape(provider_name)}</strong>."

@@ -8,6 +8,53 @@ from uxsentinel.vision.prompts import QA_SYSTEM_PROMPT
 logger = logging.getLogger("uxsentinel.vision")
 
 
+def _prepare_anthropic_auth(
+    provider_name: str,
+    model: str,
+    api_key: str,
+    headers: dict[str, str],
+) -> tuple[dict[str, str], str]:
+    """Prepara cabeçalhos e modelo compatível para Anthropic, suportando OAuth da conta Pro."""
+    hdrs = dict(headers)
+    auth_header = hdrs.get("Authorization", "").strip()
+
+    is_oauth = (
+        "sk-ant-oat" in auth_header
+        or api_key.startswith("sk-ant-oat")
+        or "claude_sso" in provider_name
+        or hdrs.get("anthropic-beta") == "oauth-2025-04-20"
+    )
+
+    if is_oauth:
+        token = (
+            auth_header.replace("Bearer ", "").strip()
+            if auth_header
+            else api_key.replace("Bearer ", "").strip()
+        )
+        hdrs["Authorization"] = f"Bearer {token}"
+        hdrs.pop("x-api-key", None)
+        hdrs.setdefault("anthropic-beta", "oauth-2025-04-20")
+        hdrs.setdefault("User-Agent", "claude-cli/2.1.267")
+        # Se for modelo da API comercial tradicional que não existe no catálogo OAuth Pro,
+        # mapeia para modelos compatíveis da conta Pro
+        if model in ("claude-3-5-sonnet-latest", "claude-3-5-sonnet-20241022", "claude-3-7-sonnet-latest"):
+            model = "claude-haiku-4-5"
+    else:
+        if auth_header:
+            hdrs["Authorization"] = auth_header
+        elif api_key.startswith("Bearer "):
+            hdrs["Authorization"] = api_key
+        elif api_key and not api_key.startswith("sk-ant-"):
+            hdrs["Authorization"] = f"Bearer {api_key}"
+            hdrs["x-api-key"] = api_key
+        elif api_key:
+            hdrs["x-api-key"] = api_key
+        else:
+            hdrs.pop("Authorization", None)
+
+    return hdrs, model
+
+
 class UnifiedVisionClient:
     """Cliente unificado para chamadas a modelos de visão (Cloud API, Ollama Local e SSO Gateway)."""
 
@@ -137,33 +184,30 @@ class UnifiedVisionClient:
                         f"Chave de API ou token SSO ausente para a Anthropic ({provider.model}). "
                         "Defina a variável ANTHROPIC_API_KEY ou CLAUDE_SSO_TOKEN no ambiente."
                     )
-                url = (provider.base_url or "https://api.anthropic.com/v1").rstrip("/") + "/messages"
-                headers = {
-                    "anthropic-version": "2023-06-01",
-                    "content-type": "application/json",
-                    **provider.headers,
-                }
-                if auth_header:
-                    headers["Authorization"] = auth_header
-                elif api_key.startswith("Bearer "):
-                    headers["Authorization"] = api_key
-                elif api_key and not api_key.startswith("sk-ant-"):
-                    headers["Authorization"] = f"Bearer {api_key}"
-                    headers["x-api-key"] = api_key
-                elif api_key:
-                    headers["x-api-key"] = api_key
-                else:
-                    headers.pop("Authorization", None)
+                raw_base = provider.base_url or ""
+                if not raw_base or "suaempresa.com.br" in raw_base:
+                    raw_base = "https://api.anthropic.com/v1"
+                url = raw_base.rstrip("/") + "/messages"
+                headers, target_model = _prepare_anthropic_auth(
+                    p_name,
+                    provider.model,
+                    api_key,
+                    {
+                        "anthropic-version": "2023-06-01",
+                        "content-type": "application/json",
+                        **provider.headers,
+                    },
+                )
 
                 payload = {
-                    "model": provider.model,
+                    "model": target_model,
                     "max_tokens": 5,
                     "messages": [{"role": "user", "content": "ping"}],
                 }
                 async with httpx.AsyncClient(timeout=timeout, verify=provider.verify_ssl) as client:
                     resp = await client.post(url, json=payload, headers=headers)
                     resp.raise_for_status()
-                    return True, "API Anthropic respondeu com sucesso."
+                    return True, f"API Anthropic respondeu com sucesso (modelo: {target_model})."
 
             elif service in ("openai", "openai_compatible"):
                 if service == "openai" and not api_key:
@@ -308,27 +352,23 @@ class UnifiedVisionClient:
         user_prompt: str,
         media_type: str,
     ) -> str:
-        url = (p.base_url or "https://api.anthropic.com/v1").rstrip("/") + "/messages"
-        headers = {
-            "anthropic-version": "2023-06-01",
-            "content-type": "application/json",
-            **p.headers,
-        }
-        api_key = p.api_key or ""
-
-        # Suporte a SSO (OAuth2 / JWT Bearer Token / Gateway Corporativo)
-        if "Authorization" in headers:
-            pass
-        elif api_key.startswith("Bearer "):
-            headers["Authorization"] = api_key
-        elif api_key and not api_key.startswith("sk-ant-"):
-            # Token corporativo SSO / Gateway
-            headers["Authorization"] = f"Bearer {api_key}"
-            headers["x-api-key"] = api_key
-        elif api_key:
-            headers["x-api-key"] = api_key
+        raw_base = p.base_url or ""
+        if not raw_base or "suaempresa.com.br" in raw_base:
+            raw_base = "https://api.anthropic.com/v1"
+        url = raw_base.rstrip("/") + "/messages"
+        p_name = self._find_provider_name(p)
+        headers, target_model = _prepare_anthropic_auth(
+            p_name,
+            p.model,
+            p.api_key or "",
+            {
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json",
+                **p.headers,
+            },
+        )
         payload = {
-            "model": p.model,
+            "model": target_model,
             "max_tokens": p.max_tokens,
             "temperature": p.temperature,
             "system": QA_SYSTEM_PROMPT,

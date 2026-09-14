@@ -180,6 +180,9 @@ visível na tela e inspecionando cada checkpoint com Inteligência Artificial Mu
   uxsentinel --login-sso -p gemini_sso                 # Abre o navegador para autenticar no Gemini via SSO
   uxsentinel --login-sso -p claude_sso                 # Abre o navegador para autenticar no Claude via SSO
   uxsentinel --logout-sso                              # Remove a sessão SSO salva em cache
+  uxsentinel -s scenarios/teste.yaml --fix-prompt      # Gera prompt técnico de correção para IAs (Claude, Cursor, etc.)
+  uxsentinel -s scenarios/teste.yaml --jira            # Cria issues automaticamente no Jira para inconformidades
+  uxsentinel --set-jira-token                          # Configura token e URL do Jira interativamente
   uxsentinel --list-scenarios                          # Lista todos os cenários disponíveis no projeto e biblioteca
   uxsentinel --version                                 # Exibe a versão instalada (ou -v)
   uxsentinel --init-config                             # Cria o arquivo de configuração em ~/.config/uxsentinel/config.yaml
@@ -241,6 +244,31 @@ Documentação completa: https://github.com/Defendi/UXSentinel""",
         help="Caminho do arquivo de configuração (padrão: busca no projeto atual ou no pacote).",
     )
     parser.add_argument(
+        "--fix-prompt",
+        "--generate-fix-prompt",
+        action="store_true",
+        dest="fix_prompt",
+        help="Gera um documento Markdown com prompt técnico de correção para agentes de IA (Claude Code, Cursor, Copilot).",
+    )
+    parser.add_argument(
+        "--jira",
+        "--create-jira-cards",
+        action="store_true",
+        dest="jira",
+        help="Cria cards/issues automaticamente no Atlassian Jira para as inconformidades encontradas.",
+    )
+    parser.add_argument(
+        "--jira-project",
+        type=str,
+        default=None,
+        help="Sobrescreve a chave do projeto no Jira (ex: PROJ, UXS) para criação dos cards.",
+    )
+    parser.add_argument(
+        "--set-jira-token",
+        action="store_true",
+        help="Configura interativamente o token e credenciais do Jira no arquivo global (~/.config/uxsentinel/config.yaml).",
+    )
+    parser.add_argument(
         "--init-config",
         action="store_true",
         help="Cria o arquivo de configuração padrão do usuário em ~/.config/uxsentinel/config.yaml (sem precisar de sudo).",
@@ -287,6 +315,79 @@ Documentação completa: https://github.com/Defendi/UXSentinel""",
         return 0
 
     cfg = load_config(args.config)
+
+    if args.set_jira_token:
+        from uxsentinel.core.config import JiraSettings, get_user_config_path, save_jira_config
+        from uxsentinel.integrations.jira import JiraClient
+
+        cfg_path = get_user_config_path()
+        console.print("\n[bold cyan]🔧 Configuração Global do Atlassian Jira[/bold cyan]")
+        console.print(f"[dim]Arquivo: {cfg_path}[/dim]\n")
+
+        current_jira = cfg.jira
+        default_url = current_jira.url or "https://sua-empresa.atlassian.net"
+        jira_url = console.input(f"URL do Jira [{default_url}]: ").strip() or default_url
+
+        default_email = (
+            current_jira.email if current_jira.email and not current_jira.email.startswith("${") else ""
+        )
+        email_prompt = f"E-mail Atlassian [{default_email}]: " if default_email else "E-mail Atlassian: "
+        jira_email = console.input(email_prompt).strip() or default_email
+
+        token_prompt = "API Token / PAT (Personal Access Token)"
+        has_existing_token = bool(current_jira.api_token and not current_jira.api_token.startswith("${"))
+        if has_existing_token:
+            token_prompt += " [pressione Enter para manter atual]"
+        token_prompt += ": "
+
+        jira_token = console.input(token_prompt, password=True).strip()
+        if not jira_token and has_existing_token:
+            jira_token = current_jira.api_token
+
+        if not jira_token:
+            console.print("[bold red]❌ Erro:[/bold red] O API Token do Jira é obrigatório.")
+            return 1
+
+        default_proj = (
+            current_jira.project_key
+            if current_jira.project_key and not current_jira.project_key.startswith("${")
+            else ""
+        )
+        proj_prompt = (
+            f"Chave do Projeto [{default_proj}]: " if default_proj else "Chave do Projeto (ex: PROJ): "
+        )
+        jira_proj = console.input(proj_prompt).strip() or default_proj
+
+        saved_file = save_jira_config(
+            url=jira_url,
+            email=jira_email,
+            api_token=jira_token,
+            project_key=jira_proj,
+            enabled=True,
+        )
+        console.print(
+            f"\n[bold green]✓ Configurações do Jira salvas com sucesso em:[/bold green] [cyan]{saved_file}[/cyan]"
+        )
+        console.print(
+            "[dim]Permissões do arquivo restritas a 0600 (somente leitura/escrita pelo seu usuário).[/dim]\n"
+        )
+
+        # Teste rápido de conectividade
+        console.print("🔍 Testando conectividade com o Jira...")
+        test_settings = JiraSettings(
+            enabled=True,
+            url=jira_url,
+            email=jira_email,
+            api_token=jira_token,
+            project_key=jira_proj,
+        )
+        test_client = JiraClient(test_settings)
+        ok, msg = await test_client.test_connection()
+        if ok:
+            console.print(f"[bold green]✓ Conexão com o Jira estabelecida com sucesso:[/bold green] {msg}\n")
+        else:
+            console.print(f"[yellow]⚠️ Aviso de conectividade:[/yellow] {msg}\n")
+        return 0
 
     if args.provider:
         cfg.active_provider = args.provider
@@ -335,6 +436,14 @@ Documentação completa: https://github.com/Defendi/UXSentinel""",
         else:
             console.print(f"[bold red]❌ Falha na conexão com a IA:[/bold red] {msg}")
             return 1
+
+    if args.fix_prompt:
+        cfg.reporting.generate_fix_prompt = True
+    if args.jira:
+        cfg.jira.enabled = True
+    if args.jira_project:
+        cfg.jira.project_key = args.jira_project
+
     if args.headless:
         cfg.browser.headless = True
     if args.slowmo is not None:

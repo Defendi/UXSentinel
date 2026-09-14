@@ -24,6 +24,21 @@ reporting:
   generate_html: true
   generate_json: true
   save_screenshots: true
+  generate_fix_prompt: false
+
+# ==============================================================================
+# Integração Atlassian Jira (Abertura Automática de Cards)
+# ==============================================================================
+jira:
+  enabled: false
+  url: "https://sua-empresa.atlassian.net"
+  email: "${JIRA_EMAIL}"
+  api_token: "${JIRA_API_TOKEN}"
+  project_key: "${JIRA_PROJECT_KEY}"
+  issue_type: "Bug"
+  labels:
+    - "uxsentinel"
+    - "qa-audit"
 
 # Catálogo de Provedores de LLM / Visão
 providers:
@@ -89,13 +104,13 @@ providers:
   claude_sso:
     type: "sso"
     service: "anthropic"
-    base_url: "https://ai-gateway.suaempresa.com.br/anthropic/v1"   # ou endpoint do proxy/gateway corporativo
-    model: "claude-3-5-sonnet-latest"
-    api_key: "${CLAUDE_SSO_TOKEN}"       # Token JWT / Bearer fornecido pelo SSO corporativo
+    base_url: "https://api.anthropic.com/v1"
+    model: "claude-haiku-4-5"
+    api_key: "${CLAUDE_SSO_TOKEN}"       # Token OAuth da sua conta Pro/Team ou gateway
     headers:
       Authorization: "Bearer ${CLAUDE_SSO_TOKEN}"
-      X-Enterprise-Client-Id: "${ENTERPRISE_CLIENT_ID:-uxsentinel-qa}"
-      X-Corporate-Department: "QualityAssurance"
+      anthropic-beta: "oauth-2025-04-20"
+      User-Agent: "claude-cli/2.1.267"
     timeout: 60
     verify_ssl: true
 

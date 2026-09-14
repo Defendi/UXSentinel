@@ -1,5 +1,13 @@
 from datetime import datetime
-from enum import StrEnum
+from enum import Enum
+
+try:
+    from enum import StrEnum
+except ImportError:
+    # Compatibilidade com Python < 3.11
+    class StrEnum(str, Enum):  # noqa: UP042
+        pass
+
 
 from pydantic import BaseModel, Field
 
@@ -26,6 +34,7 @@ class Issue(BaseModel):
     descricao: str
     sugestao_correcao: str | None = None
     elemento_alvo: str | None = None
+    trecho_codigo: str | None = None
 
 
 class CheckpointResult(BaseModel):
@@ -64,6 +73,8 @@ class Scenario(BaseModel):
 
 
 class TestReport(BaseModel):
+    __test__ = False
+
     scenario_id: str
     scenario_title: str
     profile: str

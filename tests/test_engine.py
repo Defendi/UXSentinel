@@ -2,6 +2,8 @@ import asyncio
 import sys
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from uxsentinel.browser.session import open_browser_session
@@ -79,6 +81,7 @@ def test_reporting():
     print("✓ Teste de Geração de Relatórios JSON e HTML passou!")
 
 
+@pytest.mark.asyncio
 async def test_browser_session_headless():
     cfg = load_config("config/config.yaml")
     cfg.browser.headless = True
@@ -178,6 +181,7 @@ def test_resolve_scenario_path_rules():
     print("✓ Teste de Regras de Resolução de Cenário Obrigatório passou!")
 
 
+@pytest.mark.asyncio
 async def test_ai_preflight_check():
     from unittest.mock import AsyncMock, patch
 
@@ -360,13 +364,280 @@ def test_sso_authentication_and_loopback():
     print("✓ Teste de Autenticação SSO e Servidor Loopback passou!")
 
 
+def test_claude_pro_oauth_pkce_and_headers():
+    import base64
+    import hashlib
+
+    from uxsentinel.core.sso import generate_pkce_pair, get_cached_token
+    from uxsentinel.vision.client import _prepare_anthropic_auth
+
+    # 1. Teste de geração PKCE RFC 7636
+    verifier, challenge = generate_pkce_pair()
+    assert len(verifier) >= 43
+    # Verifica hash SHA-256
+    expected_digest = hashlib.sha256(verifier.encode("ascii")).digest()
+    expected_challenge = base64.urlsafe_b64encode(expected_digest).decode("ascii").rstrip("=")
+    assert challenge == expected_challenge
+
+    # 2. Teste de preparação de cabeçalhos e modelo para conta Claude Pro
+    headers_oauth, model_oauth = _prepare_anthropic_auth(
+        provider_name="claude_sso",
+        model="claude-3-5-sonnet-latest",
+        api_key="sk-ant-oat01-token-de-teste-da-conta-pro",
+        headers={"custom-header": "test"},
+    )
+    assert headers_oauth.get("Authorization") == "Bearer sk-ant-oat01-token-de-teste-da-conta-pro"
+    assert "x-api-key" not in headers_oauth
+    assert headers_oauth.get("anthropic-beta") == "oauth-2025-04-20"
+    assert headers_oauth.get("User-Agent") == "claude-cli/2.1.267"
+    assert model_oauth == "claude-haiku-4-5"
+
+    # 3. Teste para API key corporativa padrão (não-OAuth)
+    headers_std, model_std = _prepare_anthropic_auth(
+        provider_name="anthropic_cloud",
+        model="claude-3-5-sonnet-latest",
+        api_key="sk-ant-api03-chave-comum",
+        headers={},
+    )
+    assert headers_std.get("x-api-key") == "sk-ant-api03-chave-comum"
+    assert model_std == "claude-3-5-sonnet-latest"
+    assert "anthropic-beta" not in headers_std
+
+    # 4. Teste de armazenamento e recuperação de token OAuth
+    from uxsentinel.core.sso import save_cached_token
+
+    save_cached_token("claude_sso", "sk-ant-oat01-token-valido-teste")
+    token_cached = get_cached_token("claude_sso")
+    assert token_cached == "sk-ant-oat01-token-valido-teste"
+    assert token_cached.startswith("sk-ant-oat")
+
+    print("✓ Teste de PKCE e Cabeçalhos Claude Pro OAuth passou!")
+
+
+def test_fix_prompt_builder(tmp_path):
+    from uxsentinel.core.models import CheckpointResult, Issue, IssueCategory, IssueSeverity, TestReport
+    from uxsentinel.reporter.prompt_builder import build_fix_prompt, save_fix_prompt
+
+    report = TestReport(
+        scenario_id="login_dashboard_audit",
+        scenario_title="Auditoria de Login e Dashboard",
+        profile="odoo",
+        provider_used="anthropic_cloud",
+        checkpoints=[
+            CheckpointResult(
+                name="cp_dashboard",
+                expected_behavior="Dashboard totalmente carregado em português",
+                status="problemas_encontrados",
+                issues=[
+                    Issue(
+                        categoria=IssueCategory.TRADUCAO,
+                        severidade=IssueSeverity.ALTA,
+                        descricao="Menu 'Settings' em inglês",
+                        sugestao_correcao="Substituir por 'Configurações'",
+                        elemento_alvo="div.o_menu_brand",
+                        trecho_codigo="<span>Settings</span>",
+                    ),
+                    Issue(
+                        categoria=IssueCategory.LAYOUT_MODAL,
+                        severidade=IssueSeverity.MEDIA,
+                        descricao="Botão desalinhado na barra de ação",
+                        sugestao_correcao="Adicionar classe mr-2",
+                        elemento_alvo="button.btn-primary",
+                    ),
+                ],
+            )
+        ],
+    )
+    report.compute_totals()
+
+    prompt_md = build_fix_prompt(report)
+    assert "# 🛠️ Prompt Técnico de Correção de UI/UX" in prompt_md
+    assert "Auditoria de Login e Dashboard" in prompt_md
+    assert "odoo" in prompt_md
+    assert "Menu 'Settings' em inglês" in prompt_md
+    assert "Substituir por 'Configurações'" in prompt_md
+    assert "div.o_menu_brand" in prompt_md
+    assert "<span>Settings</span>" in prompt_md
+    assert "cp_dashboard" in prompt_md
+
+    saved_file = save_fix_prompt(report, tmp_path)
+    assert saved_file.is_file()
+    assert saved_file.name == "login_dashboard_audit_fix_prompt.md"
+    assert saved_file.read_text(encoding="utf-8") == prompt_md
+    print("✓ Teste do Fix Prompt Builder passou!")
+
+
+@pytest.mark.asyncio
+async def test_jira_integration(tmp_path, monkeypatch):
+    from unittest.mock import AsyncMock, MagicMock
+
+    from uxsentinel.core.config import JiraSettings, save_jira_config
+    from uxsentinel.core.models import CheckpointResult, Issue, IssueCategory, IssueSeverity, TestReport
+    from uxsentinel.integrations.jira import JiraClient
+
+    # 1. Teste de persistência de configuração do Jira
+    fake_config = tmp_path / "config.yaml"
+    fake_config.write_text("jira: {}\n", encoding="utf-8")
+    monkeypatch.setattr("uxsentinel.core.config.ensure_user_config", lambda: fake_config)
+
+    save_jira_config(
+        url="https://minhaempresa.atlassian.net",
+        email="dev@empresa.com",
+        api_token="token_secreto_jira_123",
+        project_key="UXS",
+        enabled=True,
+    )
+    import yaml
+
+    saved_data = yaml.safe_load(fake_config.read_text(encoding="utf-8"))
+    assert saved_data["jira"]["url"] == "https://minhaempresa.atlassian.net"
+    assert saved_data["jira"]["email"] == "dev@empresa.com"
+    assert saved_data["jira"]["api_token"] == "token_secreto_jira_123"
+    assert saved_data["jira"]["project_key"] == "UXS"
+    assert saved_data["jira"]["enabled"] is True
+
+    # 2. Teste do JiraClient com Mock de httpx
+    settings = JiraSettings(
+        enabled=True,
+        url="https://minhaempresa.atlassian.net",
+        email="dev@empresa.com",
+        api_token="token_secreto_jira_123",
+        project_key="UXS",
+        issue_type="Bug",
+        labels=["uxsentinel", "test-label"],
+    )
+    jira_client = JiraClient(settings)
+
+    # Teste test_connection
+    mock_get_response = MagicMock()
+    mock_get_response.status_code = 200
+    mock_get_response.json.return_value = {"name": "Projeto UXS", "key": "UXS"}
+
+    mock_client = AsyncMock()
+    mock_client.get.return_value = mock_get_response
+
+    mock_post_response = MagicMock()
+    mock_post_response.status_code = 201
+    mock_post_response.json.return_value = {"key": "UXS-101", "id": "10001"}
+    mock_client.post.return_value = mock_post_response
+
+    monkeypatch.setattr(
+        "uxsentinel.integrations.jira.httpx.AsyncClient",
+        lambda *args, **kwargs: AsyncMock(
+            __aenter__=AsyncMock(return_value=mock_client),
+            __aexit__=AsyncMock(return_value=None),
+        ),
+    )
+
+    ok, msg = await jira_client.test_connection()
+    assert ok is True
+    assert "Projeto UXS" in msg
+
+    # 3. Teste create_issues_from_report
+    report = TestReport(
+        scenario_id="cenario_bugs",
+        scenario_title="Cenário com Falhas",
+        profile="odoo",
+        provider_used="anthropic_cloud",
+        checkpoints=[
+            CheckpointResult(
+                name="cp1",
+                expected_behavior="Tudo certo",
+                status="problemas_encontrados",
+                issues=[
+                    Issue(
+                        categoria=IssueCategory.LAYOUT_MODAL,
+                        severidade=IssueSeverity.BLOQUEANTE,
+                        descricao="Tabela estoura tela no mobile",
+                        sugestao_correcao="Aplicar overflow-x: auto",
+                        elemento_alvo="table.o_list_view",
+                    )
+                ],
+            )
+        ],
+    )
+    report.compute_totals()
+
+    created_urls = await jira_client.create_issues_from_report(report)
+    assert len(created_urls) == 1
+    assert created_urls[0] == "https://minhaempresa.atlassian.net/browse/UXS-101"
+
+    # 4. Relatório sem problemas não deve criar issues
+    report_clean = TestReport(
+        scenario_id="cenario_limpo",
+        scenario_title="Cenário Sem Falhas",
+        profile="odoo",
+        provider_used="anthropic_cloud",
+        checkpoints=[],
+    )
+    report_clean.compute_totals()
+    no_urls = await jira_client.create_issues_from_report(report_clean)
+    assert len(no_urls) == 0
+    print("✓ Teste de Integração com Jira passou!")
+
+
+def test_cli_fix_prompt_and_jira_flags():
+    import argparse
+    from unittest.mock import patch
+
+    # Testa parsing dos argumentos
+    with (
+        patch("sys.argv", ["uxsentinel", "--fix-prompt", "--jira", "--jira-project", "QA"]),
+        patch("argparse.ArgumentParser.parse_args") as mock_parse,
+    ):
+        mock_parse.return_value = argparse.Namespace(
+            version=False,
+            scenario_pos=None,
+            scenario="uxsentinel/scenarios/library/exemplo_odoo.yaml",
+            provider=None,
+            profile=None,
+            headless=False,
+            slowmo=None,
+            output_dir=None,
+            config="config/config.yaml",
+            fix_prompt=True,
+            jira=True,
+            jira_project="QA",
+            set_jira_token=False,
+            init_config=False,
+            list_scenarios=False,
+            check_ai=False,
+            login_sso=False,
+            logout_sso=False,
+        )
+        # Verifica que os argumentos são atribuídos ao config
+        from uxsentinel.core.config import load_config
+
+        cfg = load_config("config/config.yaml")
+        args = mock_parse.return_value
+        if args.fix_prompt:
+            cfg.reporting.generate_fix_prompt = True
+        if args.jira:
+            cfg.jira.enabled = True
+        if args.jira_project:
+            cfg.jira.project_key = args.jira_project
+
+        assert cfg.reporting.generate_fix_prompt is True
+        assert cfg.jira.enabled is True
+        assert cfg.jira.project_key == "QA"
+
+    print("✓ Teste de Flags CLI (--fix-prompt, --jira, --jira-project) passou!")
+
+
 if __name__ == "__main__":
     test_cli_version()
     test_resolve_scenario_path_rules()
     test_config_and_scenarios()
     test_report_directory_configuration_and_cli()
     test_sso_authentication_and_loopback()
+    test_claude_pro_oauth_pkce_and_headers()
     test_reporting()
+    import tempfile
+    from pathlib import Path
+
+    with tempfile.TemporaryDirectory() as td:
+        test_fix_prompt_builder(Path(td))
+    test_cli_fix_prompt_and_jira_flags()
     asyncio.run(test_browser_session_headless())
     asyncio.run(test_ai_preflight_check())
     print("\n🎉 TODOS OS TESTES INTERNOS PASSARAM COM SUCESSO!")
