@@ -29,6 +29,7 @@ class BaseDriver(ABC):
         self.video_path: str | None = None
         self.session: Any | None = None
         self.dom_validator: DOMValidator = DOMValidator()
+        self.telemetry: Any | None = None
 
     async def _highlight_element(self, selector: str) -> None:
         """Aplica halo visual no elemento antes da ação."""
@@ -71,6 +72,9 @@ class BaseDriver(ABC):
     async def goto(self, url: str, timeout: int = 30000) -> None:
         await self.page.goto(url, timeout=timeout)
         await self.wait_until_ready()
+        if self.telemetry:
+            with contextlib.suppress(Exception):
+                await self.telemetry.capture_performance_metrics(self.page)
 
     async def click(
         self,

@@ -17,6 +17,21 @@ description: >
 # Perfil do framework da aplicação alvo (opcional: 'generic', 'odoo', 'react_spa')
 profile: "generic"
 
+# Provedor de IA opcional para o cenário (ex: gemini_sso, claude_sso, ollama_local)
+provider: "gemini_sso"
+
+# Controle de visualização e ferramentas de inspeção
+headless: false
+devtools: false        # 'true' para abrir com o painel DevTools/Console acoplado
+video: false           # 'true' para gravar vídeo da sessão
+markdown: true         # 'true' para gerar relatório em Markdown para MarkText/Obsidian
+
+# Viewports para auditoria de responsividade (presets ou dimensões LARGURAxALTURA)
+viewports:
+  - "desktop"
+  - "tablet"
+  - "mobile"
+
 # Tags para execução seletiva via CLI (--tags smoke,clientes)
 tags:
   - "smoke"
@@ -102,6 +117,10 @@ steps:
 | `wait_modal_close` | `timeout` | Confirma o fechamento completo do modal e remoção do backdrop. |
 | `pause` | `duration` (segundos) | Pausa programada para permitir acompanhamento visual ao vivo. |
 | `checkpoint` | `name`, `expected_behavior`, `criteria` | Congela o estado, captura evidências e dispara auditoria da IA. |
+| `ai_click` | `target`, `timeout` | Clique inteligente resolvido em linguagem natural via acessibilidade e visão computacional (ex: `"botão azul de salvar"`). |
+| `ai_fill` | `target`, `value` | Localiza o campo em linguagem natural e preenche o valor indicado. |
+| `ai_assert` | `assertion` | Asserção declarativa cognitiva avaliada diretamente pelo modelo de visão multimodal. |
+| `ai_action` | `instruction` | Executa ação autônoma em linguagem natural guiada por raciocínio multimodal. |
 
 ---
 

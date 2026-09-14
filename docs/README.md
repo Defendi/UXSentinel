@@ -19,10 +19,10 @@ Os documentos abaixo fornecem o embasamento teórico, técnico e operacional do 
    Catálogo completo de heurísticas de auditoria visual: internacionalização (i18n), prevenção de vazamento de jargões técnicos e nomes de banco (`snake_case`), ergonomia e geometria de modais, integridade de regras de negócio e matriz de severidade (Bloqueante, Alta, Média, Baixa).
 
 3. **[03. Motor do Agente: Navegação Visual e Inspeção Cognitiva](03_agente_navegador_e_visao.md)**  
-   Como o agente opera em modo visual humano (`headless=False`, `slow_mo`, cursor animado e highlights de clique na tela), as diferenças entre o Modo Roteirizado (YAML) e o Modo Autônomo Exploratório, e os mecanismos de auto-estabilização de tela.
+   Como o agente opera em modo visual humano (`headless=False`, `slow_mo`, cursor animado e highlights de clique na tela), inspeção ao vivo via DevTools/Console acoplado (`--devtools`), telemetria de performance W3C (TTFB, Dom Interactive, Page Load), captura de erros de JavaScript e rede, e execução de ações semânticas.
 
 4. **[04. Especificação Declarativa de Cenários (YAML)](04_especificacao_cenarios_yaml.md)**  
-   Manual e gramática para escrita de cenários e fluxos de teste em arquivos YAML, dicionário de ações suportadas (`goto`, `click`, `fill`, `wait_modal`, etc.) e definição de checkpoints com regras de negócio em português.
+   Manual e gramática para escrita de cenários e fluxos de teste em arquivos YAML, dicionário de ações suportadas (`goto`, `click`, `fill`, `wait_modal`, `ai_click`, `ai_assert`, etc.) e definição de checkpoints com regras de negócio em português.
 
 5. **[05. Configuração Unificada de Modelos de Linguagem e Visão (LLMs)](05_configuracao_llm_e_provedores.md)**  
    Arquitetura de conexão agnóstica para inteligência artificial via `config/config.yaml`. Suporte aos três pilares: **APIs Cloud** (Anthropic Claude, OpenAI GPT-4o, Google Gemini), **Modelos Locais** (Ollama, vLLM, Qwen2-VL) e **Gateways Corporativos / SSO** com tokens e cabeçalhos customizados.
@@ -46,7 +46,8 @@ Os documentos abaixo fornecem o embasamento teórico, técnico e operacional do 
 
 ## 🎯 Pilares Estratégicos do UXSentinel
 
-- **Acompanhamento Visual ao Vivo**: O agente navega com o navegador visível na tela e velocidade humanizada, permitindo que a equipe audite visualmente a execução.
+- **Acompanhamento Visual ao Vivo & DevTools**: O agente navega com o navegador visível na tela em velocidade humanizada, com suporte a DevTools/Console acoplado e telemetria de rede e performance W3C.
 - **Universalidade Real**: Funciona com qualquer interface web, com adaptadores opcionais para frameworks complexos.
+- **Relatórios Duplos Ricos**: Gera relatórios visuais interativos em HTML e relatórios estruturados em Markdown (.md) específicos para os editores MarkText e Obsidian.
 - **Liberdade de Provedores de IA**: Alternância fluida entre APIs proprietárias na nuvem, inferência 100% local com Ollama ou gateways corporativos com SSO.
 - **Decisões Baseadas em Regras de Negócio**: Não é apenas um detector de quebras de layout, mas um validador cognitivo que confronta a tela com o que foi especificado para o fluxo.

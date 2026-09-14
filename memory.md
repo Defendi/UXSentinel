@@ -1,7 +1,7 @@
 # 🧠 UXSentinel — Memória Compactada e Operacional do Projeto
 
 > **Status do Repositório:** Ativo & Estável | **Última Atualização:** 14 de Setembro de 2026  
-> **Versão Corrente:** v1.1.2 | **Testes:** 100% Verde (`uv run pytest` — 148 testes aprovados)
+> **Versão Corrente:** v1.1.3 | **Testes:** 100% Verde (`uv run pytest` — 161 testes aprovados)
 
 ---
 
@@ -54,16 +54,18 @@ UXSentinel/
 │   ├── 10_estado_atual_inventario_e_riscos.md
 │   └── README.md
 ├── scenarios/                   # Cenários de teste guiados (YAML)
-├── tests/                       # Suíte de testes automatizados (144 testes herméticos)
+├── tests/                       # Suíte de testes automatizados (161 testes herméticos)
 │   ├── test_axe_core.py         # Testes do motor axe-core (WCAG 2.2 e A11y Score)
 │   ├── test_cli_display_mode.py # Testes de modo Headed / Headless e precedência CLI/YAML/Config
 │   ├── test_engine.py           # Testes do motor principal, cenários e relatórios
 │   ├── test_high_precision_mechanisms.py # Testes do Árbitro Reverso, Allowlist i18n, SoM e DOM
+│   ├── test_markdown_builder.py # Testes unitários do gerador Markdown para MarkText e resolução CLI
 │   ├── test_mixture_of_evaluators.py     # Testes dos 4 avaliadores especializados e orquestrador
 │   ├── test_multi_viewport.py   # Testes de matriz multi-viewport (Desktop, Tablet, Mobile)
 │   ├── test_self_healing.py     # Testes de autocura de seletores via acessibilidade e visão
 │   ├── test_semantic_actions.py # Testes de ações em linguagem natural (ai_click, ai_fill, ai_assert)
 │   ├── test_sso.py              # Testes do fluxo PKCE, troca de código e renovação OAuth
+│   ├── test_telemetry_console.py# Testes de telemetria de console Chromium, W3C Navigation e DevTools
 │   ├── test_video_recording.py  # Testes de gravação de vídeo, geração de GIF e anexos Jira
 │   └── test_visual_baseline.py  # Testes de baseline visual, slider antes/depois e diffs
 ├── uxsentinel/                  # Código-fonte Python principal
@@ -72,6 +74,7 @@ UXSentinel/
 │   ├── assets/                  # Logos e recursos visuais embutidos
 │   ├── browser/                 # Driver de automação Playwright
 │   │   ├── session.py           # BrowserSession (ciclo de vida, navegação, screenshots)
+│   │   ├── telemetry.py         # BrowserTelemetryCollector (coleta de console, rede e W3C timing)
 │   │   ├── healing.py           # SelectorHealer (recuperação por acessibilidade e visão LMM)
 │   │   ├── visual_overlay.py    # Cursor simulado e feedback visual de cliques
 │   │   └── drivers/             # Especialização por framework (base_driver, generic_driver, odoo_driver)
@@ -85,6 +88,7 @@ UXSentinel/
 │   ├── reporter/                # Geradores de relatórios e artefatos
 │   │   ├── html_builder.py      # Relatório HTML interativo autocontido com anotações
 │   │   ├── json_builder.py      # Exportação de dados estruturados
+│   │   ├── markdown_builder.py  # Relatório Markdown estruturado compatível com MarkText e Obsidian
 │   │   └── prompt_builder.py    # Gerador de prompts Markdown prontos para correção por IA
 │   ├── scenarios/               # Motor de cenários YAML
 │   │   ├── parser.py            # Validador e parser sintático de cenários

@@ -11,6 +11,12 @@ except ImportError:
 
 from pydantic import BaseModel, Field
 
+from uxsentinel.browser.telemetry import (
+    ConsoleLogEntry,
+    NetworkFailureEntry,
+    PagePerformanceMetrics,
+)
+
 
 class IssueSeverity(StrEnum):
     BLOQUEANTE = "bloqueante"
@@ -221,6 +227,9 @@ class CheckpointResult(BaseModel):
     a11y_score: float | None = None
     a11y_violations: list[AxeViolation] = Field(default_factory=list)
     visual_diff: VisualDiffResult | None = None
+    console_logs: list[ConsoleLogEntry] = Field(default_factory=list)
+    network_failures: list[NetworkFailureEntry] = Field(default_factory=list)
+    performance_metrics: PagePerformanceMetrics | None = None
 
 
 class SemanticStrategy(StrEnum):
@@ -274,8 +283,10 @@ class Scenario(BaseModel):
     tags: list[str] = Field(default_factory=list)
     env: dict[str, str] = Field(default_factory=dict)
     headless: bool | None = None
+    devtools: bool | None = None
     video: bool | None = None
     axe: bool | None = None
+    markdown: bool | None = None
     update_baseline: bool | None = None
     baseline_dir: str | None = None
     diff_threshold: float | None = None
@@ -288,8 +299,8 @@ class TestReport(BaseModel):
 
     scenario_id: str
     scenario_title: str
-    profile: str
-    provider_used: str
+    profile: str = "generic"
+    provider_used: str = "default"
     started_at: datetime = Field(default_factory=datetime.now)
     finished_at: datetime | None = None
     duration_seconds: float = 0.0
@@ -299,6 +310,7 @@ class TestReport(BaseModel):
     semantic_steps: list[SemanticStepResult] = Field(default_factory=list)
     video_path: str | None = None
     gif_path: str | None = None
+    markdown_path: str | None = None
     viewports_tested: list[str] = Field(default_factory=list)
     total_issues: int = 0
     total_bloqueantes: int = 0
@@ -307,6 +319,12 @@ class TestReport(BaseModel):
     total_baixas: int = 0
     a11y_score: float | None = None
     a11y_violations: list[AxeViolation] = Field(default_factory=list)
+    console_logs: list[ConsoleLogEntry] = Field(default_factory=list)
+    network_failures: list[NetworkFailureEntry] = Field(default_factory=list)
+    performance_metrics: PagePerformanceMetrics | None = None
+    performance_history: list[PagePerformanceMetrics] = Field(default_factory=list)
+    total_console_errors: int = 0
+    total_console_warnings: int = 0
     success: bool = True
     error_message: str | None = None
 
@@ -348,6 +366,10 @@ class TestReport(BaseModel):
             from uxsentinel.browser.axe_runner import calculate_a11y_score
 
             self.a11y_score = calculate_a11y_score(all_violations)
+
+        # Consolida erros e avisos de console
+        self.total_console_errors = sum(1 for log in self.console_logs if log.type in ("error", "critical"))
+        self.total_console_warnings = sum(1 for log in self.console_logs if log.type in ("warn", "warning"))
 
         if has_bloqueante_or_alta or self.error_message:
             self.success = False

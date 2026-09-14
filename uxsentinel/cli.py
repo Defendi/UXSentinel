@@ -12,7 +12,9 @@ from uxsentinel.core.config import (
     load_config,
     resolve_axe_mode,
     resolve_baseline_mode,
+    resolve_devtools_mode,
     resolve_display_mode,
+    resolve_markdown_mode,
     resolve_video_mode,
     resolve_viewports,
 )
@@ -176,6 +178,12 @@ visível na tela e inspecionando cada checkpoint com Inteligência Artificial Mu
   uxsentinel                                           # Executa o cenário único em ./scenarios/
   uxsentinel -s scenarios/fluxo_vendas.yaml            # Executa um cenário específico
   uxsentinel scenarios/fluxo_vendas.yaml               # Executa passando o cenário como argumento direto
+  uxsentinel -s scenarios/teste.yaml --devtools        # Inspeciona ao vivo com DevTools/Console Chromium acoplado
+  uxsentinel -s scenarios/teste.yaml --md              # Gera relatório em Markdown (.md) para MarkText e Obsidian
+  uxsentinel -s scenarios/teste.yaml --viewports desktop,tablet,mobile # Auditoria de responsividade multi-viewport
+  uxsentinel -s scenarios/teste.yaml --update-baseline # Homologa e atualiza a baseline visual de referência
+  uxsentinel -s scenarios/teste.yaml --video           # Grava a sessão completa de navegação em vídeo
+  uxsentinel -s scenarios/teste.yaml --axe             # Executa auditoria de acessibilidade Axe-Core WCAG 2.2
   uxsentinel -s scenarios/teste.yaml -p gemini_sso     # Executa com Google Gemini via SSO
   uxsentinel -s scenarios/teste.yaml -p claude_sso     # Executa com Anthropic Claude via SSO
   uxsentinel -s scenarios/teste.yaml -p ollama_local  # Executa com IA 100% local (Ollama)
@@ -248,6 +256,24 @@ Documentação completa: https://github.com/Defendi/UXSentinel""",
         action="store_false",
         default=None,
         help="Força abertura visual da janela do Chromium mesmo se o cenário/config indicar headless.",
+    )
+    devtools_group = parser.add_mutually_exclusive_group()
+    devtools_group.add_argument(
+        "--devtools",
+        "--console",
+        "--inspect",
+        dest="devtools",
+        action="store_true",
+        default=None,
+        help="Abre o navegador Chromium com o painel DevTools / Console acoplado para inspeção ao vivo de logs, erros e rede.",
+    )
+    devtools_group.add_argument(
+        "--no-devtools",
+        "--no-console",
+        dest="devtools",
+        action="store_false",
+        default=None,
+        help="Desativa a abertura automática da janela do DevTools do Chromium.",
     )
     video_group = parser.add_mutually_exclusive_group()
     video_group.add_argument(
@@ -337,6 +363,24 @@ Documentação completa: https://github.com/Defendi/UXSentinel""",
         action="store_true",
         dest="fix_prompt",
         help="Gera um documento Markdown com prompt técnico de correção para agentes de IA (Claude Code, Cursor, Copilot).",
+    )
+    markdown_group = parser.add_mutually_exclusive_group()
+    markdown_group.add_argument(
+        "--markdown",
+        "--md",
+        "--report-md",
+        dest="markdown",
+        action="store_true",
+        default=None,
+        help="Gera relatório de auditoria em documento Markdown (.md) formatado para o editor MarkText e Obsidian.",
+    )
+    markdown_group.add_argument(
+        "--no-markdown",
+        "--no-md",
+        dest="markdown",
+        action="store_false",
+        default=None,
+        help="Desativa a geração do relatório de auditoria em Markdown.",
     )
     parser.add_argument(
         "--jira",
@@ -622,6 +666,31 @@ Documentação completa: https://github.com/Defendi/UXSentinel""",
         config_update_baseline=cfg.baseline.update_baseline,
     )
 
+    # Hierarquia de resolução do Relatório Markdown (MarkText/Obsidian):
+    # 1. CLI flag (--markdown / --md / --report-md vs --no-markdown / --no-md)
+    # 2. Cenário YAML (campo 'markdown')
+    # 3. Config global (ReportingSettings.generate_markdown)
+    # 4. Fallback padrão: False
+    cfg.reporting.generate_markdown = resolve_markdown_mode(
+        cli_markdown=args.markdown,
+        scenario_markdown=scenario.markdown,
+        config_markdown=cfg.reporting.generate_markdown,
+    )
+
+    # Hierarquia de resolução do DevTools / Console do Chromium:
+    # 1. CLI flag (--devtools / --console / --inspect vs --no-devtools)
+    # 2. Cenário YAML (campo 'devtools')
+    # 3. Config global (BrowserSettings.devtools)
+    # 4. Fallback padrão: False
+    cfg.browser.devtools = resolve_devtools_mode(
+        cli_devtools=args.devtools,
+        scenario_devtools=scenario.devtools,
+        config_devtools=cfg.browser.devtools,
+    )
+    if cfg.browser.devtools:
+        # DevTools requer modo com janela visível
+        cfg.browser.headless = False
+
     agent = UXSentinelAgent(
         cfg,
         headless_override=args.headless,
@@ -631,12 +700,16 @@ Documentação completa: https://github.com/Defendi/UXSentinel""",
         update_baseline_override=args.update_baseline,
         baseline_dir_override=args.baseline_dir,
         diff_threshold_override=args.diff_threshold,
+        markdown_override=args.markdown,
+        devtools_override=args.devtools,
     )
     report = await agent.run_scenario(
         scenario,
         update_baseline_override=args.update_baseline,
         baseline_dir_override=args.baseline_dir,
         diff_threshold_override=args.diff_threshold,
+        markdown_override=args.markdown,
+        devtools_override=args.devtools,
     )
 
     return 0 if report.success else 1

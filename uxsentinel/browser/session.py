@@ -11,6 +11,7 @@ from playwright.async_api import Browser, BrowserContext, Page, async_playwright
 from uxsentinel.browser.drivers.base_driver import BaseDriver
 from uxsentinel.browser.drivers.generic_driver import GenericDriver
 from uxsentinel.browser.drivers.odoo_driver import OdooDriver
+from uxsentinel.browser.telemetry import BrowserTelemetryCollector
 from uxsentinel.browser.visual_overlay import OVERLAY_INJECTION_SCRIPT
 from uxsentinel.core.config import BrowserSettings
 from uxsentinel.core.models import ViewportConfig
@@ -31,6 +32,8 @@ class BrowserSession:
         record_video: bool | None = None,
         record_video_dir: str | None = None,
         initial_viewport: ViewportConfig | None = None,
+        devtools: bool | None = None,
+        capture_console: bool | None = None,
     ):
         updates: dict[str, object] = {}
         if headless is not None:
@@ -42,10 +45,19 @@ class BrowserSession:
         if initial_viewport is not None:
             updates["viewport_width"] = initial_viewport.width
             updates["viewport_height"] = initial_viewport.height
+        if devtools is not None:
+            updates["devtools"] = devtools
+        if capture_console is not None:
+            updates["capture_console"] = capture_console
+
+        # O DevTools do Chromium exige modo headed (headless=False)
+        if updates.get("devtools") or (settings.devtools and updates.get("devtools") is not False):
+            updates["headless"] = False
 
         self.settings = settings.model_copy(update=updates) if updates else settings
         self.profile = profile.lower().strip()
         self.healer = healer
+        self.telemetry = BrowserTelemetryCollector(capture_console=self.settings.capture_console)
         self.playwright = None
         self.browser: Browser | None = None
         self.context: BrowserContext | None = None
@@ -55,10 +67,14 @@ class BrowserSession:
 
     async def start(self) -> BaseDriver:
         self.playwright = await async_playwright().start()
-        self.browser = await self.playwright.chromium.launch(
-            headless=self.settings.headless,
-            slow_mo=self.settings.slow_mo_ms,
-        )
+        launch_kwargs: dict[str, object] = {
+            "headless": False if self.settings.devtools else self.settings.headless,
+            "slow_mo": self.settings.slow_mo_ms,
+        }
+        if self.settings.devtools:
+            launch_kwargs["devtools"] = True
+
+        self.browser = await self.playwright.chromium.launch(**launch_kwargs)
 
         context_kwargs: dict[str, object] = {
             "viewport": {
@@ -83,6 +99,9 @@ class BrowserSession:
         self.context = await self.browser.new_context(**context_kwargs)
         self.page = await self.context.new_page()
 
+        # Atacha o coletor de telemetria e console à página
+        self.telemetry.attach(self.page)
+
         # Injeta os estilos e scripts de feedback visual em todas as páginas
         if self.settings.highlight_clicks:
             await self.page.add_init_script(OVERLAY_INJECTION_SCRIPT)
@@ -94,6 +113,7 @@ class BrowserSession:
             self.driver = GenericDriver(self.page, highlight_clicks=self.settings.highlight_clicks)
 
         self.driver.session = self
+        self.driver.telemetry = self.telemetry
 
         if self.healer:
             self.driver.healer = self.healer
@@ -144,6 +164,8 @@ async def open_browser_session(
     record_video: bool | None = None,
     record_video_dir: str | None = None,
     initial_viewport: ViewportConfig | None = None,
+    devtools: bool | None = None,
+    capture_console: bool | None = None,
 ) -> AsyncGenerator[BaseDriver, None]:
     session = BrowserSession(
         settings,
@@ -153,6 +175,8 @@ async def open_browser_session(
         record_video=record_video,
         record_video_dir=record_video_dir,
         initial_viewport=initial_viewport,
+        devtools=devtools,
+        capture_console=capture_console,
     )
     driver = await session.start()
     try:

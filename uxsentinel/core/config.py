@@ -36,6 +36,8 @@ def _interpolate_env_vars(raw_text: str) -> str:
 
 class BrowserSettings(BaseModel):
     headless: bool = False
+    devtools: bool = False
+    capture_console: bool = True
     slow_mo_ms: int = 350
     viewport_width: int = 1440
     viewport_height: int = 900
@@ -56,6 +58,26 @@ class BrowserSettings(BaseModel):
             "wcag22aa",
         ]
     )
+
+
+def resolve_devtools_mode(
+    cli_devtools: bool | None = None,
+    scenario_devtools: bool | None = None,
+    config_devtools: bool | None = None,
+) -> bool:
+    """Resolve se a aba DevTools/Console do Chromium deve ser aberta:
+    1. CLI flag (--devtools / --console / --inspect vs --no-devtools)
+    2. Cenário YAML (campo 'devtools')
+    3. Config global (BrowserSettings.devtools)
+    4. Fallback padrão: False
+    """
+    if cli_devtools is not None:
+        return cli_devtools
+    if scenario_devtools is not None:
+        return scenario_devtools
+    if config_devtools is not None:
+        return config_devtools
+    return False
 
 
 def resolve_video_mode(
@@ -118,10 +140,31 @@ def resolve_axe_mode(
     return True
 
 
+def resolve_markdown_mode(
+    cli_markdown: bool | None = None,
+    scenario_markdown: bool | None = None,
+    config_markdown: bool | None = None,
+) -> bool:
+    """Resolve se o relatório Markdown formatado para MarkText deve ser gerado:
+    1. CLI flag (--markdown / --md vs --no-markdown)
+    2. Cenário YAML (campo 'markdown')
+    3. Config global (ReportingSettings.generate_markdown)
+    4. Fallback padrão: False
+    """
+    if cli_markdown is not None:
+        return cli_markdown
+    if scenario_markdown is not None:
+        return scenario_markdown
+    if config_markdown is not None:
+        return config_markdown
+    return False
+
+
 class ReportingSettings(BaseModel):
     output_dir: str = "scenarios/report"
     generate_html: bool = True
     generate_json: bool = True
+    generate_markdown: bool = False
     save_screenshots: bool = True
     generate_fix_prompt: bool = False
 
@@ -647,7 +690,9 @@ __all__ = [
     "parse_viewport_spec",
     "parse_viewports",
     "resolve_axe_mode",
+    "resolve_devtools_mode",
     "resolve_display_mode",
+    "resolve_markdown_mode",
     "resolve_video_mode",
     "resolve_viewports",
     "save_jira_config",

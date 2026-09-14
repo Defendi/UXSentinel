@@ -37,21 +37,27 @@ uxsentinel --help
 ## 🌟 Principais Recursos
 
 - **Acompanhamento Visual ao Vivo (Human-in-the-Loop)**: O navegador abre na sua tela (`headless: false`) com ritmo humano (`slow_mo`) e efeitos visuais animados (cursor virtual e halo luminoso no elemento clicado ou focado).
+- **Inspeção de Console e DevTools Chromium Acoplado**: Abra a janela do navegador com o painel DevTools / Console ativado (`--devtools`) para auditoria ao vivo de erros JavaScript (`console.error`), avisos (`warn`), exceções não capturadas e falhas de rede HTTP (status 4xx e 5xx).
+- **Telemetria de Performance W3C**: Mede com precisão métricas reais de carregamento via W3C Navigation Timing API (TTFB, Dom Interactive, Page Load time e tamanho transferido da página).
 - **Universalidade Real com Perfis de Framework**:
   - Perfil **`generic`**: Opera sobre qualquer aplicação web baseada em HTML5 padrão.
   - Perfil **`odoo`**: Especializado em ecossistemas Odoo (versões 16 a 19 e OWL Framework), com sincronização inteligente com o loader `.o_loading`, detecção de modais `.o_dialog` e captura de erros silenciosos.
-- **Navegação Declarativa em YAML**: Escreva cenários de teste e proteja regras de negócio críticas sem precisar programar em código Playwright complexo.
-- **Auditoria Rigorosa por IA (Validação Reversa e Ceticismo Metódico)**:
-  - 🌐 **Internacionalização (i18n)**: Detecta botões, mensagens, abas e labels em inglês em telas brasileiras.
-  - 🚫 **Vazamento Técnico**: Identifica identificadores de banco em `snake_case` (ex: `user_id`, `created_at`), IDs crus, prefixos de framework (`x_studio_`) e stacktraces.
-  - 📐 **Geometria de Modais**: Avalia centralização, botões de ação cortados no rodapé e quebras de viewport.
-  - 📋 **Regras de Negócio**: Compara o comportamento esperado descrito no teste com o que está sendo exibido na tela.
-  - ♿ **Ergonomia e Anti-Patterns**: Alerta sobre contrastes deficientes (WCAG 4.5:1), sobreposições e botões sem rótulos.
-- **Inteligência Artificial Flexível**: Alternância transparente via `config/config.yaml` entre:
+- **Navegação Declarativa e Ações Semânticas em YAML**: Escreva cenários de teste sem código Playwright complexo e use ações cognitivas em linguagem natural como `ai_click`, `ai_fill` e `ai_assert` com auto-recuperação (*Self-Healing*).
+- **Auditoria Rigorosa por IA (Mixture of Evaluators & Árbitro Reverso)**:
+  - 🌐 **Linguist Agent (i18n)**: Detecta botões, mensagens, abas e labels em inglês em telas brasileiras, respeitando glossário corporativo.
+  - 🚫 **Leakage Sentinel**: Identifica identificadores de banco em `snake_case` (ex: `user_id`, `created_at`), IDs crus, prefixos de framework (`x_studio_`) e stacktraces.
+  - 📐 **Layout & Modal Agent**: Avalia centralização, botões de ação cortados no rodapé, overflow e quebras de viewport.
+  - 📋 **Domain QA Agent**: Valida cognitivamente o comportamento de negócio esperado contra o que está visível.
+  - ⚖️ **Devil's Advocate Arbiter**: Árbitro reverso que desafia apontamentos críticos para garantir assertividade acima de 95% e eliminação de falsos positivos.
+- **Baseline Visual com Slider Comparativo (Antes vs Depois)**: Detecção automática de regressões visuais pixel a pixel com componente interativo split-view deslizante (estilo Percy/Applitools) e atualização rápida com `--update-baseline`.
+- **Auditoria de Acessibilidade com Axe-Core (WCAG 2.2 AA)**: Motor determinístico Axe-Core integrado (`--axe`) com cálculo de *A11y Score* (0 a 100%) e catálogo de violações com nós DOM afetados.
+- **Auditoria de Responsividade Multi-Viewport**: Teste em matriz de resoluções (`--viewports desktop,tablet,mobile` ou customizadas como `1920x1080`) com filtros no relatório.
+- **Gravação Nativa de Sessão em Vídeo e GIF**: Gravação integral da navegação em vídeo (`--video`) com player HTML5 acoplado e anexo automático no Jira.
+- **Inteligência Artificial Flexível**: Alternância transparente via CLI (`-p`) ou `config.yaml` entre:
   - **APIs Cloud**: Anthropic Claude, OpenAI GPT-4o, Google Gemini.
   - **Modelos Locais (On-Premise)**: Ollama com Qwen2-VL ou LLaVA (privacidade total sem envio para nuvens externas).
   - **Gateways Corporativos com SSO**: Proxies com tokens corporativos e headers customizados.
-- **Relatórios Visuais Ricos**: Gera um dashboard HTML moderno e responsivo com screenshots em alta resolução, badges de severidade e sugestões acionáveis de correção.
+- **Relatórios Duplos Ricos**: Gera tanto o Dashboard HTML interativo quanto o documento Markdown (`.md`) formatado e alinhado especificamente para os editores **MarkText** e **Obsidian**.
 - **Padrão PyPI & PEPs**: Estruturado conforme PEP 517/518/621 no `pyproject.toml`, utilizando Python 3.12 nativo e formatado via Ruff.
 
 ---
@@ -434,6 +440,81 @@ uxsentinel --logout-sso
 ### 10. Executar em Background / Modo Headless (Esteiras CI/CD)
 ```bash
 uxsentinel -s scenarios/meu_cenario.yaml --headless
+# Ou utilizando os aliases equivalentes:
+uxsentinel -s scenarios/meu_cenario.yaml --no-gui
+```
+
+### 11. Inspecionar ao Vivo com DevTools / Console do Chromium Acoplado (`--devtools`)
+Quando você precisa depurar erros de JavaScript, avisos, exceções não tratadas ou falhas de requisições HTTP (4xx e 5xx), ative o DevTools acoplado ao navegador:
+```bash
+uxsentinel -s scenarios/meu_cenario.yaml --devtools
+# Ou utilizando os aliases equivalentes:
+uxsentinel -s scenarios/meu_cenario.yaml --console
+uxsentinel -s scenarios/meu_cenario.yaml --inspect
+```
+*(O agente inicia o Chromium com o painel de desenvolvedor aberto e coleta automaticamente todos os logs da aplicação, falhas de endpoints e métricas de carregamento W3C Navigation Timing)*.
+
+### 12. Gerar Relatório em Markdown para MarkText e Obsidian (`--md` / `--markdown`)
+Gera um documento `.md` puro, perfeitamente compatível com o editor visual **MarkText** e o **Obsidian**:
+```bash
+uxsentinel -s scenarios/meu_cenario.yaml --md
+# Ou:
+uxsentinel -s scenarios/meu_cenario.yaml --markdown
+```
+*(O arquivo gerado em `scenarios/report/<id>_report.md` contém tabelas GFM alinhadas, badges visuais, tabela de métricas W3C, logs de console e violações WCAG 2.2 formatadas em pt-BR).*
+
+### 13. Auditoria de Responsividade Multi-Viewport (`--viewports`)
+Valide a responsividade da sua aplicação em múltiplos dispositivos e resoluções na mesma execução:
+```bash
+# Executa nos presets Desktop (1440x900), Tablet (768x1024) e Mobile (375x812):
+uxsentinel -s scenarios/meu_cenario.yaml --viewports desktop,tablet,mobile
+
+# Ou com resoluções customizadas no formato LARGURAxALTURA:
+uxsentinel -s scenarios/meu_cenario.yaml --viewports 1920x1080,1280x720,375x812
+```
+
+### 14. Baseline Visual com Slider Comparativo Antes vs Depois (`--update-baseline`)
+Para proteger telas contra qualquer quebra acidental de layout, aprove ou compare capturas com a baseline de referência:
+```bash
+# 1. Homologar e salvar os screenshots atuais como nova referência visual (baseline):
+uxsentinel -s scenarios/meu_cenario.yaml --update-baseline
+
+# 2. Em execuções seguintes, o agente compara pixel a pixel automaticamente:
+uxsentinel -s scenarios/meu_cenario.yaml
+
+# 3. É possível ajustar o limiar percentual de tolerância visual (padrão: 0.1%):
+uxsentinel -s scenarios/meu_cenario.yaml --diff-threshold 0.5
+```
+*(No relatório HTML, um componente interativo split-view slider estilo Percy/Applitools permite arrastar a barra divisória para comparar a imagem de referência contra a tela atual).*
+
+### 15. Gravação Integral da Sessão em Vídeo (`--video`)
+Grave um vídeo completo de toda a navegação do agente para apresentações, evidências ou compliance:
+```bash
+uxsentinel -s scenarios/meu_cenario.yaml --video
+```
+*(O vídeo em formato `.webm` é salvo no diretório de relatórios e disponibilizado em um player HTML5 no topo do dashboard).*
+
+### 16. Auditoria de Acessibilidade com Axe-Core WCAG 2.2 AA (`--axe`)
+Execute uma varredura determinística de acessibilidade web de padrão mundial:
+```bash
+uxsentinel -s scenarios/meu_cenario.yaml --axe
+```
+*(Mede o A11y Score de 0 a 100% e cataloga violações de contraste, atributos aria, rótulos e estrutura de tags).*
+
+### 17. Integração e Abertura Automática de Cards no Jira (`--jira`)
+Crie cards/issues automaticamente no Jira para inconformidades encontradas durante o teste:
+```bash
+# Configuração interativa de credenciais e URL do Jira:
+uxsentinel --set-jira-token
+
+# Executar criando cards no projeto especificado:
+uxsentinel -s scenarios/meu_cenario.yaml --jira --jira-project PROJ
+```
+
+### 18. Gerar Prompt de Correção para IAs (`--fix-prompt`)
+Gera um documento Markdown contendo instruções técnicas prontas para colar em ferramentas como Claude Code, Cursor ou Copilot:
+```bash
+uxsentinel -s scenarios/meu_cenario.yaml --fix-prompt
 ```
 
 ---
@@ -493,6 +574,9 @@ steps:
 - `wait_modal_close`: Aguarda o fechamento completo do modal.
 - `pause`: Pausa temporária em segundos para visualização.
 - `checkpoint`: Ponto de inspeção visual, captura de tela e julgamento pela IA.
+- `ai_click`: Clique inteligente resolvido por acessibilidade e visão em linguagem natural com auto-recuperação (ex: `ai_click: "o botão azul de salvar"`).
+- `ai_fill`: Preenchimento semântico em linguagem natural (ex: `ai_fill: "campo de e-mail do cliente", value: "admin@empresa.com"`).
+- `ai_assert`: Asserção declarativa visual avaliada cognitivamente pelo modelo multimodal.
 
 ---
 
@@ -501,13 +585,24 @@ steps:
 Ao término de cada execução, os resultados são salvos no diretório configurado (padrão: `scenarios/report/` ou no caminho passado via `-o` / `--report-dir`):
 
 1. **Dashboard Visual HTML (`scenarios/report/<id>_report.html`)**:
-   - Página interativa e independente com galeria de capturas de tela.
-   - Detalhamento de cada checkpoint com descrição do comportamento esperado.
-   - Lista categorizada de inconformidades visuais com badges de severidade (**Bloqueante**, **Alta**, **Média**, **Baixa**).
-   - Recomendações acionáveis de correção para o time de desenvolvimento.
-2. **Relatório Estruturado JSON (`scenarios/report/<id>_report.json`)**:
-   - Contém métricas brutas, timestamps, contagem de falhas e logs para fácil integração com esteiras de CI/CD (GitHub Actions, GitLab CI, Jenkins).
-3. **Screenshots em Alta Resolução (`scenarios/report/<id>_<checkpoint>.png`)**:
+   - Página interativa independente e responsiva com galeria de capturas de tela.
+   - Painel de telemetria W3C: Tempos de carregamento (TTFB, Dom Interactive, Page Load) e tamanho transferido.
+   - Painel de Console & Rede: Logs de JavaScript (`error`, `warn`, `info`) e falhas de requisição HTTP (status 4xx/5xx).
+   - Componente interativo split-view slider "Antes vs Depois" para comparação de baseline visual.
+   - Player de vídeo HTML5 integrado para reprodução da sessão gravada.
+   - Gauge e catálogo completo de acessibilidade Axe-Core (WCAG 2.2 AA).
+   - Detalhamento de cada checkpoint com categorização de severidade (**Bloqueante**, **Alta**, **Média**, **Baixa**) e recomendações acionáveis.
+2. **Relatório em Markdown Puro para MarkText e Obsidian (`scenarios/report/<id>_report.md`)**:
+   - Formatado estritamente para os editores **MarkText** e **Obsidian**.
+   - Tabelas CommonMark/GFM alinhadas com cabeçalhos estruturados.
+   - Seção dedicada de Telemetria de Carregamento W3C e Console Logs.
+   - Catálogo de acessibilidade WCAG 2.2 formatado em português.
+   - Imagens de checkpoints e evidências visuais referenciadas com caminhos relativos portáveis.
+3. **Gravação de Vídeo da Sessão (`scenarios/report/videos/<id>_session.webm`)**:
+   - Arquivo de vídeo completo reproduzindo todo o percurso e interações do agente.
+4. **Relatório Estruturado JSON (`scenarios/report/<id>_report.json`)**:
+   - Contém métricas brutas, timestamps, contagem de falhas e telemetria para fácil integração com esteiras de CI/CD (GitHub Actions, GitLab CI, Jenkins).
+5. **Screenshots em Alta Resolução (`scenarios/report/<id>_<checkpoint>.png`)**:
    - Imagens completas capturadas no momento exato de cada checkpoint.
 
 ---

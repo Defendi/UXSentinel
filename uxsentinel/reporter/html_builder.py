@@ -399,6 +399,24 @@ HTML_TEMPLATE = """
                 <div class="metric-label">Ações Semânticas (IA)</div>
             </div>
             {% endif %}
+            {% if report.total_console_errors > 0 %}
+            <div class="metric-card" style="color: #f87171; border: 1px solid rgba(248, 113, 113, 0.3);">
+                <div class="metric-val">{{ report.total_console_errors }}</div>
+                <div class="metric-label">Erros Console (JS)</div>
+            </div>
+            {% endif %}
+            {% if report.total_console_warnings > 0 %}
+            <div class="metric-card" style="color: #fbbf24;">
+                <div class="metric-val">{{ report.total_console_warnings }}</div>
+                <div class="metric-label">Avisos Console (JS)</div>
+            </div>
+            {% endif %}
+            {% if report.performance_metrics and report.performance_metrics.load_time_ms > 0 %}
+            <div class="metric-card" style="color: #38bdf8;">
+                <div class="metric-val">{{ "%.0f"|format(report.performance_metrics.load_time_ms) }}ms</div>
+                <div class="metric-label">Load (TTFB {{ "%.0f"|format(report.performance_metrics.ttfb_ms) }}ms)</div>
+            </div>
+            {% endif %}
         </div>
 
         {% if video_rel_path or gif_rel_path %}
@@ -531,6 +549,98 @@ HTML_TEMPLATE = """
                     {% endfor %}
                 </div>
             </div>
+        </div>
+        {% endif %}
+
+        {% if report.console_logs or report.network_failures or report.performance_metrics %}
+        <div class="checkpoint-card" style="border-left: 4px solid #06b6d4;">
+            <div class="checkpoint-header">
+                <div class="checkpoint-title">🖥️ Diagnósticos da Aplicação: Console Chromium & Performance (W3C)</div>
+                <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                    {% if report.total_console_errors > 0 %}
+                        <span class="badge badge-danger">{{ report.total_console_errors }} Erro(s) JS</span>
+                    {% endif %}
+                    {% if report.total_console_warnings > 0 %}
+                        <span class="badge badge-warning">{{ report.total_console_warnings }} Aviso(s) JS</span>
+                    {% endif %}
+                    {% if report.network_failures %}
+                        <span class="badge badge-danger">{{ report.network_failures|length }} Falha(s) Rede</span>
+                    {% endif %}
+                </div>
+            </div>
+
+            {% if report.performance_metrics %}
+            <div style="margin-top: 1rem;">
+                <div style="font-weight: 600; font-size: 0.95rem; color: #38bdf8; margin-bottom: 0.6rem;">⚡ Métricas de Navegação e Carregamento (W3C Navigation Timing):</div>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 0.75rem; margin-bottom: 1.25rem;">
+                    <div style="background: rgba(0,0,0,0.25); border: 1px solid var(--border); border-radius: 8px; padding: 0.75rem; text-align: center;">
+                        <div style="font-size: 1.3rem; font-weight: 700; color: #38bdf8;">{{ "%.0f"|format(report.performance_metrics.load_time_ms) }} ms</div>
+                        <div style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase;">Page Load Total</div>
+                    </div>
+                    <div style="background: rgba(0,0,0,0.25); border: 1px solid var(--border); border-radius: 8px; padding: 0.75rem; text-align: center;">
+                        <div style="font-size: 1.3rem; font-weight: 700; color: #34d399;">{{ "%.0f"|format(report.performance_metrics.ttfb_ms) }} ms</div>
+                        <div style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase;">Time to First Byte (TTFB)</div>
+                    </div>
+                    <div style="background: rgba(0,0,0,0.25); border: 1px solid var(--border); border-radius: 8px; padding: 0.75rem; text-align: center;">
+                        <div style="font-size: 1.3rem; font-weight: 700; color: #fbbf24;">{{ "%.0f"|format(report.performance_metrics.dom_interactive_ms) }} ms</div>
+                        <div style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase;">DOM Interactive</div>
+                    </div>
+                    <div style="background: rgba(0,0,0,0.25); border: 1px solid var(--border); border-radius: 8px; padding: 0.75rem; text-align: center;">
+                        <div style="font-size: 1.3rem; font-weight: 700; color: #cbd5e1;">{{ "%.0f"|format(report.performance_metrics.dns_time_ms) }} ms</div>
+                        <div style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase;">DNS Lookup</div>
+                    </div>
+                    <div style="background: rgba(0,0,0,0.25); border: 1px solid var(--border); border-radius: 8px; padding: 0.75rem; text-align: center;">
+                        <div style="font-size: 1.3rem; font-weight: 700; color: #cbd5e1;">{{ "%.0f"|format(report.performance_metrics.tcp_time_ms) }} ms</div>
+                        <div style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase;">TCP / SSL Connect</div>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+
+            {% if report.network_failures %}
+            <div style="margin-top: 1rem;">
+                <div style="font-weight: 600; font-size: 0.95rem; color: #f87171; margin-bottom: 0.6rem;">🌐 Requisições de Rede com Falha (HTTP):</div>
+                <div style="background: rgba(0,0,0,0.3); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 8px; overflow-x: auto;">
+                    <table style="width: 100%; border-collapse: collapse; font-size: 0.85rem; text-align: left;">
+                        <thead>
+                            <tr style="background: rgba(239, 68, 68, 0.1); border-bottom: 1px solid var(--border);">
+                                <th style="padding: 0.6rem 0.8rem;">Método</th>
+                                <th style="padding: 0.6rem 0.8rem;">Status</th>
+                                <th style="padding: 0.6rem 0.8rem;">URL</th>
+                                <th style="padding: 0.6rem 0.8rem;">Erro / Diagnóstico</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for net in report.network_failures %}
+                            <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
+                                <td style="padding: 0.5rem 0.8rem;"><span class="badge badge-info" style="font-size: 0.7rem;">{{ net.method }}</span></td>
+                                <td style="padding: 0.5rem 0.8rem;"><span class="badge badge-danger" style="font-size: 0.7rem;">{{ net.status or 'ERR' }}</span></td>
+                                <td style="padding: 0.5rem 0.8rem; font-family: monospace; color: #94a3b8; word-break: break-all;">{{ net.url }}</td>
+                                <td style="padding: 0.5rem 0.8rem; color: #f87171;">{{ net.error_text or 'Falha' }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            {% endif %}
+
+            {% if report.console_logs %}
+            <div style="margin-top: 1.25rem;">
+                <div style="font-weight: 600; font-size: 0.95rem; color: #fbbf24; margin-bottom: 0.6rem;">📜 Mensagens e Logs Capturados do Console (Chromium DevTools):</div>
+                <div style="background: rgba(0,0,0,0.35); border: 1px solid var(--border); border-radius: 8px; max-height: 380px; overflow-y: auto; font-family: monospace; font-size: 0.82rem;">
+                    {% for c_log in report.console_logs %}
+                    <div style="padding: 0.45rem 0.75rem; border-bottom: 1px solid rgba(255,255,255,0.05); display: flex; gap: 0.75rem; align-items: flex-start; {% if c_log.type in ['error', 'critical'] %}background: rgba(239, 68, 68, 0.08); color: #fca5a5;{% elif c_log.type in ['warn', 'warning'] %}background: rgba(245, 158, 11, 0.08); color: #fde047;{% else %}color: #cbd5e1;{% endif %}">
+                        <span style="font-weight: 700; text-transform: uppercase; font-size: 0.72rem; min-width: 65px;">[{{ c_log.type }}]</span>
+                        <div style="flex: 1; word-break: break-word;">{{ c_log.text }}</div>
+                        {% if c_log.location %}
+                        <span style="font-size: 0.72rem; color: var(--text-muted); white-space: nowrap;">{{ c_log.location }}</span>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
         </div>
         {% endif %}
 

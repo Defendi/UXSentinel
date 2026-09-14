@@ -27,11 +27,13 @@ from uxsentinel.browser.drivers.odoo_driver import OdooDriver
 from uxsentinel.browser.healing import SelectorHealer
 from uxsentinel.browser.session import open_browser_session
 from uxsentinel.browser.som import SetOfMarksManager
+from uxsentinel.browser.telemetry import BrowserTelemetryCollector
 from uxsentinel.core.config import (
     GlobalConfig,
     resolve_axe_mode,
     resolve_baseline_mode,
     resolve_display_mode,
+    resolve_markdown_mode,
     resolve_video_mode,
 )
 from uxsentinel.core.models import (
@@ -52,6 +54,7 @@ from uxsentinel.core.models import (
 )
 from uxsentinel.reporter.html_builder import save_html_report
 from uxsentinel.reporter.json_builder import save_json_report
+from uxsentinel.reporter.markdown_builder import save_markdown_report
 from uxsentinel.reporter.video_helper import create_session_gif, finalize_session_video
 from uxsentinel.vision.diff import compare_images
 from uxsentinel.vision.inspector import ScreenInspector
@@ -72,6 +75,8 @@ class UXSentinelAgent:
         update_baseline_override: bool | None = None,
         baseline_dir_override: str | Path | None = None,
         diff_threshold_override: float | None = None,
+        markdown_override: bool | None = None,
+        devtools_override: bool | None = None,
     ):
         self.config = config
         self.headless_override = headless_override
@@ -81,6 +86,8 @@ class UXSentinelAgent:
         self.update_baseline_override = update_baseline_override
         self.baseline_dir_override = baseline_dir_override
         self.diff_threshold_override = diff_threshold_override
+        self.markdown_override = markdown_override
+        self.devtools_override = devtools_override
         self.inspector = ScreenInspector(config)
         self.healer = SelectorHealer(
             vision_client=self.inspector.client,
@@ -99,9 +106,35 @@ class UXSentinelAgent:
         update_baseline_override: bool | None = None,
         baseline_dir_override: str | Path | None = None,
         diff_threshold_override: float | None = None,
+        markdown_override: bool | None = None,
+        devtools_override: bool | None = None,
     ) -> TestReport:
         profile = scenario.profile or "generic"
         start_time = time.time()
+
+        # Determina o modo markdown respeitando a hierarquia:
+        # CLI Flag > Cenário YAML > Config global > Fallback False
+        effective_cli_markdown = (
+            markdown_override if markdown_override is not None else self.markdown_override
+        )
+        effective_markdown = resolve_markdown_mode(
+            cli_markdown=effective_cli_markdown,
+            scenario_markdown=scenario.markdown,
+            config_markdown=self.config.reporting.generate_markdown,
+        )
+
+        # Determina o modo devtools respeitando a hierarquia:
+        # CLI Flag > Cenário YAML > Config global > Fallback False
+        from uxsentinel.core.config import resolve_devtools_mode
+
+        effective_cli_devtools = (
+            devtools_override if devtools_override is not None else self.devtools_override
+        )
+        effective_devtools = resolve_devtools_mode(
+            cli_devtools=effective_cli_devtools,
+            scenario_devtools=scenario.devtools,
+            config_devtools=self.config.browser.devtools,
+        )
 
         # Determina o modo headless efetivo respeitando a hierarquia:
         # CLI Flag > Cenário YAML > Config global > Fallback False (visível)
@@ -113,6 +146,10 @@ class UXSentinelAgent:
             scenario_headless=scenario.headless,
             config_headless=self.config.browser.headless,
         )
+
+        # Se DevTools estiver ativado, força modo visível (Playwright requer headless=False)
+        if effective_devtools:
+            effective_headless = False
 
         # Determina a gravação de vídeo respeitando a hierarquia:
         # CLI Flag > Cenário YAML > Config global > Fallback False
@@ -189,6 +226,7 @@ class UXSentinelAgent:
                 "viewport_width": initial_vp.width,
                 "viewport_height": initial_vp.height,
                 "enable_axe": effective_axe,
+                "devtools": effective_devtools,
             }
         )
 
@@ -198,13 +236,14 @@ class UXSentinelAgent:
         vp_summary_str = ", ".join(vp.label for vp in effective_viewports)
         moe_desc = "Ativo (4 agentes)" if self.config.vision.use_mixture_of_evaluators else "Desativado"
         axe_desc = "Ativo (WCAG 2.2)" if effective_axe else "Desativado"
+        devtools_desc = "Ativo (Console Aberto)" if effective_devtools else "Desativado"
         baseline_desc = (
             "Atualização (--update-baseline)"
             if effective_update_baseline
             else f"Auditoria Ativa (limiar: {effective_diff_threshold}%)"
         )
         console.print(
-            f"   Perfil: [magenta]{profile}[/magenta] | Provedor IA: [yellow]{self.config.active_provider}[/yellow] | MoE: [cyan]{moe_desc}[/cyan] | Axe-Core: [cyan]{axe_desc}[/cyan] | Baseline: [cyan]{baseline_desc}[/cyan] | Headless: [blue]{effective_headless}[/blue] | Viewports: [cyan]{vp_summary_str}[/cyan] | Self-Healing: [green]{browser_settings.self_healing}[/green]\n"
+            f"   Perfil: [magenta]{profile}[/magenta] | Provedor IA: [yellow]{self.config.active_provider}[/yellow] | MoE: [cyan]{moe_desc}[/cyan] | Axe-Core: [cyan]{axe_desc}[/cyan] | DevTools: [cyan]{devtools_desc}[/cyan] | Baseline: [cyan]{baseline_desc}[/cyan] | Headless: [blue]{effective_headless}[/blue] | Viewports: [cyan]{vp_summary_str}[/cyan] | Self-Healing: [green]{browser_settings.self_healing}[/green]\n"
         )
 
         if effective_headless:
@@ -261,6 +300,7 @@ class UXSentinelAgent:
                 record_video=effective_video,
                 record_video_dir=str(videos_dir),
                 initial_viewport=initial_vp,
+                devtools=effective_devtools,
             ) as driver:
                 captured_driver = driver
                 from uxsentinel.browser.semantic_actions import SemanticActionExecutor
@@ -379,6 +419,17 @@ class UXSentinelAgent:
                     f"[bold green]🎞️ GIF animado da sessão gerado em:[/bold green] [underline]{report.gif_path}[/underline]"
                 )
 
+            # Coleta logs de console, falhas de rede e métricas do coletor de telemetria
+            telemetry_collector = getattr(captured_driver, "telemetry", None)
+            if not telemetry_collector and captured_driver and getattr(captured_driver, "session", None):
+                telemetry_collector = getattr(captured_driver.session, "telemetry", None)
+
+            if isinstance(telemetry_collector, BrowserTelemetryCollector):
+                report.console_logs = list(telemetry_collector.console_logs)
+                report.network_failures = list(telemetry_collector.network_failures)
+                if telemetry_collector.performance_history:
+                    report.performance_metrics = telemetry_collector.performance_history[-1]
+
             report.finished_at = datetime.now()
             report.duration_seconds = time.time() - start_time
             report.compute_totals()
@@ -409,6 +460,13 @@ class UXSentinelAgent:
                 prompt_path = save_fix_prompt(report, self.config.reporting.output_dir)
                 console.print(
                     f"[bold green]🛠️ Documento de Prompt para Correção gerado em:[/bold green] [underline]{prompt_path}[/underline]"
+                )
+
+            if effective_markdown:
+                md_path = save_markdown_report(report, self.config.reporting.output_dir)
+                report.markdown_path = str(md_path)
+                console.print(
+                    f"[bold green]📝 Relatório MarkText (.md) gerado em:[/bold green] [underline]{md_path}[/underline]"
                 )
 
             if self.config.jira.enabled:
@@ -903,6 +961,13 @@ class UXSentinelAgent:
         cp_result.a11y_violations = a11y_violations
         cp_result.visual_diff = diff_res
 
+        # Anexa telemetria da sessão ao checkpoint
+        if hasattr(driver, "telemetry") and isinstance(driver.telemetry, BrowserTelemetryCollector):
+            cp_result.console_logs = list(driver.telemetry.console_logs)
+            cp_result.network_failures = list(driver.telemetry.network_failures)
+            if driver.telemetry.performance_history:
+                cp_result.performance_metrics = driver.telemetry.performance_history[-1]
+
         for issue in cp_result.issues:
             if not issue.viewport:
                 issue.viewport = vp_label
@@ -957,10 +1022,27 @@ class UXSentinelAgent:
                 f"[bold red]{diff_count}[/bold red]" if diff_count > 0 else "[bold green]0[/bold green]"
             )
             table.add_row("Regressões Visuais (Baseline)", diff_label)
+        if report.total_console_errors > 0 or report.total_console_warnings > 0:
+            err_lbl = (
+                f"[bold red]{report.total_console_errors}[/bold red]" if report.total_console_errors else "0"
+            )
+            warn_lbl = (
+                f"[yellow]{report.total_console_warnings}[/yellow]" if report.total_console_warnings else "0"
+            )
+            table.add_row("Console da Aplicação (JS)", f"Erros: {err_lbl} | Avisos: {warn_lbl}")
+        if report.network_failures:
+            table.add_row("Falhas de Rede (HTTP)", f"[bold red]{len(report.network_failures)}[/bold red]")
+        if report.performance_metrics and report.performance_metrics.load_time_ms > 0:
+            table.add_row(
+                "Tempo de Carga (Load / TTFB)",
+                f"{report.performance_metrics.load_time_ms:.0f}ms / {report.performance_metrics.ttfb_ms:.0f}ms",
+            )
         table.add_row("Total de Inconformidades", str(report.total_issues))
         table.add_row("Bloqueantes", f"[red]{report.total_bloqueantes}[/red]")
         table.add_row("Alta Severidade", f"[orange3]{report.total_altas}[/orange3]")
         table.add_row("Média Severidade", f"[yellow]{report.total_medias}[/yellow]")
         table.add_row("Baixa Severidade", f"[blue]{report.total_baixas}[/blue]")
+        if report.markdown_path:
+            table.add_row("Relatório MarkText (.md)", report.markdown_path)
 
         console.print("\n", table, "\n")
