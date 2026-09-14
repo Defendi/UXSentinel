@@ -68,7 +68,7 @@ Para eliminar qualquer divergência entre o "estado desejado" e o "estado real",
 | **Gravação de Vídeo e GIF de Sessão** | `uxsentinel.reporter.video_helper` | **Pronto Para Testar** | `UXS-2` | Gravação Playwright, utilitário ffmpeg/Pillow, player HTML e anexo Jira (tests/test_video_recording.py). |
 | **Auditoria Multi-Viewport** | `uxsentinel.core.agent` / `models` | **Pronto Para Testar** | `UXS-3` | Presets desktop/tablet/mobile, flags CLI, filtros HTML e anexo Jira (tests/test_multi_viewport.py). |
 | **Controle Headed/Headless na CLI** | `uxsentinel.cli` | **Pronto Para Testar** | `UXS-4` | Flags simétricas, resolução hierárquica e Rich monitor implementados (tests/test_cli_display_mode.py). |
-| **Arquitetura Mixture of Evaluators (>95%)** | `uxsentinel.vision` | *Pendente* | `UXS-5` | 4 subagentes especializados com contexto focado. Fase 2 (Prioridade: Highest). |
+| **Arquitetura Mixture of Evaluators (>95%)** | `uxsentinel.vision.evaluators` | **Pronto Para Testar** | `UXS-5` | 4 agentes especializados em paralelo: Linguist, Leakage, Layout, Domain QA (tests/test_mixture_of_evaluators.py). |
 | **Árbitro Reverso & Anti-Alucinação** | `uxsentinel.vision` | *Pendente* | `UXS-6` | Devil's Advocate e validação cruzada para zero falsos positivos. Fase 2 (Prioridade: Highest). |
 | **Baseline Visual com Slider Antes/Depois**| `uxsentinel.reporter` | *Pendente* | `UXS-7` | Regressão visual perceptual com delta visual. Fase 2 (Prioridade: Medium). |
 | **Motor Axe-Core Integrado** | `uxsentinel.browser` | *Pendente* | `UXS-8` | Auditoria determinística WCAG 2.2 via injeção JS de axe.min.js. Fase 2 (Prioridade: Medium). |
