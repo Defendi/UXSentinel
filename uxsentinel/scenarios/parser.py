@@ -78,6 +78,17 @@ def load_scenario(file_path: str) -> Scenario:
         elif normalized in ("false", "0", "no", "nao", "não", "n"):
             headless_val = False
 
+    video_raw = parsed_dict.get("video")
+    video_val: bool | None = None
+    if isinstance(video_raw, bool):
+        video_val = video_raw
+    elif video_raw is not None:
+        normalized = str(video_raw).strip().lower()
+        if normalized in ("true", "1", "yes", "sim", "y"):
+            video_val = True
+        elif normalized in ("false", "0", "no", "nao", "não", "n"):
+            video_val = False
+
     return Scenario(
         id=parsed_dict.get("id", path.stem),
         title=parsed_dict.get("title", path.stem),
@@ -87,5 +98,6 @@ def load_scenario(file_path: str) -> Scenario:
         tags=parsed_dict.get("tags", []),
         env=resolved_env,
         headless=headless_val,
+        video=video_val,
         steps=steps,
     )

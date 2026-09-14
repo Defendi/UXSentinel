@@ -8,7 +8,7 @@ from rich.table import Table
 
 from uxsentinel import __version__
 from uxsentinel.core.agent import UXSentinelAgent
-from uxsentinel.core.config import load_config, resolve_display_mode
+from uxsentinel.core.config import load_config, resolve_display_mode, resolve_video_mode
 from uxsentinel.scenarios.parser import load_scenario
 
 console = Console()
@@ -241,6 +241,22 @@ Documentação completa: https://github.com/Defendi/UXSentinel""",
         action="store_false",
         default=None,
         help="Força abertura visual da janela do Chromium mesmo se o cenário/config indicar headless.",
+    )
+    video_group = parser.add_mutually_exclusive_group()
+    video_group.add_argument(
+        "--record-video",
+        "--video",
+        dest="record_video",
+        action="store_true",
+        default=None,
+        help="Grava a sessão completa de navegação em vídeo (.webm/.mp4).",
+    )
+    video_group.add_argument(
+        "--no-video",
+        dest="record_video",
+        action="store_false",
+        default=None,
+        help="Desativa a gravação de vídeo da sessão.",
     )
     parser.add_argument(
         "--slowmo",
@@ -497,7 +513,22 @@ Documentação completa: https://github.com/Defendi/UXSentinel""",
         config_headless=cfg.browser.headless,
     )
 
-    agent = UXSentinelAgent(cfg, headless_override=args.headless)
+    # Hierarquia de resolução da gravação de vídeo:
+    # 1. CLI flag (--record-video/--video vs --no-video)
+    # 2. Cenário YAML (campo 'video' no arquivo do cenário)
+    # 3. Config global config.yaml (BrowserSettings.record_video)
+    # 4. Fallback padrão: False
+    cfg.browser.record_video = resolve_video_mode(
+        cli_video=args.record_video,
+        scenario_video=scenario.video,
+        config_video=cfg.browser.record_video,
+    )
+
+    agent = UXSentinelAgent(
+        cfg,
+        headless_override=args.headless,
+        record_video_override=args.record_video,
+    )
     report = await agent.run_scenario(scenario)
 
     return 0 if report.success else 1

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import contextlib
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from playwright.async_api import Page
 
@@ -20,6 +20,8 @@ class BaseDriver(ABC):
         self.highlight_clicks = highlight_clicks
         self.healer: SelectorHealer | None = None
         self.healing_events: list[HealingEvent] = []
+        self.video_path: str | None = None
+        self.session: Any | None = None
 
     async def _highlight_element(self, selector: str) -> None:
         """Aplica halo visual no elemento antes da ação."""

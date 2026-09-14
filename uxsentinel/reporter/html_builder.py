@@ -217,6 +217,42 @@ HTML_TEMPLATE = """
             {% endif %}
         </div>
 
+        {% if video_rel_path or gif_rel_path %}
+        <div class="checkpoint-card" style="border-left: 4px solid var(--primary);">
+            <div class="checkpoint-header">
+                <div class="checkpoint-title">🎬 Gravação de Sessão e Evidência Dinâmica</div>
+                <div style="display: flex; gap: 0.5rem;">
+                    {% if video_rel_path %}
+                        <a href="{{ video_rel_path }}" target="_blank" class="badge badge-info" style="text-decoration: none;">⬇️ Baixar Vídeo</a>
+                    {% endif %}
+                    {% if gif_rel_path %}
+                        <a href="{{ gif_rel_path }}" target="_blank" class="badge badge-warning" style="text-decoration: none;">⬇️ Baixar GIF</a>
+                    {% endif %}
+                </div>
+            </div>
+            <div style="display: grid; grid-template-columns: {% if video_rel_path and gif_rel_path %}1fr 1fr{% else %}1fr{% endif %}; gap: 1.5rem; padding-top: 0.5rem;">
+                {% if video_rel_path %}
+                <div style="display: flex; flex-direction: column; gap: 0.5rem;">
+                    <div style="font-weight: 600; font-size: 0.95rem; color: var(--text-muted);">🎥 Player de Vídeo HTML5:</div>
+                    <video controls preload="metadata" style="width: 100%; border-radius: 8px; border: 1px solid var(--border); background: #000; max-height: 460px;">
+                        <source src="{{ video_rel_path }}" type="video/webm">
+                        <source src="{{ video_rel_path }}" type="video/mp4">
+                        Seu navegador não suporta reprodução de vídeo nativa.
+                    </video>
+                </div>
+                {% endif %}
+                {% if gif_rel_path %}
+                <div style="display: flex; flex-direction: column; gap: 0.5rem;">
+                    <div style="font-weight: 600; font-size: 0.95rem; color: var(--text-muted);">🎞️ Resumo Animado (GIF):</div>
+                    <a href="{{ gif_rel_path }}" target="_blank" title="Clique para abrir GIF em nova aba">
+                        <img src="{{ gif_rel_path }}" alt="Resumo Animado da Sessão" style="width: 100%; border-radius: 8px; border: 1px solid var(--border); max-height: 460px; object-fit: contain; background: rgba(0,0,0,0.3);">
+                    </a>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+        {% endif %}
+
         {% if report.healed_steps %}
         <div class="checkpoint-card" style="border-left: 4px solid #f59e0b;">
             <div class="checkpoint-header">
@@ -349,8 +385,29 @@ def save_html_report(report: TestReport, output_dir: str) -> Path:
     out_path.mkdir(parents=True, exist_ok=True)
     report_file = out_path / f"{report.scenario_id}_report.html"
 
+    video_rel: str | None = None
+    if report.video_path:
+        vp = Path(report.video_path)
+        try:
+            video_rel = str(vp.relative_to(out_path))
+        except ValueError:
+            video_rel = str(vp)
+
+    gif_rel: str | None = None
+    if report.gif_path:
+        gp = Path(report.gif_path)
+        try:
+            gif_rel = str(gp.relative_to(out_path))
+        except ValueError:
+            gif_rel = str(gp)
+
     logo_data = get_logo_base64()
     template = Template(HTML_TEMPLATE)
-    rendered_html = template.render(report=report, logo_base64=logo_data)
+    rendered_html = template.render(
+        report=report,
+        logo_base64=logo_data,
+        video_rel_path=video_rel,
+        gif_rel_path=gif_rel,
+    )
     report_file.write_text(rendered_html, encoding="utf-8")
     return report_file

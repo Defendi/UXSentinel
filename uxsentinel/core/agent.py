@@ -19,10 +19,11 @@ from uxsentinel.browser.drivers.base_driver import BaseDriver
 from uxsentinel.browser.drivers.odoo_driver import OdooDriver
 from uxsentinel.browser.healing import SelectorHealer
 from uxsentinel.browser.session import open_browser_session
-from uxsentinel.core.config import GlobalConfig, resolve_display_mode
+from uxsentinel.core.config import GlobalConfig, resolve_display_mode, resolve_video_mode
 from uxsentinel.core.models import ExecutionResult, Scenario, StepAction, TestReport
 from uxsentinel.reporter.html_builder import save_html_report
 from uxsentinel.reporter.json_builder import save_json_report
+from uxsentinel.reporter.video_helper import create_session_gif, finalize_session_video
 from uxsentinel.vision.inspector import ScreenInspector
 
 console = Console()
@@ -31,9 +32,15 @@ console = Console()
 class UXSentinelAgent:
     """Agente de QA Visual que executa a navegação e orquestra a auditoria de telas."""
 
-    def __init__(self, config: GlobalConfig, headless_override: bool | None = None):
+    def __init__(
+        self,
+        config: GlobalConfig,
+        headless_override: bool | None = None,
+        record_video_override: bool | None = None,
+    ):
         self.config = config
         self.headless_override = headless_override
+        self.record_video_override = record_video_override
         self.inspector = ScreenInspector(config)
         self.healer = SelectorHealer(
             vision_client=self.inspector.client,
@@ -41,19 +48,50 @@ class UXSentinelAgent:
         )
         self.last_execution_result: ExecutionResult | None = None
 
-    async def run_scenario(self, scenario: Scenario, headless_override: bool | None = None) -> TestReport:
+    async def run_scenario(
+        self,
+        scenario: Scenario,
+        headless_override: bool | None = None,
+        record_video_override: bool | None = None,
+    ) -> TestReport:
         profile = scenario.profile or "generic"
         start_time = time.time()
 
         # Determina o modo headless efetivo respeitando a hierarquia:
         # CLI Flag > Cenário YAML > Config global > Fallback False (visível)
-        effective_cli = headless_override if headless_override is not None else self.headless_override
+        effective_cli_headless = (
+            headless_override if headless_override is not None else self.headless_override
+        )
         effective_headless = resolve_display_mode(
-            cli_headless=effective_cli,
+            cli_headless=effective_cli_headless,
             scenario_headless=scenario.headless,
             config_headless=self.config.browser.headless,
         )
-        browser_settings = self.config.browser.model_copy(update={"headless": effective_headless})
+
+        # Determina a gravação de vídeo respeitando a hierarquia:
+        # CLI Flag > Cenário YAML > Config global > Fallback False
+        effective_cli_video = (
+            record_video_override if record_video_override is not None else self.record_video_override
+        )
+        effective_video = resolve_video_mode(
+            cli_video=effective_cli_video,
+            scenario_video=scenario.video,
+            config_video=self.config.browser.record_video,
+        )
+
+        out_dir = Path(self.config.reporting.output_dir)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        videos_dir = out_dir / "videos"
+        if effective_video:
+            videos_dir.mkdir(parents=True, exist_ok=True)
+
+        browser_settings = self.config.browser.model_copy(
+            update={
+                "headless": effective_headless,
+                "record_video": effective_video,
+                "record_video_dir": str(videos_dir),
+            }
+        )
 
         console.print(
             f"\n[bold cyan]🛡️ UXSentinel iniciado[/bold cyan] | Cenário: [bold]{scenario.title}[/bold] ([dim]{scenario.id}[/dim])"
@@ -81,9 +119,6 @@ class UXSentinelAgent:
             started_at=datetime.now(),
         )
 
-        out_dir = Path(self.config.reporting.output_dir)
-        out_dir.mkdir(parents=True, exist_ok=True)
-
         console.print(
             f"🔍 Verificando conectividade com o provedor de IA ([yellow]{self.config.active_provider}[/yellow])..."
         )
@@ -109,8 +144,16 @@ class UXSentinelAgent:
 
         console.print(f"[bold green]✓ Conexão com a IA estabelecida:[/bold green] {ai_msg}\n")
 
+        captured_driver: BaseDriver | None = None
         try:
-            async with open_browser_session(browser_settings, profile=profile, healer=self.healer) as driver:
+            async with open_browser_session(
+                browser_settings,
+                profile=profile,
+                healer=self.healer,
+                record_video=effective_video,
+                record_video_dir=str(videos_dir),
+            ) as driver:
+                captured_driver = driver
                 if effective_headless and len(scenario.steps) > 0:
                     with Progress(
                         SpinnerColumn(style="bold cyan"),
@@ -152,6 +195,37 @@ class UXSentinelAgent:
             report.error_message = str(exc)
 
         finally:
+            # Processa e renomeia o vídeo gravado caso disponível
+            raw_video = getattr(captured_driver, "video_path", None)
+            if not raw_video and captured_driver and getattr(captured_driver, "session", None):
+                raw_video = getattr(captured_driver.session, "video_path", None)
+
+            if raw_video and Path(raw_video).is_file():
+                final_video = finalize_session_video(
+                    raw_video_path=raw_video,
+                    output_dir=videos_dir,
+                    scenario_id=scenario.id,
+                    try_mp4_conversion=True,
+                )
+                report.video_path = str(final_video)
+                console.print(
+                    f"\n[bold green]🎥 Gravação de vídeo da sessão salva em:[/bold green] [underline]{report.video_path}[/underline]"
+                )
+
+            # Gera GIF representativo da sessão (via ffmpeg do vídeo ou Pillow das capturas de checkpoints)
+            gif_target = videos_dir / f"{scenario.id}_session.gif"
+            checkpoint_images = [cp.screenshot_path for cp in report.checkpoints if cp.screenshot_path]
+            generated_gif = create_session_gif(
+                video_path=report.video_path,
+                checkpoint_screenshots=checkpoint_images,
+                output_gif=gif_target,
+            )
+            if generated_gif and generated_gif.is_file():
+                report.gif_path = str(generated_gif)
+                console.print(
+                    f"[bold green]🎞️ GIF animado da sessão gerado em:[/bold green] [underline]{report.gif_path}[/underline]"
+                )
+
             report.finished_at = datetime.now()
             report.duration_seconds = time.time() - start_time
             report.compute_totals()

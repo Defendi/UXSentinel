@@ -33,6 +33,29 @@ class BrowserSettings(BaseModel):
     highlight_clicks: bool = True
     timeout_ms: int = 15000
     self_healing: bool = True
+    record_video: bool = False
+    record_video_dir: str | None = None
+    record_video_size: dict[str, int] | None = None
+
+
+def resolve_video_mode(
+    cli_video: bool | None = None,
+    scenario_video: bool | None = None,
+    config_video: bool | None = None,
+) -> bool:
+    """Resolve se a gravação de vídeo deve ser ativada seguindo a hierarquia estrita:
+    1. CLI flag (--record-video / --video vs --no-video)
+    2. Cenário YAML (campo 'video' definido no cenário)
+    3. Config global (BrowserSettings.record_video)
+    4. Fallback padrão: False
+    """
+    if cli_video is not None:
+        return cli_video
+    if scenario_video is not None:
+        return scenario_video
+    if config_video is not None:
+        return config_video
+    return False
 
 
 def resolve_display_mode(
@@ -193,6 +216,7 @@ browser:
     height: 900
   highlight_clicks: true       # Halo visual no elemento clicado ou focado
   timeout_ms: 15000
+  record_video: false          # Gravação nativa em vídeo da sessão de teste
 
 reporting:
   output_dir: "scenarios/report"
@@ -365,6 +389,7 @@ def load_config(config_path: str | None = None) -> GlobalConfig:
 
     browser_dict = raw_dict.get("browser", {})
     viewport = browser_dict.get("viewport", {})
+    video_size_dict = browser_dict.get("record_video_size") or browser_dict.get("video_size")
     browser_settings = BrowserSettings(
         headless=browser_dict.get("headless", False),
         slow_mo_ms=browser_dict.get("slow_mo_ms", 350),
@@ -372,6 +397,9 @@ def load_config(config_path: str | None = None) -> GlobalConfig:
         viewport_height=viewport.get("height", 900),
         highlight_clicks=browser_dict.get("highlight_clicks", True),
         timeout_ms=browser_dict.get("timeout_ms", 15000),
+        record_video=browser_dict.get("record_video", False),
+        record_video_dir=browser_dict.get("record_video_dir"),
+        record_video_size=video_size_dict,
     )
 
     reporting_dict = raw_dict.get("reporting", {})

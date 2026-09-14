@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import httpx
@@ -227,6 +228,13 @@ class JiraClient:
                             f"  [bold green]✓ Card criado:[/bold green] [bold yellow]{key}[/bold yellow] - "
                             f"[underline cyan]{issue_url}[/underline cyan] ({issue.descricao[:45]})"
                         )
+                        # Anexa evidências relevantes (screenshots, GIF animado e vídeo)
+                        if screenshot_path and Path(screenshot_path).is_file():
+                            await self.attach_file_to_issue(key, screenshot_path)
+                        if report.gif_path and Path(report.gif_path).is_file():
+                            await self.attach_file_to_issue(key, report.gif_path)
+                        if report.video_path and Path(report.video_path).is_file():
+                            await self.attach_file_to_issue(key, report.video_path)
                     else:
                         console.print(
                             f"  [bold red]✗ Falha ao criar card no Jira ({resp.status_code}):[/bold red] {resp.text[:180]}"
@@ -240,3 +248,37 @@ class JiraClient:
             )
 
         return created_card_urls
+
+    async def attach_file_to_issue(self, issue_key: str, file_path: str | Path) -> bool:
+        """Anexa um arquivo (vídeo, GIF, imagem) a uma issue existente no Jira via API de anexos."""
+        p = Path(file_path)
+        if not p.is_file() or not self.is_configured():
+            return False
+
+        endpoint = f"{self.url}/rest/api/2/issue/{issue_key}/attachments"
+        auth_kwargs = self._get_auth_headers_and_client_kwargs()
+        headers = dict(auth_kwargs.get("headers", {}))
+        headers.pop("Content-Type", None)
+        headers["X-Atlassian-Token"] = "no-check"
+        auth_kwargs["headers"] = headers
+
+        try:
+            async with httpx.AsyncClient(**auth_kwargs) as client:
+                with p.open("rb") as f:
+                    files = {"file": (p.name, f)}
+                    resp = await client.post(endpoint, files=files)
+                    if resp.status_code in (200, 201):
+                        console.print(f"    [dim]📎 Evidência '{p.name}' anexada à issue {issue_key}.[/dim]")
+                        return True
+                    else:
+                        logger.warning(
+                            "Falha ao anexar arquivo %s à issue %s: HTTP %s - %s",
+                            p.name,
+                            issue_key,
+                            resp.status_code,
+                            resp.text[:200],
+                        )
+                        return False
+        except Exception as exc:
+            logger.warning("Erro ao anexar arquivo %s à issue %s: %s", p.name, issue_key, exc)
+            return False

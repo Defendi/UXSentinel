@@ -94,6 +94,7 @@ class Scenario(BaseModel):
     tags: list[str] = Field(default_factory=list)
     env: dict[str, str] = Field(default_factory=dict)
     headless: bool | None = None
+    video: bool | None = None
     steps: list[StepAction] = Field(default_factory=list)
 
 
@@ -110,6 +111,8 @@ class TestReport(BaseModel):
     checkpoints: list[CheckpointResult] = Field(default_factory=list)
     healed_steps: list[HealingEvent] = Field(default_factory=list)
     healing_events: list[HealingEvent] = Field(default_factory=list)
+    video_path: str | None = None
+    gif_path: str | None = None
     total_issues: int = 0
     total_bloqueantes: int = 0
     total_altas: int = 0
