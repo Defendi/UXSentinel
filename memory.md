@@ -75,24 +75,21 @@ UXSentinel/
 
 ## ⚙️ 3. Estado Atual: Inventário de Funcionalidades (Concluído vs. Pendente)
 
-### 3.1 Funcionalidades Concluídas e Verificadas no Código
-- **CLI Operacional (`uxsentinel`)**:
-  - `uxsentinel -s <cenario.yaml> -u <URL>`: Executa fluxos guiados com avaliação visual em cada checkpoint.
-  - `--init-config`: Criação do arquivo de configuração do usuário em `~/.config/uxsentinel/config.yaml`.
-  - `--list-scenarios`: Descoberta automática de cenários no projeto atual (`scenarios/`) e na biblioteca interna.
-  - `--check-ai`: Diagnóstico de conectividade com o provedor de IA ativo e mecanismo de fallback.
-  - `--login-sso` / `--logout-sso`: Fluxo de autenticação via browser corporativo com cache de sessão.
-  - `--fix-prompt`: Gera artefato Markdown com prompt técnico mastigado para agentes de IA corrigirem os bugs detectados.
-  - `--jira` / `--create-jira-cards`: Abertura automatizada de bugs categorizados no Atlassian Jira com screenshot anexado.
-  - `--set-jira-token`: Assistente interativo de configuração de credenciais Jira salvas em arquivo protegido (0600).
-  - `--headless` / `--slowmo <ms>`: Controle de execução silenciosa e velocidade de interação visual.
-- **Drivers de Frameworks**:
-  - `GenericDriver`: Suporte a SPAs modernas com auto-estabilização de rede e DOM.
-  - `OdooDriver`: Detecção de spinner `.o_loading`, estabilização de diálogos OWL e ActionManager.
-- **Multi-Provedor Multimodal**:
-  - OpenAI (`gpt-4o`), Anthropic (`claude-3-5-sonnet-latest`), Google Gemini (`gemini-1.5-pro`), DeepSeek e Ollama local.
-- **Qualidade & Testes**:
-  - 12 testes unitários e de integração herméticos em `tests/test_engine.py`, 100% passando via `uv run pytest`.
+### 3.1 Funcionalidades Concluídas e Verificadas no Código (Fase Fundação / Baseline v0.1.0+)
+
+| Chave Jira | Título da Tarefa | Componente | Status |
+| :--- | :--- | :--- | :---: |
+| **`UXS-15`** | [Fundação] 0.1 Navegação com Visual Humano e Cursor Animado | `uxsentinel.browser.session` / `visual_overlay` | **Concluído** |
+| **`UXS-16`** | [Fundação] 0.2 Drivers Especializados de Estabilização (Generic & Odoo) | `uxsentinel.browser.drivers` | **Concluído** |
+| **`UXS-17`** | [Fundação] 0.3 Motor Declarativo e Parser de Cenários YAML | `uxsentinel.scenarios.parser` | **Concluído** |
+| **`UXS-18`** | [Fundação] 0.4 Integração Multiprovedor LMM com Visão Multimodal | `uxsentinel.vision.client` | **Concluído** |
+| **`UXS-19`** | [Fundação] 0.5 Avaliação Cognitiva com Heurísticas (Nielsen/ISO/WCAG) | `uxsentinel.vision.prompts` / `inspector` | **Concluído** |
+| **`UXS-20`** | [Fundação] 0.6 Autenticação Interativa SSO Corporativo e Cache de Sessão | `uxsentinel.core.sso` | **Concluído** |
+| **`UXS-21`** | [Fundação] 0.7 Diagnóstico de Conectividade com IA e Pre-Flight Check | `uxsentinel.cli` / `core.agent` | **Concluído** |
+| **`UXS-22`** | [Fundação] 0.8 Gerador de Prompt de Correção Automatizada (--fix-prompt) | `uxsentinel.reporter.prompt_builder` | **Concluído** |
+| **`UXS-23`** | [Fundação] 0.9 Integração Nativa Atlassian Jira Cloud REST v3 | `uxsentinel.integrations.jira` | **Concluído** |
+| **`UXS-24`** | [Fundação] 0.10 Configurador Interativo Jira CLI e Diretório Global XDG | `uxsentinel.cli` / `core.config` | **Concluído** |
+| **`UXS-25`** | [Fundação] 0.11 Suíte de Testes Unitários e Integração Hermética | `tests/test_engine.py` | **Concluído** |
 
 ### 3.2 Funcionalidades Planejadas no Roadmap (Mapeadas no Jira)
 

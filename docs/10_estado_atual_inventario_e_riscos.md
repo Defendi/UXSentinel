@@ -53,16 +53,17 @@ Para eliminar qualquer divergência entre o "estado desejado" e o "estado real",
 
 | Funcionalidade | Componente Técnico | Status Real | Card Jira | Notas de Implementação |
 | :--- | :--- | :---: | :---: | :--- |
-| **Navegação com visual humano** | `uxsentinel.browser.session` | **Concluído** | — | Suporte a `slow_mo_ms`, cursor visual e highlights injetados na tela. |
-| **Execução de cenários YAML** | `uxsentinel.scenarios.parser` | **Concluído** | — | Ações `goto`, `click`, `fill`, `wait`, `checkpoint` totalmente operacionais. |
-| **Integração Multiprovedor LMM** | `uxsentinel.vision.client` | **Concluído** | — | OpenAI (GPT-4o), Anthropic (Claude 3.5 Sonnet), Gemini 1.5, DeepSeek e Ollama local. |
-| **Suporte a SSO de IA Corporativo** | `uxsentinel.core.sso` | **Concluído** | — | Login interativo no browser com `--login-sso` e persistência de sessão. |
-| **Diagnóstico de Conectividade IA** | `uxsentinel.cli` | **Concluído** | — | Flag `--check-ai` com fallback automático de modelos. |
-| **Geração de Prompt de Correção** | `uxsentinel.reporter.prompt_builder` | **Concluído** | — | Flag `--fix-prompt` gera Markdown detalhado para agentes (Cursor, Claude Code). |
-| **Abertura Automática de Cards no Jira** | `uxsentinel.integrations.jira` | **Concluído** | — | Flag `--jira` cria issues com severidade, steps e screenshots anexados. |
-| **Configurador Interativo Jira CLI** | `uxsentinel.cli` | **Concluído** | — | Flag `--set-jira-token` com validação de conexão e gravação protegida (0600). |
-| **Diretório Global de Configuração** | `uxsentinel.core.config` | **Concluído** | — | Padrão XDG em `~/.config/uxsentinel/config.yaml` gerado via `--init-config`. |
-| **Suíte de Testes Hermética** | `tests/test_engine.py` | **Concluído** | — | 12/12 testes passando sem mocks frágeis ou dependências externas (`uv run pytest`). |
+| **Navegação com visual humano** | `uxsentinel.browser.session` | **Concluído** | `UXS-15` | Suporte a `slow_mo_ms`, cursor visual e highlights injetados na tela. |
+| **Drivers Especializados de Framework** | `uxsentinel.browser.drivers` | **Concluído** | `UXS-16` | Estabilização DOM/rede, GenericDriver e OdooDriver (`.o_loading`, OWL dialogs). |
+| **Execução de cenários YAML** | `uxsentinel.scenarios.parser` | **Concluído** | `UXS-17` | Ações `goto`, `click`, `fill`, `wait`, `checkpoint` totalmente operacionais. |
+| **Integração Multiprovedor LMM** | `uxsentinel.vision.client` | **Concluído** | `UXS-18` | OpenAI (GPT-4o), Anthropic (Claude 3.5 Sonnet), Gemini 1.5, DeepSeek e Ollama local. |
+| **Avaliação Cognitiva e Heurísticas** | `uxsentinel.vision.prompts` | **Concluído** | `UXS-19` | Inspeção visual com Heurísticas de Nielsen, ISO 9241-11 e WCAG 2.2 AA. |
+| **Suporte a SSO de IA Corporativo** | `uxsentinel.core.sso` | **Concluído** | `UXS-20` | Login interativo no browser com `--login-sso` e persistência de sessão. |
+| **Diagnóstico de Conectividade IA** | `uxsentinel.cli` | **Concluído** | `UXS-21` | Flag `--check-ai` com fallback automático de modelos e pre-flight check. |
+| **Geração de Prompt de Correção** | `uxsentinel.reporter.prompt_builder` | **Concluído** | `UXS-22` | Flag `--fix-prompt` gera Markdown detalhado para agentes (Cursor, Claude Code). |
+| **Abertura Automática de Cards no Jira** | `uxsentinel.integrations.jira` | **Concluído** | `UXS-23` | Flag `--jira` cria issues com severidade, steps e screenshots anexados. |
+| **Configurador Interativo Jira CLI e XDG** | `uxsentinel.cli` / `core.config` | **Concluído** | `UXS-24` | Padrão XDG em `~/.config/uxsentinel/config.yaml` e `--set-jira-token` protegido. |
+| **Suíte de Testes Hermética** | `tests/test_engine.py` | **Concluído** | `UXS-25` | 12/12 testes passando sem mocks frágeis ou dependências externas (`uv run pytest`). |
 | **Self-Healing de Seletores** | `uxsentinel.browser` | *Pendente* | `UXS-1` | Fase 1 do Roadmap (Prioridade: Highest). |
 | **Gravação de Vídeo e GIF de Sessão** | `uxsentinel.browser.session` | *Pendente* | `UXS-2` | Fase 1 do Roadmap (Prioridade: High). |
 | **Auditoria Multi-Viewport** | `uxsentinel.browser` | *Pendente* | `UXS-3` | Desktop, Tablet, Mobile em paralelo. Fase 1 (Prioridade: High). |
