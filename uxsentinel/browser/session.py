@@ -154,8 +154,13 @@ class BrowserSession:
         if self.playwright:
             with contextlib.suppress(Exception):
                 await self.playwright.stop()
+            self.playwright = None
             with contextlib.suppress(Exception):
                 await asyncio.sleep(0.05)
+
+        self.browser = None
+        self.context = None
+        self.page = None
 
 
 @asynccontextmanager

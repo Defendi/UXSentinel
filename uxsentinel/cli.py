@@ -1,5 +1,6 @@
 import argparse
 import asyncio
+import contextlib
 import sys
 from pathlib import Path
 
@@ -716,6 +717,24 @@ Documentação completa: https://github.com/Defendi/UXSentinel""",
     return 0 if report.success else 1
 
 
+def _graceful_shutdown(loop: asyncio.AbstractEventLoop) -> None:
+    """Cancela e drena graciosamente todas as tasks pendentes (ex: Connection.run do Playwright) antes de fechar o loop."""
+    try:
+        pending = [t for t in asyncio.all_tasks(loop) if not t.done()]
+        if pending:
+            for task in pending:
+                task.cancel()
+            loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+        loop.run_until_complete(loop.shutdown_asyncgens())
+        loop.run_until_complete(asyncio.sleep(0.05))
+    except Exception:
+        pass
+    finally:
+        with contextlib.suppress(Exception):
+            loop.close()
+        asyncio.set_event_loop(None)
+
+
 def main() -> None:
     try:
         loop = asyncio.new_event_loop()
@@ -723,13 +742,7 @@ def main() -> None:
         try:
             exit_code = loop.run_until_complete(async_main())
         finally:
-            try:
-                loop.run_until_complete(loop.shutdown_asyncgens())
-                loop.run_until_complete(asyncio.sleep(0.05))
-            except Exception:
-                pass
-            loop.close()
-            asyncio.set_event_loop(None)
+            _graceful_shutdown(loop)
     except KeyboardInterrupt:
         console.print("\n[yellow]Execução cancelada pelo usuário.[/yellow]")
         sys.exit(130)
