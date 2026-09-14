@@ -7,17 +7,22 @@ from pathlib import Path
 from uxsentinel.core.config import GlobalConfig
 from uxsentinel.core.models import CheckpointResult, Issue, IssueCategory, IssueSeverity
 from uxsentinel.vision.client import UnifiedVisionClient
+from uxsentinel.vision.evaluators.base import EvaluatorContext
+from uxsentinel.vision.evaluators.orchestrator import MixtureOfEvaluators
 from uxsentinel.vision.prompts import build_user_prompt
 
 logger = logging.getLogger("uxsentinel.vision.inspector")
 
 
 class ScreenInspector:
-    """Responsável por auditar um screenshot de checkpoint contra critérios de QA e regras de negócio."""
+    """Responsável por auditar um screenshot de checkpoint contra critérios de QA e regras de negócio,
+    utilizando a arquitetura multiagente Mixture of Evaluators com fallback para o inspetor monólito.
+    """
 
-    def __init__(self, config: GlobalConfig):
+    def __init__(self, config: GlobalConfig, mixture: MixtureOfEvaluators | None = None):
         self.config = config
         self.client = UnifiedVisionClient(config)
+        self.mixture = mixture if mixture is not None else MixtureOfEvaluators(config, client=self.client)
 
     async def inspect(
         self,
@@ -26,6 +31,7 @@ class ScreenInspector:
         screenshot_path: str,
         dom_text: str = "",
         description: str | None = None,
+        viewport: str | None = None,
     ) -> CheckpointResult:
         file_path = Path(screenshot_path)
         if not file_path.is_file():
@@ -35,11 +41,13 @@ class ScreenInspector:
                 expected_behavior=expected_behavior,
                 status="erro_execucao",
                 screenshot_path=screenshot_path,
+                viewport=viewport,
                 issues=[
                     Issue(
                         categoria=IssueCategory.OUTRO,
                         severidade=IssueSeverity.BLOQUEANTE,
                         descricao=f"Screenshot não encontrado no caminho: {screenshot_path}",
+                        viewport=viewport,
                     )
                 ],
             )
@@ -47,6 +55,81 @@ class ScreenInspector:
         with open(file_path, "rb") as f:
             image_b64 = base64.b64encode(f.read()).decode("utf-8")
 
+        if self.config.vision.use_mixture_of_evaluators:
+            try:
+                return await self._inspect_mixture(
+                    checkpoint_name=checkpoint_name,
+                    expected_behavior=expected_behavior,
+                    screenshot_path=screenshot_path,
+                    dom_text=dom_text,
+                    description=description,
+                    image_b64=image_b64,
+                    viewport=viewport,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Falha ao executar Mixture of Evaluators no checkpoint '%s' (%s). "
+                    "Acionando fallback para inspetor monólito clássico...",
+                    checkpoint_name,
+                    exc,
+                    exc_info=True,
+                )
+
+        return await self._inspect_monolith(
+            checkpoint_name=checkpoint_name,
+            expected_behavior=expected_behavior,
+            screenshot_path=screenshot_path,
+            dom_text=dom_text,
+            description=description,
+            image_b64=image_b64,
+            viewport=viewport,
+        )
+
+    async def _inspect_mixture(
+        self,
+        checkpoint_name: str,
+        expected_behavior: str,
+        screenshot_path: str,
+        dom_text: str,
+        description: str | None,
+        image_b64: str,
+        viewport: str | None = None,
+    ) -> CheckpointResult:
+        """Executa a auditoria através da arquitetura paralela especializada Mixture of Evaluators."""
+        context = EvaluatorContext(
+            checkpoint_name=checkpoint_name,
+            expected_behavior=expected_behavior,
+            image_base64=image_b64,
+            dom_text=dom_text,
+            description=description,
+            viewport=viewport,
+        )
+
+        issues = await self.mixture.evaluate(context)
+        status = "ok" if not issues else "problemas_encontrados"
+
+        return CheckpointResult(
+            name=checkpoint_name,
+            description=description,
+            expected_behavior=expected_behavior,
+            screenshot_path=screenshot_path,
+            status=status,
+            issues=issues,
+            dom_summary=dom_text[:500] if dom_text else None,
+            viewport=viewport,
+        )
+
+    async def _inspect_monolith(
+        self,
+        checkpoint_name: str,
+        expected_behavior: str,
+        screenshot_path: str,
+        dom_text: str,
+        description: str | None,
+        image_b64: str,
+        viewport: str | None = None,
+    ) -> CheckpointResult:
+        """Modo clássico/legado monólito que utiliza um único prompt abrangente para todas as heurísticas."""
         user_prompt = build_user_prompt(
             checkpoint_name=checkpoint_name,
             expected_behavior=expected_behavior,
@@ -63,12 +146,15 @@ class ScreenInspector:
                 expected_behavior=expected_behavior,
                 status="erro_execucao",
                 screenshot_path=screenshot_path,
+                viewport=viewport,
                 issues=[
                     Issue(
                         categoria=IssueCategory.OUTRO,
                         severidade=IssueSeverity.ALTA,
                         descricao=f"Falha na comunicação com o provedor de IA: {exc}",
                         sugestao_correcao="Verifique as credenciais ou a disponibilidade do serviço no config.yaml",
+                        viewport=viewport,
+                        evaluator="Monolith Inspector",
                     )
                 ],
                 raw_response=str(exc),
@@ -104,6 +190,8 @@ class ScreenInspector:
                         descricao=item.get("descricao", "Sem descrição"),
                         sugestao_correcao=item.get("sugestao_correcao"),
                         elemento_alvo=item.get("elemento_alvo"),
+                        viewport=viewport,
+                        evaluator="Monolith Inspector",
                     )
                 )
 
@@ -116,6 +204,7 @@ class ScreenInspector:
                 issues=issues_list,
                 dom_summary=dom_text[:500] if dom_text else None,
                 raw_response=raw_text,
+                viewport=viewport,
             )
 
         except Exception as parse_err:
@@ -126,12 +215,15 @@ class ScreenInspector:
                 expected_behavior=expected_behavior,
                 screenshot_path=screenshot_path,
                 status="erro_execucao",
+                viewport=viewport,
                 issues=[
                     Issue(
                         categoria=IssueCategory.OUTRO,
                         severidade=IssueSeverity.MEDIA,
                         descricao="A resposta da IA não pôde ser interpretada como JSON estruturado.",
                         sugestao_correcao="Ajuste o prompt ou reduza a temperatura do modelo no config.yaml",
+                        viewport=viewport,
+                        evaluator="Monolith Inspector",
                     )
                 ],
                 raw_response=raw_text,

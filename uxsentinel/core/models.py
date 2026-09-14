@@ -137,6 +137,11 @@ class Issue(BaseModel):
     elemento_alvo: str | None = None
     trecho_codigo: str | None = None
     viewport: str | None = None
+    evaluator: str | None = None
+
+
+# Alias para conformidade e semântica de inconsistência
+Inconsistency = Issue
 
 
 class HealingStrategy(StrEnum):

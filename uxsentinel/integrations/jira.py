@@ -115,6 +115,12 @@ class JiraClient:
                 f"*Comportamento Esperado:* {expected_behavior}",
                 f"*Categoria:* {issue.categoria.value.upper()}",
                 f"*Severidade:* *{issue.severidade.value.upper()}*",
+            ]
+        )
+        if issue.evaluator:
+            lines.append(f"*Avaliador Responsável:* {issue.evaluator}")
+        lines.extend(
+            [
                 "",
                 "h3. 📝 Descrição da Falha",
                 issue.descricao.strip(),

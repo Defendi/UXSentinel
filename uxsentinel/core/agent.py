@@ -122,8 +122,9 @@ class UXSentinelAgent:
             f"\n[bold cyan]🛡️ UXSentinel iniciado[/bold cyan] | Cenário: [bold]{scenario.title}[/bold] ([dim]{scenario.id}[/dim])"
         )
         vp_summary_str = ", ".join(vp.label for vp in effective_viewports)
+        moe_desc = "Ativo (4 agentes)" if self.config.vision.use_mixture_of_evaluators else "Desativado"
         console.print(
-            f"   Perfil: [magenta]{profile}[/magenta] | Provedor IA: [yellow]{self.config.active_provider}[/yellow] | Headless: [blue]{effective_headless}[/blue] | Viewports: [cyan]{vp_summary_str}[/cyan] | Self-Healing: [green]{browser_settings.self_healing}[/green]\n"
+            f"   Perfil: [magenta]{profile}[/magenta] | Provedor IA: [yellow]{self.config.active_provider}[/yellow] | MoE: [cyan]{moe_desc}[/cyan] | Headless: [blue]{effective_headless}[/blue] | Viewports: [cyan]{vp_summary_str}[/cyan] | Self-Healing: [green]{browser_settings.self_healing}[/green]\n"
         )
 
         if effective_headless:
@@ -536,11 +537,13 @@ class UXSentinelAgent:
             screenshot_path=str(screenshot_file),
             dom_text=dom_text,
             description=step.description,
+            viewport=vp_label,
         )
 
         cp_result.viewport = vp_label
         for issue in cp_result.issues:
-            issue.viewport = vp_label
+            if not issue.viewport:
+                issue.viewport = vp_label
 
         cp_result.healed_events = list(report.healed_steps)
         report.checkpoints.append(cp_result)
@@ -552,7 +555,8 @@ class UXSentinelAgent:
                 f"    [bold red]✗ Checkpoint com problemas ({len(cp_result.issues)} issues encontradas)[/bold red]"
             )
             for issue in cp_result.issues:
-                p_console.print(f"      - [{issue.severidade.value.upper()}] {issue.descricao}")
+                eval_tag = f" [cyan]({issue.evaluator})[/cyan]" if issue.evaluator else ""
+                p_console.print(f"      - [{issue.severidade.value.upper()}]{eval_tag} {issue.descricao}")
 
     def _print_summary(self, report: TestReport) -> None:
         table = Table(title=f"Resumo da Execução - {report.scenario_title}")

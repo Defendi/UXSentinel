@@ -311,17 +311,22 @@ class UnifiedVisionClient:
         image_base64: str,
         user_prompt: str,
         media_type: str = "image/png",
+        system_prompt: str | None = None,
     ) -> str:
         """Executa a chamada ao provedor de visão ativo com fallback automático."""
         active_provider = self.config.get_active_provider()
         try:
-            return await self._dispatch_provider(active_provider, image_base64, user_prompt, media_type)
+            return await self._dispatch_provider(
+                active_provider, image_base64, user_prompt, media_type, system_prompt=system_prompt
+            )
         except Exception as exc:
             logger.warning("Falha ao chamar provedor '%s': %s", active_provider.model, exc)
             fallback = self.config.get_fallback_provider()
             if fallback and fallback != active_provider:
                 logger.info("Acionando provedor de fallback: '%s'", fallback.model)
-                return await self._dispatch_provider(fallback, image_base64, user_prompt, media_type)
+                return await self._dispatch_provider(
+                    fallback, image_base64, user_prompt, media_type, system_prompt=system_prompt
+                )
             raise exc
 
     async def _dispatch_provider(
@@ -330,18 +335,25 @@ class UnifiedVisionClient:
         image_base64: str,
         user_prompt: str,
         media_type: str,
+        system_prompt: str | None = None,
     ) -> str:
         self._ensure_provider_auth(provider, interactive=True)
         service = provider.service.lower().strip()
 
         if service == "anthropic":
-            return await self._call_anthropic(provider, image_base64, user_prompt, media_type)
+            return await self._call_anthropic(
+                provider, image_base64, user_prompt, media_type, system_prompt=system_prompt
+            )
         elif service == "openai" or service == "openai_compatible":
-            return await self._call_openai_compatible(provider, image_base64, user_prompt, media_type)
+            return await self._call_openai_compatible(
+                provider, image_base64, user_prompt, media_type, system_prompt=system_prompt
+            )
         elif service == "gemini":
-            return await self._call_gemini(provider, image_base64, user_prompt, media_type)
+            return await self._call_gemini(
+                provider, image_base64, user_prompt, media_type, system_prompt=system_prompt
+            )
         elif service == "ollama":
-            return await self._call_ollama(provider, image_base64, user_prompt)
+            return await self._call_ollama(provider, image_base64, user_prompt, system_prompt=system_prompt)
         else:
             raise ValueError(f"Serviço de IA não suportado: {provider.service}")
 
@@ -351,6 +363,7 @@ class UnifiedVisionClient:
         image_base64: str,
         user_prompt: str,
         media_type: str,
+        system_prompt: str | None = None,
     ) -> str:
         raw_base = p.base_url or ""
         if not raw_base or "suaempresa.com.br" in raw_base:
@@ -367,11 +380,12 @@ class UnifiedVisionClient:
                 **p.headers,
             },
         )
+        sys_prompt = system_prompt or QA_SYSTEM_PROMPT
         payload = {
             "model": target_model,
             "max_tokens": p.max_tokens,
             "temperature": p.temperature,
-            "system": QA_SYSTEM_PROMPT,
+            "system": sys_prompt,
             "messages": [
                 {
                     "role": "user",
@@ -408,6 +422,7 @@ class UnifiedVisionClient:
         image_base64: str,
         user_prompt: str,
         media_type: str,
+        system_prompt: str | None = None,
     ) -> str:
         url = (p.base_url or "https://api.openai.com/v1").rstrip("/") + "/chat/completions"
         headers = {
@@ -416,20 +431,21 @@ class UnifiedVisionClient:
             **p.headers,
         }
         image_data_uri = f"data:{media_type};base64,{image_base64}"
+        sys_prompt = system_prompt or QA_SYSTEM_PROMPT
 
         payload = {
             "model": p.model,
             "max_tokens": p.max_tokens,
             "temperature": p.temperature,
             "messages": [
-                {"role": "system", "content": QA_SYSTEM_PROMPT},
+                {"role": "system", "content": sys_prompt},
                 {
                     "role": "user",
                     "content": [
                         {"type": "text", "text": user_prompt},
                         {
-                            "type": "image_url",
                             "image_url": {"url": image_data_uri, "detail": "high"},
+                            "type": "image_url",
                         },
                     ],
                 },
@@ -451,10 +467,12 @@ class UnifiedVisionClient:
         image_base64: str,
         user_prompt: str,
         media_type: str,
+        system_prompt: str | None = None,
     ) -> str:
         base = (p.base_url or "https://generativelanguage.googleapis.com/v1beta").rstrip("/")
         headers = {"Content-Type": "application/json", **p.headers}
         api_key = p.api_key or ""
+        sys_prompt = system_prompt or QA_SYSTEM_PROMPT
 
         # Suporte a SSO (OAuth2 Bearer Token / GCP / Vertex AI / Gateway Corporativo)
         if api_key.startswith("ya29.") or "Authorization" in headers:
@@ -469,7 +487,7 @@ class UnifiedVisionClient:
             url = f"{base}/models/{p.model}:generateContent"
 
         payload = {
-            "system_instruction": {"parts": [{"text": QA_SYSTEM_PROMPT}]},
+            "system_instruction": {"parts": [{"text": sys_prompt}]},
             "contents": [
                 {
                     "role": "user",
@@ -507,11 +525,13 @@ class UnifiedVisionClient:
         p: ProviderSettings,
         image_base64: str,
         user_prompt: str,
+        system_prompt: str | None = None,
     ) -> str:
         url = (p.base_url or "http://localhost:11434").rstrip("/") + "/api/generate"
         headers = {"Content-Type": "application/json", **p.headers}
+        sys_prompt = system_prompt or QA_SYSTEM_PROMPT
 
-        prompt_combined = f"{QA_SYSTEM_PROMPT}\n\n{user_prompt}"
+        prompt_combined = f"{sys_prompt}\n\n{user_prompt}"
         payload = {
             "model": p.model,
             "prompt": prompt_combined,

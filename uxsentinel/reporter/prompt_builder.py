@@ -127,6 +127,8 @@ def build_fix_prompt(report: TestReport) -> str:
         lines.append(f"### #{idx:02d} [{cat_badge}] {issue.descricao}")
         lines.append(f"- **Severidade:** {badge}")
         lines.append(f"- **Categoria:** `{issue.categoria}`")
+        if issue.evaluator:
+            lines.append(f"- **Avaliador:** `{issue.evaluator}`")
         lines.append(f"- **CHECKPOINT:** `{cp_name}`")
         lines.append(f"- **Comportamento Esperado:** {expected}")
         if issue.elemento_alvo:

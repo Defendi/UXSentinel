@@ -389,6 +389,11 @@ HTML_TEMPLATE = """
                                             {% if 'mobile' in issue.viewport|lower %}📱{% elif 'tablet' in issue.viewport|lower %}📟{% else %}🖥️{% endif %} {{ issue.viewport }}
                                         </span>
                                     {% endif %}
+                                    {% if issue.evaluator %}
+                                        <span class="badge" style="background: rgba(168, 85, 247, 0.2); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.4); font-size: 0.75rem; margin-left: 0.25rem;">
+                                            🤖 {{ issue.evaluator }}
+                                        </span>
+                                    {% endif %}
                                 </div>
                                 <span style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase;">
                                     🏷️ {{ issue.categoria.value }}

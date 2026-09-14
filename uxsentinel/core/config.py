@@ -96,6 +96,10 @@ class ReportingSettings(BaseModel):
     generate_fix_prompt: bool = False
 
 
+class VisionSettings(BaseModel):
+    use_mixture_of_evaluators: bool = True
+
+
 class JiraSettings(BaseModel):
     enabled: bool = False
     url: str = Field(default="", description="URL base do Jira (ex: https://empresa.atlassian.net)")
@@ -184,6 +188,7 @@ class GlobalConfig(BaseModel):
     fallback_provider: str | None = "ollama_local"
     browser: BrowserSettings = Field(default_factory=BrowserSettings)
     reporting: ReportingSettings = Field(default_factory=ReportingSettings)
+    vision: VisionSettings = Field(default_factory=VisionSettings)
     jira: JiraSettings = Field(default_factory=JiraSettings)
     providers: dict[str, ProviderSettings] = Field(default_factory=dict)
 
@@ -439,6 +444,11 @@ def load_config(config_path: str | None = None) -> GlobalConfig:
         labels=jira_dict.get("labels") or ["uxsentinel", "qa-audit"],
     )
 
+    vision_dict = raw_dict.get("vision", {})
+    vision_settings = VisionSettings(
+        use_mixture_of_evaluators=vision_dict.get("use_mixture_of_evaluators", True),
+    )
+
     # Inicializa com provedores padrão embutidos e mescla com os definidos pelo usuário
     providers_dict: dict[str, ProviderSettings] = {k: v.model_copy() for k, v in BUILTIN_PROVIDERS.items()}
     for p_name, p_data in raw_dict.get("providers", {}).items():
@@ -466,6 +476,7 @@ def load_config(config_path: str | None = None) -> GlobalConfig:
         fallback_provider=raw_dict.get("fallback_provider", "ollama_local"),
         browser=browser_settings,
         reporting=reporting_settings,
+        vision=vision_settings,
         jira=jira_settings,
         providers=providers_dict,
     )
@@ -514,6 +525,7 @@ __all__ = [
     "ProviderSettings",
     "ReportingSettings",
     "ViewportConfig",
+    "VisionSettings",
     "ensure_user_config",
     "get_user_config_dir",
     "get_user_config_path",
