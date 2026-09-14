@@ -144,6 +144,23 @@ class Issue(BaseModel):
 Inconsistency = Issue
 
 
+class AxeNodeResult(BaseModel):
+    target: list[str] = Field(default_factory=list)
+    html: str = ""
+    failure_summary: str | None = None
+    impact: str | None = None
+
+
+class AxeViolation(BaseModel):
+    id: str
+    impact: str | None = None  # "critical", "serious", "moderate", "minor"
+    description: str
+    help_url: str | None = None
+    help: str | None = None
+    tags: list[str] = Field(default_factory=list)
+    nodes: list[AxeNodeResult] = Field(default_factory=list)
+
+
 class HealingStrategy(StrEnum):
     ACCESSIBILITY = "accessibility"
     VISION_COORDINATES = "vision_coordinates"
@@ -179,6 +196,8 @@ class CheckpointResult(BaseModel):
     raw_response: str | None = None
     healed_events: list[HealingEvent] = Field(default_factory=list)
     viewport: str | None = None
+    a11y_score: float | None = None
+    a11y_violations: list[AxeViolation] = Field(default_factory=list)
 
 
 class StepAction(BaseModel):
@@ -203,6 +222,7 @@ class Scenario(BaseModel):
     env: dict[str, str] = Field(default_factory=dict)
     headless: bool | None = None
     video: bool | None = None
+    axe: bool | None = None
     viewports: list[str] | list[ViewportConfig] | None = None
     steps: list[StepAction] = Field(default_factory=list)
 
@@ -228,6 +248,8 @@ class TestReport(BaseModel):
     total_altas: int = 0
     total_medias: int = 0
     total_baixas: int = 0
+    a11y_score: float | None = None
+    a11y_violations: list[AxeViolation] = Field(default_factory=list)
     success: bool = True
     error_message: str | None = None
 
@@ -252,6 +274,23 @@ class TestReport(BaseModel):
                     self.total_medias += 1
                 elif issue.severidade == IssueSeverity.BAIXA:
                     self.total_baixas += 1
+
+        # Consolida métricas e violações de acessibilidade Axe-Core
+        all_violations: list[AxeViolation] = []
+        scores: list[float] = []
+        for cp in self.checkpoints:
+            if cp.a11y_violations:
+                all_violations.extend(cp.a11y_violations)
+            if cp.a11y_score is not None:
+                scores.append(cp.a11y_score)
+
+        self.a11y_violations = all_violations
+        if scores:
+            self.a11y_score = round(sum(scores) / len(scores), 1)
+        elif all_violations:
+            from uxsentinel.browser.axe_runner import calculate_a11y_score
+
+            self.a11y_score = calculate_a11y_score(all_violations)
 
         if has_bloqueante_or_alta or self.error_message:
             self.success = False

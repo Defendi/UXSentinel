@@ -46,6 +46,16 @@ class BrowserSettings(BaseModel):
     record_video: bool = False
     record_video_dir: str | None = None
     record_video_size: dict[str, int] | None = None
+    enable_axe: bool = True
+    axe_tags: list[str] = Field(
+        default_factory=lambda: [
+            "wcag2a",
+            "wcag2aa",
+            "wcag21a",
+            "wcag21aa",
+            "wcag22aa",
+        ]
+    )
 
 
 def resolve_video_mode(
@@ -86,6 +96,26 @@ def resolve_display_mode(
     if config_headless is not None:
         return config_headless
     return False
+
+
+def resolve_axe_mode(
+    cli_axe: bool | None = None,
+    scenario_axe: bool | None = None,
+    config_axe: bool | None = None,
+) -> bool:
+    """Resolve se a auditoria de acessibilidade Axe-Core deve ser executada:
+    1. CLI flag (--axe vs --no-axe)
+    2. Cenário YAML (campo 'axe')
+    3. Config global (BrowserSettings.enable_axe)
+    4. Fallback padrão: True
+    """
+    if cli_axe is not None:
+        return cli_axe
+    if scenario_axe is not None:
+        return scenario_axe
+    if config_axe is not None:
+        return config_axe
+    return True
 
 
 class ReportingSettings(BaseModel):
@@ -463,6 +493,15 @@ def load_config(config_path: str | None = None) -> GlobalConfig:
         record_video=browser_dict.get("record_video", False),
         record_video_dir=browser_dict.get("record_video_dir"),
         record_video_size=video_size_dict,
+        enable_axe=browser_dict.get("enable_axe", True),
+        axe_tags=browser_dict.get("axe_tags")
+        or [
+            "wcag2a",
+            "wcag2aa",
+            "wcag21a",
+            "wcag21aa",
+            "wcag22aa",
+        ],
     )
 
     reporting_dict = raw_dict.get("reporting", {})
@@ -580,6 +619,7 @@ __all__ = [
     "load_config",
     "parse_viewport_spec",
     "parse_viewports",
+    "resolve_axe_mode",
     "resolve_display_mode",
     "resolve_video_mode",
     "resolve_viewports",

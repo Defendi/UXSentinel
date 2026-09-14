@@ -232,6 +232,15 @@ HTML_TEMPLATE = """
                 <div class="metric-val">{{ report.total_baixas }}</div>
                 <div class="metric-label">Baixa Severidade</div>
             </div>
+            {% if report.a11y_score is not none %}
+            <div class="metric-card" style="color: {% if report.a11y_score >= 90 %}#34d399{% elif report.a11y_score >= 70 %}#fbbf24{% else %}#f87171{% endif %}; border: 1px solid {% if report.a11y_score >= 90 %}rgba(52, 211, 153, 0.3){% elif report.a11y_score >= 70 %}rgba(251, 191, 36, 0.3){% else %}rgba(248, 113, 113, 0.3){% endif %};">
+                <div class="metric-val">{{ "%.1f"|format(report.a11y_score) }}%</div>
+                <div class="metric-label">A11y Score (WCAG 2.2)</div>
+                <div style="background: rgba(255,255,255,0.1); border-radius: 999px; height: 6px; width: 80%; margin: 0.4rem auto 0; overflow: hidden;">
+                    <div style="width: {{ report.a11y_score }}%; height: 100%; background: {% if report.a11y_score >= 90 %}#10b981{% elif report.a11y_score >= 70 %}#f59e0b{% else %}#ef4444{% endif %}; border-radius: 999px;"></div>
+                </div>
+            </div>
+            {% endif %}
             {% if report.healed_steps %}
             <div class="metric-card" style="color: #fbbf24;">
                 <div class="metric-val">{{ report.healed_steps|length }}</div>
@@ -364,6 +373,32 @@ HTML_TEMPLATE = """
                 {{ cp.expected_behavior }}
             </div>
 
+            {% if cp.a11y_score is not none %}
+            <div style="background: rgba(15, 23, 42, 0.6); border: 1px solid var(--border); border-radius: 8px; padding: 0.85rem 1.25rem; margin-bottom: 1.25rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
+                <div style="display: flex; align-items: center; gap: 0.75rem;">
+                    <span style="font-size: 1.4rem;">♿</span>
+                    <div>
+                        <div style="font-size: 0.95rem; font-weight: 600;">Auditoria Axe-Core (WCAG 2.2 AA)</div>
+                        <div style="font-size: 0.8rem; color: var(--text-muted);">
+                            {% if cp.a11y_violations %}
+                                <span style="color: #f87171; font-weight: 600;">{{ cp.a11y_violations|length }} violação(ões) detectada(s)</span>
+                            {% else %}
+                                <span style="color: #34d399; font-weight: 600;">100% Conforme às diretrizes WCAG 2.2 AA</span>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+                <div style="display: flex; align-items: center; gap: 1rem;">
+                    <div style="text-align: right;">
+                        <span style="font-size: 1.3rem; font-weight: 700; color: {% if cp.a11y_score >= 90 %}#34d399{% elif cp.a11y_score >= 70 %}#fbbf24{% else %}#f87171{% endif %};">
+                            {{ "%.1f"|format(cp.a11y_score) }}%
+                        </span>
+                        <div style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase;">A11y Score</div>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+
             <div class="checkpoint-body">
                 <div class="screenshot-box">
                     {% if cp.screenshot_path %}
@@ -419,6 +454,57 @@ HTML_TEMPLATE = """
                     {% endif %}
                 </div>
             </div>
+
+            {% if cp.a11y_violations %}
+            <div style="margin-top: 1.5rem; background: rgba(0,0,0,0.25); border: 1px solid var(--border); border-radius: 8px; padding: 1.25rem;">
+                <div style="font-size: 1rem; font-weight: 600; margin-bottom: 0.75rem; display: flex; align-items: center; justify-content: space-between;">
+                    <span>♿ Detalhamento de Violações de Acessibilidade (Axe-Core)</span>
+                    <span class="badge badge-warning">{{ cp.a11y_violations|length }} regra(s) violada(s)</span>
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 0.75rem;">
+                    {% for v in cp.a11y_violations %}
+                    <div style="background: var(--surface); border: 1px solid var(--border); border-left: 4px solid {% if v.impact == 'critical' %}var(--danger){% elif v.impact == 'serious' %}#f97316{% elif v.impact == 'moderate' %}var(--warning){% else %}var(--info){% endif %}; border-radius: 6px; padding: 0.85rem;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.4rem; flex-wrap: wrap; gap: 0.5rem;">
+                            <div>
+                                <span class="badge badge-{% if v.impact in ['critical', 'serious'] %}danger{% elif v.impact == 'moderate' %}warning{% else %}info{% endif %}" style="font-size: 0.75rem;">
+                                    {{ v.impact or 'moderate' }}
+                                </span>
+                                <strong style="margin-left: 0.4rem; font-size: 0.9rem;">{{ v.id }}</strong>
+                            </div>
+                            {% if v.help_url %}
+                            <a href="{{ v.help_url }}" target="_blank" style="font-size: 0.8rem; color: #38bdf8; text-decoration: none;" title="Ver especificação técnica WCAG / Deque">
+                                📖 Especificação Deque/WCAG ↗
+                            </a>
+                            {% endif %}
+                        </div>
+                        <div style="font-size: 0.85rem; color: #cbd5e1; margin-bottom: 0.4rem;">
+                            {{ v.description }}
+                        </div>
+                        {% if v.tags %}
+                        <div style="display: flex; gap: 0.3rem; flex-wrap: wrap; margin-bottom: 0.5rem;">
+                            {% for tag in v.tags %}
+                            <span style="font-size: 0.7rem; background: rgba(255,255,255,0.05); padding: 0.15rem 0.4rem; border-radius: 4px; color: var(--text-muted);">
+                                #{{ tag }}
+                            </span>
+                            {% endfor %}
+                        </div>
+                        {% endif %}
+                        {% if v.nodes %}
+                        <div style="font-size: 0.8rem; background: rgba(0,0,0,0.3); border-radius: 4px; padding: 0.5rem;">
+                            <div style="color: var(--text-muted); margin-bottom: 0.2rem;"><strong>Alvo CSS:</strong> <code>{{ v.nodes[0].target|join(' > ') }}</code></div>
+                            {% if v.nodes[0].html %}
+                            <div style="margin-bottom: 0.2rem; font-family: monospace; color: #94a3b8; overflow-x: auto; white-space: pre-wrap; max-height: 80px;">{{ v.nodes[0].html }}</div>
+                            {% endif %}
+                            {% if v.nodes[0].failure_summary %}
+                            <div style="color: #fbbf24; font-size: 0.75rem; margin-top: 0.3rem;">💡 {{ v.nodes[0].failure_summary }}</div>
+                            {% endif %}
+                        </div>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
         </div>
         {% endfor %}
     </div>
@@ -469,6 +555,22 @@ def get_logo_base64() -> str:
     return ""
 
 
+def build_html_report(
+    report: TestReport,
+    video_rel_path: str | None = None,
+    gif_rel_path: str | None = None,
+) -> str:
+    """Renderiza a string HTML do dashboard com os dados do relatório."""
+    logo_data = get_logo_base64()
+    template = Template(HTML_TEMPLATE)
+    return template.render(
+        report=report,
+        logo_base64=logo_data,
+        video_rel_path=video_rel_path,
+        gif_rel_path=gif_rel_path,
+    )
+
+
 def save_html_report(report: TestReport, output_dir: str) -> Path:
     out_path = Path(output_dir)
     out_path.mkdir(parents=True, exist_ok=True)
@@ -490,11 +592,8 @@ def save_html_report(report: TestReport, output_dir: str) -> Path:
         except ValueError:
             gif_rel = str(gp)
 
-    logo_data = get_logo_base64()
-    template = Template(HTML_TEMPLATE)
-    rendered_html = template.render(
+    rendered_html = build_html_report(
         report=report,
-        logo_base64=logo_data,
         video_rel_path=video_rel,
         gif_rel_path=gif_rel,
     )

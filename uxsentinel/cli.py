@@ -10,6 +10,7 @@ from uxsentinel import __version__
 from uxsentinel.core.agent import UXSentinelAgent
 from uxsentinel.core.config import (
     load_config,
+    resolve_axe_mode,
     resolve_display_mode,
     resolve_video_mode,
     resolve_viewports,
@@ -275,6 +276,21 @@ Documentação completa: https://github.com/Defendi/UXSentinel""",
         type=str,
         default=None,
         help="Preset ou resolução única de viewport (ex: 'desktop', 'mobile', '1280x720').",
+    )
+    axe_group = parser.add_mutually_exclusive_group()
+    axe_group.add_argument(
+        "--axe",
+        dest="enable_axe",
+        action="store_true",
+        default=None,
+        help="Ativa a auditoria de acessibilidade automatizada com motor Axe-Core (WCAG 2.2 AA).",
+    )
+    axe_group.add_argument(
+        "--no-axe",
+        dest="enable_axe",
+        action="store_false",
+        default=None,
+        help="Desativa a auditoria de acessibilidade Axe-Core.",
     )
     parser.add_argument(
         "--slowmo",
@@ -554,11 +570,23 @@ Documentação completa: https://github.com/Defendi/UXSentinel""",
         config_viewports=cfg.browser.viewports,
     )
 
+    # Hierarquia de resolução do modo Axe-Core:
+    # 1. CLI flag (--axe / --no-axe)
+    # 2. Cenário YAML (campo 'axe')
+    # 3. Config global (BrowserSettings.enable_axe)
+    # 4. Fallback padrão: True
+    cfg.browser.enable_axe = resolve_axe_mode(
+        cli_axe=args.enable_axe,
+        scenario_axe=scenario.axe,
+        config_axe=cfg.browser.enable_axe,
+    )
+
     agent = UXSentinelAgent(
         cfg,
         headless_override=args.headless,
         record_video_override=args.record_video,
         viewports_override=cli_viewport_arg,
+        enable_axe_override=args.enable_axe,
     )
     report = await agent.run_scenario(scenario)
 

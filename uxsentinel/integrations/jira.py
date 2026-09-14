@@ -138,10 +138,20 @@ class JiraClient:
                 ]
             )
 
+        if issue.categoria.value.lower() == "acessibilidade" or issue.evaluator == "axe-core":
+            lines.extend(
+                [
+                    "h3. ♿ Especificação de Acessibilidade e WCAG 2.2",
+                    "*Motor:* Axe-Core Accessibility Engine",
+                    "*Critério:* Diretrizes de Acessibilidade para Conteúdo Web (WCAG 2.0/2.1/2.2 AA)",
+                    "",
+                ]
+            )
+
         if issue.elemento_alvo:
             lines.extend(
                 [
-                    "h3. 🎯 Elemento / Seletor",
+                    "h3. 🎯 Elemento / Seletor CSS",
                     f"{{noformat}}{issue.elemento_alvo}{{noformat}}",
                     "",
                 ]
@@ -233,6 +243,9 @@ class JiraClient:
                 )
 
                 extra_labels = [f"viewport-{vp.split()[0].lower()}"] if vp else []
+                if issue.categoria.value.lower() == "acessibilidade" or issue.evaluator == "axe-core":
+                    extra_labels.extend(["wcag", "a11y", "axe-core"])
+
                 issue_labels = list(
                     set(
                         self.labels

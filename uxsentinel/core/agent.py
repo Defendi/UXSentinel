@@ -15,12 +15,22 @@ from rich.progress import (
 )
 from rich.table import Table
 
+from uxsentinel.browser.axe_runner import (
+    AxeRunner,
+    calculate_a11y_score,
+    convert_violations_to_issues,
+)
 from uxsentinel.browser.drivers.base_driver import BaseDriver
 from uxsentinel.browser.drivers.odoo_driver import OdooDriver
 from uxsentinel.browser.healing import SelectorHealer
 from uxsentinel.browser.session import open_browser_session
 from uxsentinel.browser.som import SetOfMarksManager
-from uxsentinel.core.config import GlobalConfig, resolve_display_mode, resolve_video_mode
+from uxsentinel.core.config import (
+    GlobalConfig,
+    resolve_axe_mode,
+    resolve_display_mode,
+    resolve_video_mode,
+)
 from uxsentinel.core.models import (
     ExecutionResult,
     Issue,
@@ -48,16 +58,19 @@ class UXSentinelAgent:
         headless_override: bool | None = None,
         record_video_override: bool | None = None,
         viewports_override: str | list[str] | list[ViewportConfig] | None = None,
+        enable_axe_override: bool | None = None,
     ):
         self.config = config
         self.headless_override = headless_override
         self.record_video_override = record_video_override
         self.viewports_override = viewports_override
+        self.enable_axe_override = enable_axe_override
         self.inspector = ScreenInspector(config)
         self.healer = SelectorHealer(
             vision_client=self.inspector.client,
             enabled=self.config.browser.self_healing,
         )
+        self.axe_runner = AxeRunner(tags=self.config.browser.axe_tags)
         self.last_execution_result: ExecutionResult | None = None
 
     async def run_scenario(
@@ -66,6 +79,7 @@ class UXSentinelAgent:
         headless_override: bool | None = None,
         record_video_override: bool | None = None,
         viewports_override: str | list[str] | list[ViewportConfig] | None = None,
+        enable_axe_override: bool | None = None,
     ) -> TestReport:
         profile = scenario.profile or "generic"
         start_time = time.time()
@@ -90,6 +104,17 @@ class UXSentinelAgent:
             cli_video=effective_cli_video,
             scenario_video=scenario.video,
             config_video=self.config.browser.record_video,
+        )
+
+        # Determina a auditoria de acessibilidade com Axe-Core:
+        # CLI Flag > Cenário YAML > Config global > Fallback True
+        effective_cli_axe = (
+            enable_axe_override if enable_axe_override is not None else self.enable_axe_override
+        )
+        effective_axe = resolve_axe_mode(
+            cli_axe=effective_cli_axe,
+            scenario_axe=scenario.axe,
+            config_axe=self.config.browser.enable_axe,
         )
 
         # Determina a lista de viewports a auditar respeitando a hierarquia:
@@ -117,6 +142,7 @@ class UXSentinelAgent:
                 "record_video_dir": str(videos_dir),
                 "viewport_width": initial_vp.width,
                 "viewport_height": initial_vp.height,
+                "enable_axe": effective_axe,
             }
         )
 
@@ -125,8 +151,9 @@ class UXSentinelAgent:
         )
         vp_summary_str = ", ".join(vp.label for vp in effective_viewports)
         moe_desc = "Ativo (4 agentes)" if self.config.vision.use_mixture_of_evaluators else "Desativado"
+        axe_desc = "Ativo (WCAG 2.2)" if effective_axe else "Desativado"
         console.print(
-            f"   Perfil: [magenta]{profile}[/magenta] | Provedor IA: [yellow]{self.config.active_provider}[/yellow] | MoE: [cyan]{moe_desc}[/cyan] | Headless: [blue]{effective_headless}[/blue] | Viewports: [cyan]{vp_summary_str}[/cyan] | Self-Healing: [green]{browser_settings.self_healing}[/green]\n"
+            f"   Perfil: [magenta]{profile}[/magenta] | Provedor IA: [yellow]{self.config.active_provider}[/yellow] | MoE: [cyan]{moe_desc}[/cyan] | Axe-Core: [cyan]{axe_desc}[/cyan] | Headless: [blue]{effective_headless}[/blue] | Viewports: [cyan]{vp_summary_str}[/cyan] | Self-Healing: [green]{browser_settings.self_healing}[/green]\n"
         )
 
         if effective_headless:
@@ -225,6 +252,7 @@ class UXSentinelAgent:
                                     task_id=task_id,
                                     current_viewport=vp,
                                     multi_viewport=multi_vp,
+                                    effective_axe=effective_axe,
                                 )
                                 progress.advance(task_id)
                 else:
@@ -248,6 +276,7 @@ class UXSentinelAgent:
                                 out_dir,
                                 current_viewport=vp,
                                 multi_viewport=multi_vp,
+                                effective_axe=effective_axe,
                             )
 
         except Exception as exc:
@@ -357,6 +386,7 @@ class UXSentinelAgent:
         task_id: int | None = None,
         current_viewport: ViewportConfig | None = None,
         multi_viewport: bool = False,
+        effective_axe: bool = True,
     ) -> None:
         p_console = progress.console if progress is not None else console
         action = step.action.lower().strip()
@@ -458,6 +488,7 @@ class UXSentinelAgent:
                 total_steps=len(scenario.steps),
                 current_viewport=current_viewport,
                 multi_viewport=multi_viewport,
+                effective_axe=effective_axe,
             )
 
         else:
@@ -493,6 +524,7 @@ class UXSentinelAgent:
         total_steps: int | None = None,
         current_viewport: ViewportConfig | None = None,
         multi_viewport: bool = False,
+        effective_axe: bool = True,
     ) -> None:
         p_console = progress.console if progress is not None else console
         base_cp_name = step.name or f"checkpoint_{len(report.checkpoints) + 1}"
@@ -541,6 +573,33 @@ class UXSentinelAgent:
             except Exception:
                 pass
 
+        # Execução do motor Axe-Core para auditoria rigorosa de acessibilidade WCAG 2.2
+        a11y_violations = []
+        cp_a11y_score: float | None = None
+        if effective_axe and hasattr(driver, "page") and driver.page:
+            p_console.print("    [dim]♿ Executando auditoria de acessibilidade Axe-Core (WCAG 2.2)...[/dim]")
+            try:
+                a11y_violations = await self.axe_runner.run(driver.page, tags=self.config.browser.axe_tags)
+                cp_a11y_score = calculate_a11y_score(a11y_violations)
+                # Converte violações graves (critical / serious) em Issue para o fluxo unificado
+                a11y_issues = convert_violations_to_issues(a11y_violations, viewport=vp_label)
+                extra_dom_issues.extend(a11y_issues)
+
+                score_color = "green" if cp_a11y_score >= 90 else "yellow" if cp_a11y_score >= 70 else "red"
+                if a11y_violations:
+                    p_console.print(
+                        f"    [bold {score_color}]♿ A11y Score: {cp_a11y_score:.1f}%[/bold {score_color}] "
+                        f"([red]{len(a11y_violations)} violação(ões) WCAG detectada(s)[/red])"
+                    )
+                else:
+                    p_console.print(
+                        "    [bold green]♿ A11y Score: 100.0% (Conforme WCAG 2.2 AA)[/bold green]"
+                    )
+            except Exception as a11y_exc:
+                p_console.print(
+                    f"    [yellow]⚠️ Falha na auditoria de acessibilidade Axe-Core: {a11y_exc}[/yellow]"
+                )
+
         # Se for Odoo, checa erros silenciosos
         if isinstance(driver, OdooDriver):
             odoo_errors = await driver.check_unhandled_odoo_errors()
@@ -566,6 +625,9 @@ class UXSentinelAgent:
         )
 
         cp_result.viewport = vp_label
+        cp_result.a11y_score = cp_a11y_score
+        cp_result.a11y_violations = a11y_violations
+
         for issue in cp_result.issues:
             if not issue.viewport:
                 issue.viewport = vp_label
@@ -600,6 +662,19 @@ class UXSentinelAgent:
             table.add_row(
                 "Seletores Auto-Curados (Self-Healing)",
                 f"[bold yellow]{len(report.healed_steps)}[/bold yellow]",
+            )
+        if report.a11y_score is not None:
+            score_color = (
+                "green" if report.a11y_score >= 90 else "yellow" if report.a11y_score >= 70 else "red"
+            )
+            table.add_row(
+                "A11y Score Médio (WCAG)",
+                f"[bold {score_color}]{report.a11y_score:.1f}%[/bold {score_color}]",
+            )
+        if report.a11y_violations:
+            table.add_row(
+                "Violações WCAG (Axe-Core)",
+                f"[bold red]{len(report.a11y_violations)}[/bold red]",
             )
         table.add_row("Total de Inconformidades", str(report.total_issues))
         table.add_row("Bloqueantes", f"[red]{report.total_bloqueantes}[/red]")
