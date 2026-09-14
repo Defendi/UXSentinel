@@ -35,11 +35,12 @@ class MixtureOfEvaluators:
     ):
         self.config = config
         self.client = client or UnifiedVisionClient(config)
+        allowlist = getattr(config.vision, "i18n_allowlist", None)
         self.evaluators: list[BaseEvaluator] = (
             evaluators
             if evaluators is not None
             else [
-                LinguistAgent(self.client),
+                LinguistAgent(self.client, allowlist=allowlist),
                 LeakageSentinel(self.client),
                 LayoutAgent(self.client),
                 DomainQAAgent(self.client),

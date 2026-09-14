@@ -6,6 +6,7 @@ from pathlib import Path
 
 from uxsentinel.core.config import GlobalConfig
 from uxsentinel.core.models import CheckpointResult, Issue, IssueCategory, IssueSeverity
+from uxsentinel.vision.arbiter import DevilsAdvocateArbiter
 from uxsentinel.vision.client import UnifiedVisionClient
 from uxsentinel.vision.evaluators.base import EvaluatorContext
 from uxsentinel.vision.evaluators.orchestrator import MixtureOfEvaluators
@@ -16,13 +17,27 @@ logger = logging.getLogger("uxsentinel.vision.inspector")
 
 class ScreenInspector:
     """Responsável por auditar um screenshot de checkpoint contra critérios de QA e regras de negócio,
-    utilizando a arquitetura multiagente Mixture of Evaluators com fallback para o inspetor monólito.
+    utilizando a arquitetura multiagente Mixture of Evaluators com fallback para o inspetor monólito
+    e Árbitro Reverso (Devil's Advocate) para eliminação de falsos positivos.
     """
 
-    def __init__(self, config: GlobalConfig, mixture: MixtureOfEvaluators | None = None):
+    def __init__(
+        self,
+        config: GlobalConfig,
+        mixture: MixtureOfEvaluators | None = None,
+        arbiter: DevilsAdvocateArbiter | None = None,
+    ):
         self.config = config
         self.client = UnifiedVisionClient(config)
         self.mixture = mixture if mixture is not None else MixtureOfEvaluators(config, client=self.client)
+        self.arbiter = (
+            arbiter
+            if arbiter is not None
+            else DevilsAdvocateArbiter(
+                self.client,
+                enabled=getattr(self.config.vision, "enable_devils_advocate", True),
+            )
+        )
 
     async def inspect(
         self,
@@ -32,6 +47,7 @@ class ScreenInspector:
         dom_text: str = "",
         description: str | None = None,
         viewport: str | None = None,
+        extra_issues: list[Issue] | None = None,
     ) -> CheckpointResult:
         file_path = Path(screenshot_path)
         if not file_path.is_file():
@@ -65,6 +81,7 @@ class ScreenInspector:
                     description=description,
                     image_b64=image_b64,
                     viewport=viewport,
+                    extra_issues=extra_issues,
                 )
             except Exception as exc:
                 logger.warning(
@@ -83,6 +100,7 @@ class ScreenInspector:
             description=description,
             image_b64=image_b64,
             viewport=viewport,
+            extra_issues=extra_issues,
         )
 
     async def _inspect_mixture(
@@ -94,6 +112,7 @@ class ScreenInspector:
         description: str | None,
         image_b64: str,
         viewport: str | None = None,
+        extra_issues: list[Issue] | None = None,
     ) -> CheckpointResult:
         """Executa a auditoria através da arquitetura paralela especializada Mixture of Evaluators."""
         context = EvaluatorContext(
@@ -106,6 +125,20 @@ class ScreenInspector:
         )
 
         issues = await self.mixture.evaluate(context)
+
+        if extra_issues:
+            issues = self.mixture.consolidate_and_deduplicate(extra_issues + issues)
+
+        if getattr(self.config.vision, "enable_devils_advocate", True) and self.arbiter:
+            issues = await self.arbiter.arbitrate(
+                issues=issues,
+                image_base64=image_b64,
+                checkpoint_name=checkpoint_name,
+                expected_behavior=expected_behavior,
+                dom_text=dom_text,
+                viewport=viewport,
+            )
+
         status = "ok" if not issues else "problemas_encontrados"
 
         return CheckpointResult(
@@ -128,6 +161,7 @@ class ScreenInspector:
         description: str | None,
         image_b64: str,
         viewport: str | None = None,
+        extra_issues: list[Issue] | None = None,
     ) -> CheckpointResult:
         """Modo clássico/legado monólito que utiliza um único prompt abrangente para todas as heurísticas."""
         user_prompt = build_user_prompt(
@@ -194,6 +228,21 @@ class ScreenInspector:
                         evaluator="Monolith Inspector",
                     )
                 )
+
+            if extra_issues:
+                issues_list = extra_issues + issues_list
+
+            if getattr(self.config.vision, "enable_devils_advocate", True) and self.arbiter:
+                issues_list = await self.arbiter.arbitrate(
+                    issues=issues_list,
+                    image_base64=image_b64,
+                    checkpoint_name=checkpoint_name,
+                    expected_behavior=expected_behavior,
+                    dom_text=dom_text,
+                    viewport=viewport,
+                )
+
+            status = "ok" if not issues_list else "problemas_encontrados"
 
             return CheckpointResult(
                 name=checkpoint_name,

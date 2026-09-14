@@ -6,7 +6,8 @@ from typing import TYPE_CHECKING, Any
 
 from playwright.async_api import Page
 
-from uxsentinel.core.models import HealingEvent
+from uxsentinel.browser.dom_validator import DOMAnomaly, DOMValidator
+from uxsentinel.core.models import HealingEvent, Issue
 
 if TYPE_CHECKING:
     from uxsentinel.browser.healing import SelectorHealer
@@ -22,6 +23,7 @@ class BaseDriver(ABC):
         self.healing_events: list[HealingEvent] = []
         self.video_path: str | None = None
         self.session: Any | None = None
+        self.dom_validator: DOMValidator = DOMValidator()
 
     async def _highlight_element(self, selector: str) -> None:
         """Aplica halo visual no elemento antes da ação."""
@@ -210,6 +212,15 @@ class BaseDriver(ABC):
             """)
         except Exception:
             return ""
+
+    async def validate_dom(self) -> list[DOMAnomaly]:
+        """Executa a rotina determinística de validação do DOM para detecção de anomalias geométricas."""
+        return await self.dom_validator.inspect_dom(self.page)
+
+    async def get_dom_issues(self, viewport: str | None = None) -> list[Issue]:
+        """Executa a validação determinística do DOM e converte em inconsistências estruturadas."""
+        anomalies = await self.validate_dom()
+        return self.dom_validator.anomalies_to_issues(anomalies, viewport=viewport)
 
     @abstractmethod
     async def wait_until_ready(self, timeout: int = 10000) -> None:

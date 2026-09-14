@@ -96,8 +96,49 @@ class ReportingSettings(BaseModel):
     generate_fix_prompt: bool = False
 
 
+DEFAULT_I18N_ALLOWLIST: list[str] = [
+    "Status",
+    "Dashboard",
+    "Lead",
+    "Login",
+    "Logout",
+    "Feedback",
+    "Insight",
+    "Online",
+    "ID",
+    "App",
+    "Upload",
+    "Download",
+    "E-mail",
+    "Email",
+    "API",
+    "Software",
+    "Link",
+    "Setup",
+    "Bug",
+    "Layout",
+    "Design",
+    "Banner",
+    "Checkout",
+    "Pipeline",
+    "Card",
+    "Tag",
+    "Score",
+    "Sprint",
+    "Kanban",
+    "Briefing",
+    "Deploy",
+    "Release",
+    "Case",
+]
+
+
 class VisionSettings(BaseModel):
     use_mixture_of_evaluators: bool = True
+    enable_devils_advocate: bool = True
+    enable_dom_validation: bool = True
+    enable_som: bool = False
+    i18n_allowlist: list[str] = Field(default_factory=lambda: list(DEFAULT_I18N_ALLOWLIST))
 
 
 class JiraSettings(BaseModel):
@@ -445,8 +486,14 @@ def load_config(config_path: str | None = None) -> GlobalConfig:
     )
 
     vision_dict = raw_dict.get("vision", {})
+    raw_allowlist = vision_dict.get("i18n_allowlist")
+    i18n_allowlist = raw_allowlist if raw_allowlist is not None else list(DEFAULT_I18N_ALLOWLIST)
     vision_settings = VisionSettings(
         use_mixture_of_evaluators=vision_dict.get("use_mixture_of_evaluators", True),
+        enable_devils_advocate=vision_dict.get("enable_devils_advocate", True),
+        enable_dom_validation=vision_dict.get("enable_dom_validation", True),
+        enable_som=vision_dict.get("enable_som", False),
+        i18n_allowlist=i18n_allowlist,
     )
 
     # Inicializa com provedores padrão embutidos e mescla com os definidos pelo usuário
@@ -519,6 +566,7 @@ __all__ = [
     "CANONICAL_VIEWPORTS",
     "DEFAULT_CONFIG_TEMPLATE",
     "DEFAULT_FALLBACK_VIEWPORT",
+    "DEFAULT_I18N_ALLOWLIST",
     "BrowserSettings",
     "GlobalConfig",
     "JiraSettings",

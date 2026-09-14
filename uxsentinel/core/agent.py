@@ -19,9 +19,11 @@ from uxsentinel.browser.drivers.base_driver import BaseDriver
 from uxsentinel.browser.drivers.odoo_driver import OdooDriver
 from uxsentinel.browser.healing import SelectorHealer
 from uxsentinel.browser.session import open_browser_session
+from uxsentinel.browser.som import SetOfMarksManager
 from uxsentinel.core.config import GlobalConfig, resolve_display_mode, resolve_video_mode
 from uxsentinel.core.models import (
     ExecutionResult,
+    Issue,
     Scenario,
     StepAction,
     TestReport,
@@ -510,12 +512,34 @@ class UXSentinelAgent:
             f"    [bold yellow]📸 Checkpoint acionado:[/bold yellow] [italic]{cp_name}[/italic]{vp_suffix}"
         )
 
-        # Captura screenshot em alta resolução
-        if hasattr(driver, "page") and hasattr(driver.page, "screenshot"):
-            await driver.page.screenshot(path=str(screenshot_file), full_page=True)
+        # Set-of-Marks (SoM) opcional para captura de screenshot com identificadores visuais numéricos
+        som_enabled = getattr(self.config.vision, "enable_som", False)
+        som_manager = SetOfMarksManager() if som_enabled else None
+
+        if som_manager and hasattr(driver, "page") and driver.page:
+            async with som_manager.apply_som(driver.page):
+                if hasattr(driver.page, "screenshot"):
+                    await driver.page.screenshot(path=str(screenshot_file), full_page=True)
+        else:
+            if hasattr(driver, "page") and hasattr(driver.page, "screenshot"):
+                await driver.page.screenshot(path=str(screenshot_file), full_page=True)
 
         # Extrai o texto limpo do DOM
         dom_text = await driver.get_clean_dom_text()
+
+        # Pré-validação determinística no DOM (overflow matemático, truncamento de texto, modais)
+        extra_dom_issues: list[Issue] = []
+        if getattr(self.config.vision, "enable_dom_validation", True) and hasattr(driver, "validate_dom"):
+            try:
+                dom_anomalies = await driver.validate_dom()
+                if dom_anomalies:
+                    dom_summary = driver.dom_validator.format_anomalies_summary(dom_anomalies)
+                    dom_text = f"{dom_text}\n\n{dom_summary}".strip()
+                    extra_dom_issues = driver.dom_validator.anomalies_to_issues(
+                        dom_anomalies, viewport=vp_label
+                    )
+            except Exception:
+                pass
 
         # Se for Odoo, checa erros silenciosos
         if isinstance(driver, OdooDriver):
@@ -538,6 +562,7 @@ class UXSentinelAgent:
             dom_text=dom_text,
             description=step.description,
             viewport=vp_label,
+            extra_issues=extra_dom_issues,
         )
 
         cp_result.viewport = vp_label
