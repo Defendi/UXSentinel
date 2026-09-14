@@ -11,6 +11,7 @@ from uxsentinel.core.agent import UXSentinelAgent
 from uxsentinel.core.config import (
     load_config,
     resolve_axe_mode,
+    resolve_baseline_mode,
     resolve_display_mode,
     resolve_video_mode,
     resolve_viewports,
@@ -291,6 +292,26 @@ Documentação completa: https://github.com/Defendi/UXSentinel""",
         action="store_false",
         default=None,
         help="Desativa a auditoria de acessibilidade Axe-Core.",
+    )
+    baseline_group = parser.add_argument_group("Baseline Visual e Regressão")
+    baseline_group.add_argument(
+        "--update-baseline",
+        action="store_true",
+        dest="update_baseline",
+        default=None,
+        help="Salva/sobrescreve os screenshots homologados como nova referência (baseline visual).",
+    )
+    baseline_group.add_argument(
+        "--baseline-dir",
+        type=str,
+        default=None,
+        help="Diretório de baselines de referência (padrão: scenarios/baselines).",
+    )
+    baseline_group.add_argument(
+        "--diff-threshold",
+        type=float,
+        default=None,
+        help="Limiar percentual de tolerância para divergência visual (default: 0.1%%).",
     )
     parser.add_argument(
         "--slowmo",
@@ -581,14 +602,42 @@ Documentação completa: https://github.com/Defendi/UXSentinel""",
         config_axe=cfg.browser.enable_axe,
     )
 
+    # Hierarquia de resolução do Baseline Visual:
+    # 1. CLI flag (--update-baseline, --baseline-dir, --diff-threshold)
+    # 2. Cenário YAML (campos 'update_baseline', 'baseline_dir', 'diff_threshold')
+    # 3. Config global (cfg.baseline)
+    if args.baseline_dir:
+        cfg.baseline.baseline_dir = args.baseline_dir
+    elif scenario.baseline_dir:
+        cfg.baseline.baseline_dir = scenario.baseline_dir
+
+    if args.diff_threshold is not None:
+        cfg.baseline.diff_threshold = args.diff_threshold
+    elif scenario.diff_threshold is not None:
+        cfg.baseline.diff_threshold = scenario.diff_threshold
+
+    cfg.baseline.update_baseline = resolve_baseline_mode(
+        cli_update_baseline=args.update_baseline,
+        scenario_update_baseline=scenario.update_baseline,
+        config_update_baseline=cfg.baseline.update_baseline,
+    )
+
     agent = UXSentinelAgent(
         cfg,
         headless_override=args.headless,
         record_video_override=args.record_video,
         viewports_override=cli_viewport_arg,
         enable_axe_override=args.enable_axe,
+        update_baseline_override=args.update_baseline,
+        baseline_dir_override=args.baseline_dir,
+        diff_threshold_override=args.diff_threshold,
     )
-    report = await agent.run_scenario(scenario)
+    report = await agent.run_scenario(
+        scenario,
+        update_baseline_override=args.update_baseline,
+        baseline_dir_override=args.baseline_dir,
+        diff_threshold_override=args.diff_threshold,
+    )
 
     return 0 if report.success else 1
 

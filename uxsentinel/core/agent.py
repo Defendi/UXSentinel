@@ -1,4 +1,5 @@
 import asyncio
+import shutil
 import time
 from datetime import datetime
 from pathlib import Path
@@ -28,22 +29,27 @@ from uxsentinel.browser.som import SetOfMarksManager
 from uxsentinel.core.config import (
     GlobalConfig,
     resolve_axe_mode,
+    resolve_baseline_mode,
     resolve_display_mode,
     resolve_video_mode,
 )
 from uxsentinel.core.models import (
     ExecutionResult,
     Issue,
+    IssueCategory,
+    IssueSeverity,
     Scenario,
     StepAction,
     TestReport,
     ViewportConfig,
+    VisualDiffResult,
     parse_viewport_spec,
     resolve_viewports,
 )
 from uxsentinel.reporter.html_builder import save_html_report
 from uxsentinel.reporter.json_builder import save_json_report
 from uxsentinel.reporter.video_helper import create_session_gif, finalize_session_video
+from uxsentinel.vision.diff import compare_images
 from uxsentinel.vision.inspector import ScreenInspector
 
 console = Console()
@@ -59,12 +65,18 @@ class UXSentinelAgent:
         record_video_override: bool | None = None,
         viewports_override: str | list[str] | list[ViewportConfig] | None = None,
         enable_axe_override: bool | None = None,
+        update_baseline_override: bool | None = None,
+        baseline_dir_override: str | Path | None = None,
+        diff_threshold_override: float | None = None,
     ):
         self.config = config
         self.headless_override = headless_override
         self.record_video_override = record_video_override
         self.viewports_override = viewports_override
         self.enable_axe_override = enable_axe_override
+        self.update_baseline_override = update_baseline_override
+        self.baseline_dir_override = baseline_dir_override
+        self.diff_threshold_override = diff_threshold_override
         self.inspector = ScreenInspector(config)
         self.healer = SelectorHealer(
             vision_client=self.inspector.client,
@@ -80,6 +92,9 @@ class UXSentinelAgent:
         record_video_override: bool | None = None,
         viewports_override: str | list[str] | list[ViewportConfig] | None = None,
         enable_axe_override: bool | None = None,
+        update_baseline_override: bool | None = None,
+        baseline_dir_override: str | Path | None = None,
+        diff_threshold_override: float | None = None,
     ) -> TestReport:
         profile = scenario.profile or "generic"
         start_time = time.time()
@@ -117,6 +132,33 @@ class UXSentinelAgent:
             config_axe=self.config.browser.enable_axe,
         )
 
+        # Determina a resolução do baseline visual:
+        effective_cli_update_baseline = (
+            update_baseline_override
+            if update_baseline_override is not None
+            else self.update_baseline_override
+        )
+        effective_update_baseline = resolve_baseline_mode(
+            cli_update_baseline=effective_cli_update_baseline,
+            scenario_update_baseline=scenario.update_baseline,
+            config_update_baseline=self.config.baseline.update_baseline,
+        )
+        effective_baseline_dir = (
+            baseline_dir_override
+            or self.baseline_dir_override
+            or scenario.baseline_dir
+            or self.config.baseline.baseline_dir
+        )
+        effective_diff_threshold = (
+            diff_threshold_override
+            if diff_threshold_override is not None
+            else self.diff_threshold_override
+            if self.diff_threshold_override is not None
+            else scenario.diff_threshold
+            if scenario.diff_threshold is not None
+            else self.config.baseline.diff_threshold
+        )
+
         # Determina a lista de viewports a auditar respeitando a hierarquia:
         # CLI Flag (--viewports / --viewport) > Cenário YAML > Config global > Fallback (desktop 1280x800)
         effective_cli_viewports = (
@@ -152,8 +194,13 @@ class UXSentinelAgent:
         vp_summary_str = ", ".join(vp.label for vp in effective_viewports)
         moe_desc = "Ativo (4 agentes)" if self.config.vision.use_mixture_of_evaluators else "Desativado"
         axe_desc = "Ativo (WCAG 2.2)" if effective_axe else "Desativado"
+        baseline_desc = (
+            "Atualização (--update-baseline)"
+            if effective_update_baseline
+            else f"Auditoria Ativa (limiar: {effective_diff_threshold}%)"
+        )
         console.print(
-            f"   Perfil: [magenta]{profile}[/magenta] | Provedor IA: [yellow]{self.config.active_provider}[/yellow] | MoE: [cyan]{moe_desc}[/cyan] | Axe-Core: [cyan]{axe_desc}[/cyan] | Headless: [blue]{effective_headless}[/blue] | Viewports: [cyan]{vp_summary_str}[/cyan] | Self-Healing: [green]{browser_settings.self_healing}[/green]\n"
+            f"   Perfil: [magenta]{profile}[/magenta] | Provedor IA: [yellow]{self.config.active_provider}[/yellow] | MoE: [cyan]{moe_desc}[/cyan] | Axe-Core: [cyan]{axe_desc}[/cyan] | Baseline: [cyan]{baseline_desc}[/cyan] | Headless: [blue]{effective_headless}[/blue] | Viewports: [cyan]{vp_summary_str}[/cyan] | Self-Healing: [green]{browser_settings.self_healing}[/green]\n"
         )
 
         if effective_headless:
@@ -253,6 +300,9 @@ class UXSentinelAgent:
                                     current_viewport=vp,
                                     multi_viewport=multi_vp,
                                     effective_axe=effective_axe,
+                                    effective_baseline_dir=effective_baseline_dir,
+                                    effective_update_baseline=effective_update_baseline,
+                                    effective_diff_threshold=effective_diff_threshold,
                                 )
                                 progress.advance(task_id)
                 else:
@@ -277,6 +327,9 @@ class UXSentinelAgent:
                                 current_viewport=vp,
                                 multi_viewport=multi_vp,
                                 effective_axe=effective_axe,
+                                effective_baseline_dir=effective_baseline_dir,
+                                effective_update_baseline=effective_update_baseline,
+                                effective_diff_threshold=effective_diff_threshold,
                             )
 
         except Exception as exc:
@@ -387,6 +440,9 @@ class UXSentinelAgent:
         current_viewport: ViewportConfig | None = None,
         multi_viewport: bool = False,
         effective_axe: bool = True,
+        effective_baseline_dir: str | Path = "scenarios/baselines",
+        effective_update_baseline: bool = False,
+        effective_diff_threshold: float = 0.1,
     ) -> None:
         p_console = progress.console if progress is not None else console
         action = step.action.lower().strip()
@@ -489,6 +545,9 @@ class UXSentinelAgent:
                 current_viewport=current_viewport,
                 multi_viewport=multi_viewport,
                 effective_axe=effective_axe,
+                effective_baseline_dir=effective_baseline_dir,
+                effective_update_baseline=effective_update_baseline,
+                effective_diff_threshold=effective_diff_threshold,
             )
 
         else:
@@ -525,6 +584,9 @@ class UXSentinelAgent:
         current_viewport: ViewportConfig | None = None,
         multi_viewport: bool = False,
         effective_axe: bool = True,
+        effective_baseline_dir: str | Path = "scenarios/baselines",
+        effective_update_baseline: bool = False,
+        effective_diff_threshold: float = 0.1,
     ) -> None:
         p_console = progress.console if progress is not None else console
         base_cp_name = step.name or f"checkpoint_{len(report.checkpoints) + 1}"
@@ -556,20 +618,98 @@ class UXSentinelAgent:
             if hasattr(driver, "page") and hasattr(driver.page, "screenshot"):
                 await driver.page.screenshot(path=str(screenshot_file), full_page=True)
 
+        # Resolução e Execução do Baseline Visual
+        baseline_base = Path(effective_baseline_dir)
+        baseline_scenario_dir = baseline_base / report.scenario_id
+        baseline_scenario_dir.mkdir(parents=True, exist_ok=True)
+        if multi_viewport and current_viewport:
+            clean_vp = current_viewport.name.replace(":", "_").replace(" ", "_")
+            baseline_file = baseline_scenario_dir / f"{clean_vp}_{base_cp_name}.png"
+        else:
+            baseline_file = baseline_scenario_dir / f"{cp_name}.png"
+
+        diff_res: VisualDiffResult | None = None
+        extra_dom_issues: list[Issue] = []
+
+        if effective_update_baseline:
+            if screenshot_file.is_file():
+                shutil.copy2(screenshot_file, baseline_file)
+            diff_res = VisualDiffResult(
+                baseline_path=str(baseline_file),
+                current_path=str(screenshot_file),
+                diff_image_path=None,
+                diff_percentage=0.0,
+                has_diff=False,
+                threshold=effective_diff_threshold,
+                bounding_boxes=[],
+                total_pixels=0,
+                diff_pixels=0,
+            )
+            p_console.print(
+                f"    [bold cyan]💾 Baseline atualizado:[/bold cyan] [italic]{baseline_file}[/italic]"
+            )
+        elif baseline_file.is_file() and screenshot_file.is_file():
+            diff_file = out_dir / f"{report.scenario_id}_{cp_name}_diff.png"
+            try:
+                diff_res = compare_images(
+                    baseline_path=baseline_file,
+                    current_path=screenshot_file,
+                    diff_output_path=diff_file,
+                    threshold=effective_diff_threshold,
+                )
+                if diff_res.has_diff:
+                    sev = (
+                        IssueSeverity.BLOQUEANTE
+                        if diff_res.diff_percentage >= 10.0
+                        else IssueSeverity.ALTA
+                        if diff_res.diff_percentage >= 3.0
+                        else IssueSeverity.MEDIA
+                    )
+                    regress_issue = Issue(
+                        categoria=IssueCategory.LAYOUT,
+                        severidade=sev,
+                        descricao=(
+                            f"Regressão visual detectada no checkpoint '{cp_name}': divergência de "
+                            f"{diff_res.diff_percentage:.2f}% (limiar tolerado: {effective_diff_threshold}%)."
+                        ),
+                        sugestao_correcao=(
+                            "Verificar alterações recentes de layout/CSS ou homologar uma nova "
+                            "referência executando com a flag --update-baseline."
+                        ),
+                        viewport=vp_label,
+                        evaluator="visual-baseline-diff",
+                    )
+                    extra_dom_issues.append(regress_issue)
+                    p_console.print(
+                        f"    [bold red]⚠️ Regressão Visual detectada:[/bold red] {diff_res.diff_percentage:.2f}% "
+                        f"de divergência visual (limiar: {effective_diff_threshold}%)"
+                    )
+                else:
+                    p_console.print(
+                        f"    [bold green]👁️ Baseline visual conforme:[/bold green] {diff_res.diff_percentage:.2f}% "
+                        f"de divergência (dentro do limiar de {effective_diff_threshold}%)"
+                    )
+            except Exception as diff_exc:
+                p_console.print(f"    [yellow]⚠️ Falha na comparação de baseline visual: {diff_exc}[/yellow]")
+        else:
+            p_console.print(
+                f"    [dim]ℹ️ Baseline de referência não encontrado em '{baseline_file}'. "
+                f"Execute com --update-baseline para homologar.[/dim]"
+            )
+
         # Extrai o texto limpo do DOM
         dom_text = await driver.get_clean_dom_text()
 
         # Pré-validação determinística no DOM (overflow matemático, truncamento de texto, modais)
-        extra_dom_issues: list[Issue] = []
         if getattr(self.config.vision, "enable_dom_validation", True) and hasattr(driver, "validate_dom"):
             try:
                 dom_anomalies = await driver.validate_dom()
-                if dom_anomalies:
+                if dom_anomalies and hasattr(driver, "dom_validator"):
                     dom_summary = driver.dom_validator.format_anomalies_summary(dom_anomalies)
                     dom_text = f"{dom_text}\n\n{dom_summary}".strip()
-                    extra_dom_issues = driver.dom_validator.anomalies_to_issues(
-                        dom_anomalies, viewport=vp_label
-                    )
+                    val_issues = driver.dom_validator.anomalies_to_issues(dom_anomalies, viewport=vp_label)
+                    if isinstance(val_issues, list):
+                        extra_dom_issues.extend(val_issues)
             except Exception:
                 pass
 
@@ -627,6 +767,7 @@ class UXSentinelAgent:
         cp_result.viewport = vp_label
         cp_result.a11y_score = cp_a11y_score
         cp_result.a11y_violations = a11y_violations
+        cp_result.visual_diff = diff_res
 
         for issue in cp_result.issues:
             if not issue.viewport:
@@ -676,6 +817,12 @@ class UXSentinelAgent:
                 "Violações WCAG (Axe-Core)",
                 f"[bold red]{len(report.a11y_violations)}[/bold red]",
             )
+        diff_count = sum(1 for cp in report.checkpoints if cp.visual_diff and cp.visual_diff.has_diff)
+        if any(cp.visual_diff for cp in report.checkpoints):
+            diff_label = (
+                f"[bold red]{diff_count}[/bold red]" if diff_count > 0 else "[bold green]0[/bold green]"
+            )
+            table.add_row("Regressões Visuais (Baseline)", diff_label)
         table.add_row("Total de Inconformidades", str(report.total_issues))
         table.add_row("Bloqueantes", f"[red]{report.total_bloqueantes}[/red]")
         table.add_row("Alta Severidade", f"[orange3]{report.total_altas}[/orange3]")

@@ -23,6 +23,7 @@ class IssueCategory(StrEnum):
     TRADUCAO = "traducao"
     TEXTO_TECNICO = "texto_tecnico"
     LAYOUT_MODAL = "layout_modal"
+    LAYOUT = "layout"
     REGRA_NEGOCIO = "regra_negocio"
     ACESSIBILIDADE = "acessibilidade"
     OUTRO = "outro"
@@ -184,6 +185,25 @@ class HealingEvent(BaseModel):
 HealedStep = HealingEvent
 
 
+class BoundingBox(BaseModel):
+    x: int
+    y: int
+    width: int
+    height: int
+
+
+class VisualDiffResult(BaseModel):
+    baseline_path: str
+    current_path: str
+    diff_image_path: str | None = None
+    diff_percentage: float
+    has_diff: bool
+    threshold: float = 0.1
+    bounding_boxes: list[BoundingBox] = Field(default_factory=list)
+    total_pixels: int = 0
+    diff_pixels: int = 0
+
+
 class CheckpointResult(BaseModel):
     name: str
     description: str | None = None
@@ -198,6 +218,7 @@ class CheckpointResult(BaseModel):
     viewport: str | None = None
     a11y_score: float | None = None
     a11y_violations: list[AxeViolation] = Field(default_factory=list)
+    visual_diff: VisualDiffResult | None = None
 
 
 class StepAction(BaseModel):
@@ -223,6 +244,9 @@ class Scenario(BaseModel):
     headless: bool | None = None
     video: bool | None = None
     axe: bool | None = None
+    update_baseline: bool | None = None
+    baseline_dir: str | None = None
+    diff_threshold: float | None = None
     viewports: list[str] | list[ViewportConfig] | None = None
     steps: list[StepAction] = Field(default_factory=list)
 

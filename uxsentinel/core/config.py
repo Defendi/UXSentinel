@@ -163,6 +163,32 @@ DEFAULT_I18N_ALLOWLIST: list[str] = [
 ]
 
 
+class BaselineSettings(BaseModel):
+    baseline_dir: str = "scenarios/baselines"
+    diff_threshold: float = 0.1
+    update_baseline: bool = False
+
+
+def resolve_baseline_mode(
+    cli_update_baseline: bool | None = None,
+    scenario_update_baseline: bool | None = None,
+    config_update_baseline: bool | None = None,
+) -> bool:
+    """Resolve se a atualização de baseline deve ser executada:
+    1. CLI flag (--update-baseline)
+    2. Cenário YAML (campo 'update_baseline')
+    3. Config global (BaselineSettings.update_baseline)
+    4. Fallback padrão: False
+    """
+    if cli_update_baseline is not None:
+        return cli_update_baseline
+    if scenario_update_baseline is not None:
+        return scenario_update_baseline
+    if config_update_baseline is not None:
+        return config_update_baseline
+    return False
+
+
 class VisionSettings(BaseModel):
     use_mixture_of_evaluators: bool = True
     enable_devils_advocate: bool = True
@@ -260,6 +286,7 @@ class GlobalConfig(BaseModel):
     browser: BrowserSettings = Field(default_factory=BrowserSettings)
     reporting: ReportingSettings = Field(default_factory=ReportingSettings)
     vision: VisionSettings = Field(default_factory=VisionSettings)
+    baseline: BaselineSettings = Field(default_factory=BaselineSettings)
     jira: JiraSettings = Field(default_factory=JiraSettings)
     providers: dict[str, ProviderSettings] = Field(default_factory=dict)
 

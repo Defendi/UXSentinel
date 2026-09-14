@@ -12,7 +12,7 @@ from rich.console import Console
 
 if TYPE_CHECKING:
     from uxsentinel.core.config import JiraSettings
-    from uxsentinel.core.models import Issue, TestReport
+    from uxsentinel.core.models import Issue, TestReport, VisualDiffResult
 
 logger = logging.getLogger("uxsentinel.integrations.jira")
 console = Console()
@@ -99,6 +99,7 @@ class JiraClient:
         issue: Issue,
         screenshot_path: str | None = None,
         viewport: str | None = None,
+        visual_diff: VisualDiffResult | None = None,
     ) -> str:
         """Formata a descrição detalhada para o card do Jira em sintaxe Jira Wiki/Confluence."""
         vp_val = issue.viewport or viewport
@@ -175,6 +176,22 @@ class JiraClient:
                 ]
             )
 
+        if visual_diff:
+            lines.extend(
+                [
+                    "h3. 🔍 Comparação Visual de Baseline (Visual Diff)",
+                    f"*Divergência Visual:* {visual_diff.diff_percentage:.2f}% (limiar tolerado: {visual_diff.threshold}%)",
+                    f"*Pixels Alterados:* {visual_diff.diff_pixels} de {visual_diff.total_pixels}",
+                    f"*Áreas com Alteração:* {len(visual_diff.bounding_boxes)} região(ões)",
+                    f"*Imagem de Baseline:* {{color:#64748b}}{visual_diff.baseline_path}{{color}}",
+                ]
+            )
+            if visual_diff.diff_image_path:
+                lines.append(
+                    f"*Imagem de Diff Destacado:* {{color:#64748b}}{visual_diff.diff_image_path}{{color}}"
+                )
+            lines.append("")
+
         if screenshot_path:
             lines.extend(
                 [
@@ -201,11 +218,13 @@ class JiraClient:
             )
             return []
 
-        all_items: list[tuple[str, str, Issue, str | None, str | None]] = []
+        all_items: list[tuple[str, str, Issue, str | None, str | None, VisualDiffResult | None]] = []
         for cp in report.checkpoints:
             for issue in cp.issues:
                 vp = issue.viewport or cp.viewport
-                all_items.append((cp.name, cp.expected_behavior, issue, cp.screenshot_path, vp))
+                all_items.append(
+                    (cp.name, cp.expected_behavior, issue, cp.screenshot_path, vp, cp.visual_diff)
+                )
 
         if not all_items:
             console.print(
@@ -222,7 +241,7 @@ class JiraClient:
         created_card_urls: list[str] = []
 
         async with httpx.AsyncClient(**kwargs) as client:
-            for cp_name, expected, issue, screenshot_path, vp in all_items:
+            for cp_name, expected, issue, screenshot_path, vp, visual_diff in all_items:
                 vp_prefix = ""
                 if vp:
                     short_name = vp.split()[0].upper()
@@ -240,11 +259,18 @@ class JiraClient:
                     issue=issue,
                     screenshot_path=screenshot_path,
                     viewport=vp,
+                    visual_diff=visual_diff,
                 )
 
                 extra_labels = [f"viewport-{vp.split()[0].lower()}"] if vp else []
                 if issue.categoria.value.lower() == "acessibilidade" or issue.evaluator == "axe-core":
                     extra_labels.extend(["wcag", "a11y", "axe-core"])
+                if (
+                    issue.categoria.value.lower() == "layout"
+                    or issue.evaluator == "visual-baseline-diff"
+                    or (visual_diff and visual_diff.has_diff)
+                ):
+                    extra_labels.extend(["visual-diff", "baseline-regression"])
 
                 issue_labels = list(
                     set(
@@ -275,9 +301,14 @@ class JiraClient:
                             f"  [bold green]✓ Card criado:[/bold green] [bold yellow]{key}[/bold yellow] - "
                             f"[underline cyan]{issue_url}[/underline cyan] ({issue.descricao[:45]})"
                         )
-                        # Anexa evidências relevantes (screenshots, GIF animado e vídeo)
+                        # Anexa evidências relevantes (screenshots, visual diff, baseline, GIF animado e vídeo)
                         if screenshot_path and Path(screenshot_path).is_file():
                             await self.attach_file_to_issue(key, screenshot_path)
+                        if visual_diff:
+                            if visual_diff.diff_image_path and Path(visual_diff.diff_image_path).is_file():
+                                await self.attach_file_to_issue(key, visual_diff.diff_image_path)
+                            if visual_diff.baseline_path and Path(visual_diff.baseline_path).is_file():
+                                await self.attach_file_to_issue(key, visual_diff.baseline_path)
                         if report.gif_path and Path(report.gif_path).is_file():
                             await self.attach_file_to_issue(key, report.gif_path)
                         if report.video_path and Path(report.video_path).is_file():

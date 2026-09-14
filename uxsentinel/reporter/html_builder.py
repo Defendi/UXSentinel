@@ -182,6 +182,152 @@ HTML_TEMPLATE = """
             font-weight: 600;
             box-shadow: 0 2px 8px rgba(59, 130, 246, 0.4);
         }
+
+        /* Slider Comparativo Visual (Antes vs Depois) */
+        .slider-wrapper {
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+        }
+        .slider-view-tabs {
+            display: flex;
+            gap: 0.4rem;
+            flex-wrap: wrap;
+        }
+        .slider-tab-btn {
+            background: var(--surface-alt);
+            border: 1px solid var(--border);
+            color: var(--text);
+            padding: 0.35rem 0.7rem;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.8rem;
+            font-weight: 500;
+            transition: all 0.2s ease;
+        }
+        .slider-tab-btn:hover {
+            border-color: var(--primary);
+        }
+        .slider-tab-btn.active {
+            background: var(--primary);
+            border-color: var(--primary);
+            color: #fff;
+            font-weight: 600;
+        }
+        .visual-slider-box {
+            position: relative;
+            width: 100%;
+            overflow: hidden;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            background: #000;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+            user-select: none;
+            --slider-pos: 50%;
+        }
+        .slider-baseline-img {
+            display: block;
+            width: 100%;
+            height: auto;
+            pointer-events: none;
+        }
+        .slider-current-wrap {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            clip-path: inset(0 0 0 var(--slider-pos));
+            overflow: hidden;
+            pointer-events: none;
+        }
+        .slider-current-img {
+            display: block;
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            pointer-events: none;
+        }
+        .slider-divider {
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            left: var(--slider-pos);
+            width: 3px;
+            background: #e11d48;
+            transform: translateX(-50%);
+            pointer-events: none;
+            box-shadow: 0 0 10px rgba(225, 29, 72, 0.85);
+            z-index: 5;
+        }
+        .slider-handle-btn {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 34px;
+            height: 34px;
+            background: #e11d48;
+            color: #fff;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+            font-weight: bold;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.7);
+            border: 2px solid #fff;
+        }
+        .slider-input-range {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            margin: 0;
+            opacity: 0;
+            cursor: ew-resize;
+            z-index: 10;
+            -webkit-appearance: none;
+        }
+        .slider-floating-badge {
+            position: absolute;
+            padding: 0.25rem 0.6rem;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+            z-index: 6;
+            pointer-events: none;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.6);
+        }
+        .badge-before {
+            top: 12px;
+            left: 12px;
+            background: rgba(15, 23, 42, 0.88);
+            color: #38bdf8;
+            border: 1px solid rgba(56, 189, 248, 0.5);
+        }
+        .badge-after {
+            top: 12px;
+            right: 12px;
+            background: rgba(225, 29, 72, 0.88);
+            color: #fff;
+            border: 1px solid rgba(225, 29, 72, 0.6);
+        }
+        .diff-view-panel {
+            width: 100%;
+            display: none;
+        }
+        .diff-view-panel img {
+            width: 100%;
+            height: auto;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+            cursor: pointer;
+        }
     </style>
 </head>
 <body>
@@ -357,7 +503,18 @@ HTML_TEMPLATE = """
                         </span>
                     {% endif %}
                 </div>
-                <div>
+                <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+                    {% if cp.visual_diff %}
+                        {% if cp.visual_diff.has_diff %}
+                            <span class="badge badge-danger" style="background: rgba(225, 29, 72, 0.2); color: #fb7185; border: 1px solid rgba(225, 29, 72, 0.5);">
+                                ⚡ Regressão Visual: {{ "%.2f"|format(cp.visual_diff.diff_percentage) }}% diff
+                            </span>
+                        {% else %}
+                            <span class="badge badge-success" style="background: rgba(16, 185, 129, 0.2); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.4);">
+                                👁️ Baseline Conforme ({{ "%.2f"|format(cp.visual_diff.diff_percentage) }}% diff)
+                            </span>
+                        {% endif %}
+                    {% endif %}
                     {% if cp.status == 'ok' %}
                         <span class="badge badge-success">Conforme</span>
                     {% elif cp.status == 'problemas_encontrados' %}
@@ -401,9 +558,85 @@ HTML_TEMPLATE = """
 
             <div class="checkpoint-body">
                 <div class="screenshot-box">
-                    {% if cp.screenshot_path %}
-                        <a href="{{ cp.screenshot_path }}" target="_blank" title="Clique para ampliar em nova aba">
-                            <img src="{{ cp.screenshot_path }}" alt="Screenshot {{ cp.name }}">
+                    {% if cp.visual_diff and cp.visual_diff.baseline_path %}
+                    <div class="slider-wrapper">
+                        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.25rem;">
+                            <div class="slider-view-tabs">
+                                <button type="button" class="slider-tab-btn active" onclick="switchViewMode(this, 'slider')">
+                                    🎚️ Slider Antes / Depois
+                                </button>
+                                {% if cp.visual_diff.diff_image_path %}
+                                <button type="button" class="slider-tab-btn" onclick="switchViewMode(this, 'diff')">
+                                    🎭 Máscara de Diff (Highlight)
+                                </button>
+                                {% endif %}
+                                <button type="button" class="slider-tab-btn" onclick="switchViewMode(this, 'current')">
+                                    📸 Captura Atual
+                                </button>
+                                <button type="button" class="slider-tab-btn" onclick="switchViewMode(this, 'baseline')">
+                                    📌 Baseline Homologado
+                                </button>
+                            </div>
+                            <div>
+                                {% if cp.visual_diff.has_diff %}
+                                    <span class="badge badge-danger" style="font-size: 0.75rem; background: rgba(225, 29, 72, 0.25); color: #fb7185; border: 1px solid rgba(225, 29, 72, 0.6);">
+                                        Divergência: {{ "%.2f"|format(cp.visual_diff.diff_percentage) }}%
+                                    </span>
+                                {% else %}
+                                    <span class="badge badge-success" style="font-size: 0.75rem;">
+                                        Conforme: {{ "%.2f"|format(cp.visual_diff.diff_percentage) }}%
+                                    </span>
+                                {% endif %}
+                            </div>
+                        </div>
+
+                        <!-- Visual Slider Split-View (Vanilla CSS / JS) -->
+                        <div class="visual-slider-box" id="slider-box-{{ loop.index }}">
+                            <span class="slider-floating-badge badge-before">Antes (Baseline)</span>
+                            <span class="slider-floating-badge badge-after">Depois (Atual)</span>
+
+                            <img src="{{ rel_url(cp.visual_diff.baseline_path) }}" class="slider-baseline-img" alt="Baseline {{ cp.name }}">
+
+                            <div class="slider-current-wrap">
+                                <img src="{{ rel_url(cp.screenshot_path) }}" class="slider-current-img" alt="Atual {{ cp.name }}">
+                            </div>
+
+                            <div class="slider-divider">
+                                <div class="slider-handle-btn">↔</div>
+                            </div>
+
+                            <input type="range" min="0" max="100" value="50" class="slider-input-range" aria-label="Slider comparativo antes e depois" oninput="onSliderInput(this, 'slider-box-{{ loop.index }}')">
+                        </div>
+
+                        <!-- Painel Máscara Diff (Highlight #E11D48) -->
+                        {% if cp.visual_diff.diff_image_path %}
+                        <div class="diff-view-panel diff-panel-diff">
+                            <a href="{{ rel_url(cp.visual_diff.diff_image_path) }}" target="_blank" title="Clique para ampliar máscara de diff">
+                                <img src="{{ rel_url(cp.visual_diff.diff_image_path) }}" alt="Máscara de Diff {{ cp.name }}">
+                            </a>
+                            <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.35rem;">
+                                Pixels alterados destacados na cor de alto contraste <code>#E11D48</code>.
+                            </div>
+                        </div>
+                        {% endif %}
+
+                        <!-- Painel Atual -->
+                        <div class="diff-view-panel diff-panel-current">
+                            <a href="{{ rel_url(cp.screenshot_path) }}" target="_blank" title="Clique para ampliar captura atual">
+                                <img src="{{ rel_url(cp.screenshot_path) }}" alt="Captura Atual {{ cp.name }}">
+                            </a>
+                        </div>
+
+                        <!-- Painel Baseline -->
+                        <div class="diff-view-panel diff-panel-baseline">
+                            <a href="{{ rel_url(cp.visual_diff.baseline_path) }}" target="_blank" title="Clique para ampliar baseline homologado">
+                                <img src="{{ rel_url(cp.visual_diff.baseline_path) }}" alt="Baseline Homologado {{ cp.name }}">
+                            </a>
+                        </div>
+                    </div>
+                    {% elif cp.screenshot_path %}
+                        <a href="{{ rel_url(cp.screenshot_path) }}" target="_blank" title="Clique para ampliar em nova aba">
+                            <img src="{{ rel_url(cp.screenshot_path) }}" alt="Screenshot {{ cp.name }}">
                         </a>
                     {% else %}
                         <p style="color: var(--text-muted); text-align: center; padding: 2rem;">Sem imagem registrada.</p>
@@ -510,6 +743,31 @@ HTML_TEMPLATE = """
     </div>
 
     <script>
+        function onSliderInput(input, containerId) {
+            const container = document.getElementById(containerId);
+            if (container) {
+                container.style.setProperty('--slider-pos', input.value + '%');
+            }
+        }
+
+        function switchViewMode(btn, targetMode) {
+            const parent = btn.closest('.screenshot-box');
+            if (!parent) return;
+
+            parent.querySelectorAll('.slider-tab-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+
+            const sliderBox = parent.querySelector('.visual-slider-box');
+            const diffBox = parent.querySelector('.diff-panel-diff');
+            const currentBox = parent.querySelector('.diff-panel-current');
+            const baselineBox = parent.querySelector('.diff-panel-baseline');
+
+            if (sliderBox) sliderBox.style.display = targetMode === 'slider' ? 'block' : 'none';
+            if (diffBox) diffBox.style.display = targetMode === 'diff' ? 'block' : 'none';
+            if (currentBox) currentBox.style.display = targetMode === 'current' ? 'block' : 'none';
+            if (baselineBox) baselineBox.style.display = targetMode === 'baseline' ? 'block' : 'none';
+        }
+
         function filterViewport(viewport) {
             const buttons = document.querySelectorAll('.viewport-filter-btn');
             buttons.forEach(btn => {
@@ -559,8 +817,24 @@ def build_html_report(
     report: TestReport,
     video_rel_path: str | None = None,
     gif_rel_path: str | None = None,
+    output_dir: str | Path | None = None,
 ) -> str:
     """Renderiza a string HTML do dashboard com os dados do relatório."""
+    out_p = Path(output_dir) if output_dir else None
+
+    def rel_url(p: str | None) -> str:
+        if not p:
+            return ""
+        if out_p:
+            try:
+                return str(Path(p).resolve().relative_to(out_p.resolve()))
+            except Exception:
+                try:
+                    return str(Path(p).relative_to(out_p))
+                except Exception:
+                    pass
+        return str(p)
+
     logo_data = get_logo_base64()
     template = Template(HTML_TEMPLATE)
     return template.render(
@@ -568,6 +842,7 @@ def build_html_report(
         logo_base64=logo_data,
         video_rel_path=video_rel_path,
         gif_rel_path=gif_rel_path,
+        rel_url=rel_url,
     )
 
 
@@ -596,6 +871,7 @@ def save_html_report(report: TestReport, output_dir: str) -> Path:
         report=report,
         video_rel_path=video_rel,
         gif_rel_path=gif_rel,
+        output_dir=out_path,
     )
     report_file.write_text(rendered_html, encoding="utf-8")
     return report_file
