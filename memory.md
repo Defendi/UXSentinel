@@ -15,6 +15,23 @@ O agente combina automação Playwright com **Modelos de Linguagem e Visão Mult
 
 ---
 
+## 🚨 Regras Mandatórias de Engenharia e Gates de Release
+
+> [!IMPORTANT]
+> ### 🛑 Gate Mandatório de Nova Versão e Deploy
+> **SOMENTE GERAR VERSÃO NOVA APÓS OS TESTES E COM APROVAÇÃO EXPRESSA DO USUÁRIO.**
+>
+> É expressamente proibido alterar a versão em `pyproject.toml` ou `__init__.py`, gerar tags Git (`vX.Y.Z`), criar releases no GitHub ou submeter pacotes para o PyPI de forma autônoma.
+> 
+> **Sequência Obrigatória Pré-Release:**
+> 1. Finalizar a implementação e garantir que todos os testes unitários foram adicionados;
+> 2. Executar a Tríade de Qualidade (`uv run ruff check .`, `uv run ruff format --check .`, `uv run pytest`) obtendo 100% de sucesso;
+> 3. Apresentar o relatório completo dos testes ao usuário;
+> 4. **Solicitar autorização explícita do usuário para gerar a nova versão**;
+> 5. Somente após a aprovação formal do usuário, prosseguir com o bump de versão, commit, tag e disparo de publicação.
+
+---
+
 ## 🏗️ 2. Arquitetura do Sistema e Estrutura Real do Código
 
 ```
