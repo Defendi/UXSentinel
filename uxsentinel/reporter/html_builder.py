@@ -768,7 +768,7 @@ HTML_TEMPLATE = """
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.4rem; flex-wrap: wrap; gap: 0.5rem;">
                             <div>
                                 <span class="badge badge-{% if v.impact in ['critical', 'serious'] %}danger{% elif v.impact == 'moderate' %}warning{% else %}info{% endif %}" style="font-size: 0.75rem;">
-                                    {{ v.impact or 'moderate' }}
+                                    {% if v.impact == 'critical' %}CRÍTICO{% elif v.impact == 'serious' %}GRAVE{% elif v.impact == 'moderate' %}MODERADO{% elif v.impact == 'minor' %}LEVE{% else %}{{ v.impact }}{% endif %}
                                 </span>
                                 <strong style="margin-left: 0.4rem; font-size: 0.9rem;">{{ v.id }}</strong>
                             </div>
@@ -779,7 +779,7 @@ HTML_TEMPLATE = """
                             {% endif %}
                         </div>
                         <div style="font-size: 0.85rem; color: #cbd5e1; margin-bottom: 0.4rem;">
-                            {{ v.description }}
+                            {{ v.help or v.description }}
                         </div>
                         {% if v.tags %}
                         <div style="display: flex; gap: 0.3rem; flex-wrap: wrap; margin-bottom: 0.5rem;">

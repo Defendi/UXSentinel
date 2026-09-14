@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from pathlib import Path
 from typing import Any
@@ -34,6 +35,78 @@ IMPACT_WEIGHTS: dict[str, float] = {
 }
 
 _CACHED_AXE_SCRIPT: str | None = None
+_CACHED_AXE_LOCALE: dict[str, Any] | None = None
+
+COMMON_FAILURE_TRANSLATIONS: list[tuple[str, str]] = [
+    ("Fix any of the following:", "Corrija qualquer um dos seguintes:"),
+    ("Fix all of the following:", "Corrija todos os seguintes:"),
+    ("The element does not have a lang attribute", "O elemento <html> não possui um atributo 'lang'"),
+    (
+        "user-scalable=no on tag disables zooming on mobile devices",
+        "user-scalable=no na tag <meta> desabilita o zoom em dispositivos móveis",
+    ),
+    ("aria-label attribute does not exist or is empty", "O atributo 'aria-label' não existe ou está vazio"),
+    (
+        "aria-labelledby attribute does not exist, references elements that do not exist or references elements that are empty",
+        "O atributo 'aria-labelledby' não existe ou faz referência a elementos inexistentes ou vazios",
+    ),
+    ("Element has no title attribute", "O elemento não possui o atributo 'title'"),
+    ("Element has insufficient color contrast of", "O elemento tem contraste de cor insuficiente de"),
+    ("Expected contrast ratio of", "Contraste esperado no valor de"),
+    ("Element does not have an accessible name", "O elemento não possui um nome acessível"),
+    (
+        "Element does not have text that is visible to screen readers",
+        "O elemento não possui texto visível para leitores de tela",
+    ),
+    (
+        "aria-hidden='true' is present on the document body",
+        "aria-hidden='true' está presente no elemento <body>",
+    ),
+    ("Heading has no text", "O título não possui texto"),
+    ("Table header has no text", "O cabeçalho da tabela não possui texto"),
+    ("Images must have alternate text", "Imagens devem ter texto alternativo"),
+    ("Document does not have a title", "O documento não possui um elemento <title>"),
+]
+
+
+def translate_failure_summary(summary: str | None) -> str | None:
+    """Traduz termos e prefixos comuns de resumo de falha do axe-core para Português do Brasil."""
+    if not summary:
+        return summary
+
+    translated = summary
+    for en_text, pt_text in COMMON_FAILURE_TRANSLATIONS:
+        if en_text in translated:
+            translated = translated.replace(en_text, pt_text)
+    return translated
+
+
+def get_axe_locale() -> dict[str, Any]:
+    """Carrega o catálogo de localização pt-BR oficial do axe-core dos assets empacotados.
+
+    Garante execução nativa em Português do Brasil em ambientes locais e CI sem acesso externo.
+    """
+    global _CACHED_AXE_LOCALE
+    if _CACHED_AXE_LOCALE is not None:
+        return _CACHED_AXE_LOCALE
+
+    candidates = [
+        Path(__file__).resolve().parent.parent / "assets" / "axe_pt_BR.json",
+        Path.cwd() / "uxsentinel" / "assets" / "axe_pt_BR.json",
+    ]
+
+    for cand in candidates:
+        if cand.is_file():
+            try:
+                content = cand.read_text(encoding="utf-8")
+                if content.strip():
+                    _CACHED_AXE_LOCALE = json.loads(content)
+                    return _CACHED_AXE_LOCALE
+            except Exception as err:
+                logger.warning("Falha ao ler axe_pt_BR.json de %s: %s", cand, err)
+
+    _CACHED_AXE_LOCALE = {}
+    return _CACHED_AXE_LOCALE
 
 
 def get_axe_script() -> str:
@@ -88,10 +161,44 @@ def calculate_a11y_score(violations: list[AxeViolation]) -> float:
     return round(score, 1)
 
 
+def _is_english_text(text: str | None) -> bool:
+    """Verifica se o texto contém padrões e marcadores característicos da língua inglesa."""
+    if not text:
+        return False
+    en_markers = (
+        "ensure",
+        "must",
+        "should",
+        "does not",
+        "do not",
+        "elements",
+        "documents",
+        "cannot",
+        "fix any",
+        "fix all",
+    )
+    text_lower = text.lower()
+    return any(marker in text_lower for marker in en_markers)
+
+
 def parse_axe_results(raw_violations: list[dict[str, Any]]) -> list[AxeViolation]:
     """Converte o payload bruto de violações retornado pelo axe.run() nos modelos Pydantic v2."""
     parsed: list[AxeViolation] = []
+    locale_rules = get_axe_locale().get("rules", {})
+
     for item in raw_violations:
+        rule_id = item.get("id", "unknown-rule")
+        rule_loc = locale_rules.get(rule_id, {})
+
+        desc = item.get("description", "")
+        # Se a descrição estiver em inglês ou vazia, usa a do locale pt_BR
+        if not desc or _is_english_text(desc):
+            desc = rule_loc.get("description") or desc
+
+        help_text = item.get("help")
+        if not help_text or _is_english_text(help_text):
+            help_text = rule_loc.get("help") or help_text
+
         nodes: list[AxeNodeResult] = []
         for n in item.get("nodes", []):
             target_val = n.get("target", [])
@@ -104,22 +211,25 @@ def parse_axe_results(raw_violations: list[dict[str, Any]]) -> list[AxeViolation
                 else:
                     flat_targets.append(str(t))
 
+            raw_summary = n.get("failureSummary")
+            translated_summary = translate_failure_summary(raw_summary)
+
             nodes.append(
                 AxeNodeResult(
                     target=flat_targets,
                     html=n.get("html", ""),
-                    failure_summary=n.get("failureSummary"),
+                    failure_summary=translated_summary,
                     impact=n.get("impact"),
                 )
             )
 
         parsed.append(
             AxeViolation(
-                id=item.get("id", "unknown-rule"),
+                id=rule_id,
                 impact=item.get("impact"),
-                description=item.get("description", ""),
+                description=desc,
                 help_url=item.get("helpUrl"),
-                help=item.get("help"),
+                help=help_text,
                 tags=item.get("tags", []),
                 nodes=nodes,
             )
@@ -160,11 +270,14 @@ def convert_violations_to_issues(
         sugestao_parts: list[str] = []
         if first_node and first_node.failure_summary:
             sugestao_parts.append(first_node.failure_summary)
+        elif v.description:
+            sugestao_parts.append(v.description)
         if v.help_url:
             sugestao_parts.append(f"Guia de correção: {v.help_url}")
         sugestao = "\n".join(sugestao_parts) if sugestao_parts else None
 
-        desc_prefix = f"Acessibilidade [{v.id}]: {v.description}"
+        regra_desc = v.help or v.description
+        desc_prefix = f"Acessibilidade [{v.id}]: {regra_desc}"
         desc = f"{desc_prefix} ({len(v.nodes)} elementos afetados)" if len(v.nodes) > 1 else desc_prefix
 
         issues.append(
@@ -216,6 +329,7 @@ class AxeRunner:
         run_payload = {
             "tags": active_tags,
             "context": context,
+            "locale": get_axe_locale(),
         }
 
         eval_js = """
@@ -224,6 +338,9 @@ class AxeRunner:
                 return { error: 'axe-core não encontrado no escopo global window' };
             }
             try {
+                if (payload.locale && Object.keys(payload.locale).length > 0) {
+                    window.axe.configure({ locale: payload.locale });
+                }
                 const options = {
                     runOnly: {
                         type: 'tag',

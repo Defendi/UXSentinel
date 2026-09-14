@@ -7,8 +7,10 @@ from uxsentinel.browser.axe_runner import (
     AxeRunner,
     calculate_a11y_score,
     convert_violations_to_issues,
+    get_axe_locale,
     get_axe_script,
     parse_axe_results,
+    translate_failure_summary,
 )
 from uxsentinel.core.config import BrowserSettings, resolve_axe_mode
 from uxsentinel.core.models import (
@@ -370,3 +372,128 @@ def test_browser_settings_default_axe() -> None:
     bs = BrowserSettings()
     assert bs.enable_axe is True
     assert bs.axe_tags == list(DEFAULT_WCAG_TAGS)
+
+
+def test_get_axe_locale_loads_successfully() -> None:
+    """Valida o carregamento do catálogo pt_BR oficial do axe-core em formato JSON."""
+    locale = get_axe_locale()
+    assert isinstance(locale, dict)
+    assert locale.get("lang") == "pt-BR"
+    rules = locale.get("rules", {})
+    assert "html-has-lang" in rules
+    assert "meta-viewport" in rules
+    assert "role-img-alt" in rules
+    assert "color-contrast" in rules
+    assert "lang" in rules["html-has-lang"]["description"]
+
+
+def test_translate_failure_summary_portuguese() -> None:
+    """Testa a tradução determinística dos sumários e dicas em inglês do axe-core para pt-BR."""
+    raw1 = "Fix any of the following: The element does not have a lang attribute"
+    t1 = translate_failure_summary(raw1)
+    assert t1 is not None
+    assert "Corrija qualquer um dos seguintes:" in t1
+    assert "O elemento <html> não possui um atributo 'lang'" in t1
+
+    raw2 = "Fix any of the following: user-scalable=no on tag disables zooming on mobile devices"
+    t2 = translate_failure_summary(raw2)
+    assert t2 is not None
+    assert "Corrija qualquer um dos seguintes:" in t2
+    assert "desabilita o zoom em dispositivos móveis" in t2
+
+    raw3 = "Fix any of the following: aria-label attribute does not exist or is empty Element has no title attribute"
+    t3 = translate_failure_summary(raw3)
+    assert t3 is not None
+    assert "O atributo 'aria-label' não existe ou está vazio" in t3
+    assert "O elemento não possui o atributo 'title'" in t3
+
+
+def test_parse_axe_results_translates_english_to_pt_br() -> None:
+    """Testa se o parser traduz automaticamente descrições e failureSummaries do axe-core em inglês."""
+    raw_violations = [
+        {
+            "id": "html-has-lang",
+            "impact": "serious",
+            "description": "Ensure every HTML document has a lang attribute",
+            "help": "Documents must have <html lang>",
+            "helpUrl": "https://dequeuniversity.com/rules/axe/4.10/html-has-lang",
+            "tags": ["wcag2a", "cat.language"],
+            "nodes": [
+                {
+                    "target": ["html"],
+                    "html": "<html>",
+                    "failureSummary": "Fix any of the following: The element does not have a lang attribute",
+                }
+            ],
+        },
+        {
+            "id": "meta-viewport",
+            "impact": "critical",
+            "description": "Ensure does not disable text scaling and zooming",
+            "help": "Zooming and text scaling should not be disabled",
+            "tags": ["wcag2aa"],
+            "nodes": [
+                {
+                    "target": ['meta[name="viewport"]'],
+                    "failureSummary": "Fix any of the following: user-scalable=no on tag disables zooming on mobile devices",
+                }
+            ],
+        },
+    ]
+
+    violations = parse_axe_results(raw_violations)
+    assert len(violations) == 2
+
+    # Verifica html-has-lang traduzido para pt-BR
+    v1 = violations[0]
+    assert "Certifique-se de que cada documento HTML tenha um atributo 'lang'" in v1.description
+    assert "O elemento <html> deve ter um atributo 'lang'" in (v1.help or "")
+    assert "Corrija qualquer um dos seguintes:" in (v1.nodes[0].failure_summary or "")
+    assert "O elemento <html> não possui um atributo 'lang'" in (v1.nodes[0].failure_summary or "")
+
+    # Verifica meta-viewport traduzido para pt-BR
+    v2 = violations[1]
+    assert "não desabilite a ampliação de texto e o zoom" in v2.description
+    assert "desabilita o zoom em dispositivos móveis" in (v2.nodes[0].failure_summary or "")
+
+
+def test_html_report_renders_localized_badges_and_descriptions() -> None:
+    """Garante que o dashboard HTML exibe os badges de impacto em português (CRÍTICO, GRAVE)."""
+    v = AxeViolation(
+        id="html-has-lang",
+        impact="serious",
+        description="Certifique-se de que cada documento HTML tenha um atributo 'lang'",
+        help="O elemento <html> deve ter um atributo 'lang'",
+        help_url="https://dequeuniversity.com/rules/axe/4.10/html-has-lang",
+        tags=["wcag2a"],
+        nodes=[
+            AxeNodeResult(
+                target=["html"],
+                html="<html>",
+                failure_summary="Corrija qualquer um dos seguintes: O elemento <html> não possui um atributo 'lang'",
+            )
+        ],
+    )
+
+    cp = CheckpointResult(
+        name="cp_lang",
+        expected_behavior="Idioma configurado",
+        status="problemas_encontrados",
+        a11y_score=95.0,
+        a11y_violations=[v],
+    )
+    report = TestReport(
+        scenario_id="sc_lang",
+        scenario_title="Teste Idioma",
+        profile="generic",
+        provider_used="mock",
+        checkpoints=[cp],
+    )
+    report.compute_totals()
+    html = build_html_report(report)
+
+    # Verifica presença do badge traduzido GRAVE (serious)
+    assert "GRAVE" in html
+    # Verifica a explicação traduzida
+    assert "O elemento &lt;html&gt; deve ter um atributo &#39;lang&#39;" in html or "atributo 'lang'" in html
+    assert "Corrija qualquer um dos seguintes" in html

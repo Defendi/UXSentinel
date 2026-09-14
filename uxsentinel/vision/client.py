@@ -18,19 +18,18 @@ def _prepare_anthropic_auth(
     hdrs = dict(headers)
     auth_header = hdrs.get("Authorization", "").strip()
 
-    is_oauth = (
+    token = (
+        auth_header.replace("Bearer ", "").strip() if auth_header else api_key.replace("Bearer ", "").strip()
+    )
+
+    is_api_key = token.startswith("sk-ant-api") or api_key.startswith("sk-ant-api")
+
+    if not is_api_key and (
         "sk-ant-oat" in auth_header
         or api_key.startswith("sk-ant-oat")
         or "claude_sso" in provider_name
         or hdrs.get("anthropic-beta") == "oauth-2025-04-20"
-    )
-
-    if is_oauth:
-        token = (
-            auth_header.replace("Bearer ", "").strip()
-            if auth_header
-            else api_key.replace("Bearer ", "").strip()
-        )
+    ):
         hdrs["Authorization"] = f"Bearer {token}"
         hdrs.pop("x-api-key", None)
         hdrs.setdefault("anthropic-beta", "oauth-2025-04-20")
@@ -40,7 +39,10 @@ def _prepare_anthropic_auth(
         if model in ("claude-3-5-sonnet-latest", "claude-3-5-sonnet-20241022", "claude-3-7-sonnet-latest"):
             model = "claude-haiku-4-5"
     else:
-        if auth_header:
+        if is_api_key:
+            hdrs["x-api-key"] = token
+            hdrs.pop("Authorization", None)
+        elif auth_header:
             hdrs["Authorization"] = auth_header
         elif api_key.startswith("Bearer "):
             hdrs["Authorization"] = api_key

@@ -1,7 +1,7 @@
 # 🧠 UXSentinel — Memória Compactada e Operacional do Projeto
 
 > **Status do Repositório:** Ativo & Estável | **Última Atualização:** 14 de Setembro de 2026  
-> **Versão Corrente:** v1.1.2 | **Testes:** 100% Verde (`uv run pytest` — 139 testes aprovados)
+> **Versão Corrente:** v1.1.2 | **Testes:** 100% Verde (`uv run pytest` — 148 testes aprovados)
 
 ---
 
@@ -54,9 +54,18 @@ UXSentinel/
 │   ├── 10_estado_atual_inventario_e_riscos.md
 │   └── README.md
 ├── scenarios/                   # Cenários de teste guiados (YAML)
-├── tests/                       # Suíte de testes automatizados (22 testes herméticos)
-│   ├── test_engine.py
-│   └── test_self_healing.py
+├── tests/                       # Suíte de testes automatizados (144 testes herméticos)
+│   ├── test_axe_core.py         # Testes do motor axe-core (WCAG 2.2 e A11y Score)
+│   ├── test_cli_display_mode.py # Testes de modo Headed / Headless e precedência CLI/YAML/Config
+│   ├── test_engine.py           # Testes do motor principal, cenários e relatórios
+│   ├── test_high_precision_mechanisms.py # Testes do Árbitro Reverso, Allowlist i18n, SoM e DOM
+│   ├── test_mixture_of_evaluators.py     # Testes dos 4 avaliadores especializados e orquestrador
+│   ├── test_multi_viewport.py   # Testes de matriz multi-viewport (Desktop, Tablet, Mobile)
+│   ├── test_self_healing.py     # Testes de autocura de seletores via acessibilidade e visão
+│   ├── test_semantic_actions.py # Testes de ações em linguagem natural (ai_click, ai_fill, ai_assert)
+│   ├── test_sso.py              # Testes do fluxo PKCE, troca de código e renovação OAuth
+│   ├── test_video_recording.py  # Testes de gravação de vídeo, geração de GIF e anexos Jira
+│   └── test_visual_baseline.py  # Testes de baseline visual, slider antes/depois e diffs
 ├── uxsentinel/                  # Código-fonte Python principal
 │   ├── __init__.py              # Versão do pacote (__version__)
 │   ├── cli.py                   # Interface de linha de comando (argparse + Rich)
@@ -201,11 +210,13 @@ flowchart TD
 1. **ADR-01 (Configuração Global XDG):** Configuração persistida em `~/.config/uxsentinel/config.yaml` para uso universal em qualquer pasta sem requisições de `sudo`.
 2. **ADR-02 (Testes Herméticos e Determinísticos):** Testes unitários isolam tokens de ambiente com mocks seguros, garantindo taxa de 100% de sucesso no CI via `uv run pytest`.
 3. **ADR-03 (Integração REST Direta com Jira Cloud):** Criação de cards com payload ADF e anexo de screenshots para integração fluida no backlog das equipes.
+4. **ADR-04 (Autenticação SSO Claude Pro/Team e Cache com Auto-Renovação):** Uso do endpoint canônico de autorização OAuth da Anthropic (`https://platform.claude.com/oauth/authorize`), suporte dual automático (loopback HTTP local) e manual (cópia de código via terminal), captura de código sem timeout com thread em segundo plano, persistência segura de `refresh_token` em `~/.config/uxsentinel/sso_cache.json` e distinção automática de cabeçalhos (`x-api-key` para tokens de API e `Bearer` + `anthropic-beta: oauth-2025-04-20` para tokens OAuth).
 
 ### 6.2 Decisões Descartadas
 1. **DESC-01 (Exclusividade de APIs Proprietárias em Nuvem):** Descartada para respeitar políticas de privacidade e LGPD, viabilizando inferência 100% local com Ollama.
 2. **DESC-02 (Headless Obrigatório e Silencioso):** Descartada em prol do modo visual humano (acompanhamento visual ao vivo com cursor animado), deixando o modo silencioso apenas como flag (`--headless`).
 3. **DESC-03 (Avaliação Genérica em Prompt Único):** Descartada pela baixa precisão (<70%), substituída pelo modelo de *Mixture of Evaluators* no roadmap.
+4. **DESC-04 (Endpoint Web claude.ai para SSO CLI):** Descartado o endpoint `https://claude.com/cai/oauth/authorize` devido a bloqueios de Cloudflare e erro de *Invalid request format*; adotado o endpoint oficial e canônico da plataforma Anthropic.
 
 ---
 
@@ -214,3 +225,41 @@ flowchart TD
 - **Projeto:** UXSentinel Tarefas (`UXS`)
 - **Cloud ID:** `1b2a5116-a918-4c33-96e2-2f1d621c263f`
 - **Quadro:** `https://mygotryx.atlassian.net/jira/software/projects/UXS/boards`
+
+---
+
+## 📝 8. Registro Operacional Detalhado do Ciclo Recente
+
+### 8.1 Estabilização Definitiva do SSO Claude Pro/Team (`claude_sso`)
+- **Problema Diagnosticado:** Ao executar `uxsentinel --login-sso -p claude_sso`, a autorização falhava com *Invalid request format* e o callback não completava a troca do código.
+- **Investigação Técnica Realizada:**
+  - Análise do binário oficial do Claude Code (`2.1.267` em `~/.local/share/claude/versions/2.1.267`).
+  - Identificação de que o endpoint oficial é `https://platform.claude.com/oauth/authorize` com Client ID `9d1c250a-e61b-44d9-88ed-5944d1962f5e`.
+  - Escopos oficiais necessários: `org:create_api_key user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload`.
+  - Especificação PKCE: `token_urlsafe(32)` gerando 43 caracteres `S256`.
+- **Implementações em `uxsentinel/core/sso.py`:**
+  - Fluxo dual: URL de loopback (`http://localhost:{port}/callback`) e URL manual oficial (`https://platform.claude.com/oauth/code/callback`).
+  - Troca de código por token via `POST https://platform.claude.com/v1/oauth/token` com `grant_type=authorization_code`.
+  - Tentativa opcional de criação de chave nativa (`org:create_api_key`) ou fallback gracioso para o token OAuth (`sk-ant-oat*`).
+  - Thread em segundo plano `_listen_terminal_input()` para aceitar códigos ou tokens colados no terminal instantaneamente sem esperar os 120s de timeout do loopback.
+  - Auto-renovação de tokens expirados usando `refresh_token` persistido no cache `~/.config/uxsentinel/sso_cache.json`.
+- **Ajustes em `uxsentinel/vision/client.py`:**
+  - Função `_prepare_anthropic_auth` agora identifica chaves nativas (`sk-ant-api*` enviadas via `x-api-key`) vs tokens OAuth (`sk-ant-oat*` ou provider `claude_sso` enviados via `Authorization: Bearer` com cabeçalho `anthropic-beta: oauth-2025-04-20`).
+- **Suíte de Testes Adicionada:**
+  - `tests/test_sso.py` cobrindo PKCE, parsing de cache, limpeza, troca de código e fluxo de refresh com mocks herméticos.
+  - Total geral da suíte elevado para **144 testes herméticos** (100% verde).
+- **Ambiente Local:**
+  - Pacote instalado em modo editável (`pip install -e .`) apontando para `/mnt/home/alexandre/.local/bin/uxsentinel`.
+  - Build local gerado em `dist/` com artefatos `uxsentinel-1.1.2.tar.gz` e wheel.
+- **Governança Estrita:**
+  - O projeto Gotryx não faz parte do UXSentinel (total neutralidade universal).
+  - Nenhuma nova versão ou release no PyPI foi gerada, respeitando rigorosamente o gate mandatório de aprovação humana expressa do `AGENTS.md`.
+
+### 8.2 Localização Integral dos Relatórios de Auditoria e Acessibilidade (Axe-Core pt-BR)
+- **Problema Diagnosticado:** Explicações, descrições de regras e sumários de falha do Axe-Core estavam sendo exibidos em inglês nos relatórios HTML, no terminal e nas issues criadas (ex: *"Ensure every HTML document has a lang attribute"*, *"Fix any of the following: The element does not have a lang attribute"*, *"user-scalable=no on tag disables zooming on mobile devices"* e badges *"SERIOUS"*, *"CRITICAL"*).
+- **Implementações Realizadas:**
+  - **Catálogo Oficial pt-BR Embutido:** Adicionado `uxsentinel/assets/axe_pt_BR.json` contendo a especificação completa de regras e verificações em Português do Brasil, empacotado em `pyproject.toml`.
+  - **Injeção no Navegador:** Em `uxsentinel/browser/axe_runner.py`, `window.axe.configure({ locale: payload.locale })` é executado antes de cada inspeção Playwright, garantindo que o motor do Axe-Core gere mensagens em pt-BR direto na fonte.
+  - **Camada Defensiva em Python:** Funções `_is_english_text()`, `translate_failure_summary()` e enriquecimento em `parse_axe_results()` substituem frases residuais em inglês por português nativo mesmo em mocks ou testes unitários.
+  - **Apresentação Visual:** No relatório HTML (`uxsentinel/reporter/html_builder.py`), badges de impacto agora são traduzidos (`CRÍTICO`, `GRAVE`, `MODERADO`, `LEVE`) e o texto explicativo prioriza `v.help` e `v.description` traduzidos.
+  - **Tríade de Qualidade:** 148 testes unitários herméticos (100% verde) e linter Ruff impecável.

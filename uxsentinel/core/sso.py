@@ -8,6 +8,7 @@ import hashlib
 import html
 import http.server
 import json
+import logging
 import os
 import secrets
 import socket
@@ -26,20 +27,22 @@ if TYPE_CHECKING:
     from uxsentinel.core.config import ProviderSettings
 
 console = Console()
+logger = logging.getLogger("uxsentinel.sso")
 
 DEFAULT_SSO_PORT_START = 8085
 DEFAULT_SSO_PORT_END = 8095
 
-# Constantes OAuth 2.0 PKCE para Claude.ai (Contas Pro / Team)
+# Constantes OAuth 2.0 PKCE para Claude.ai / Anthropic Platform (Contas Pro / Team)
 CLAUDE_OAUTH_CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
-CLAUDE_OAUTH_AUTHORIZE_URL = "https://claude.com/cai/oauth/authorize"
+CLAUDE_OAUTH_AUTHORIZE_URL = "https://platform.claude.com/oauth/authorize"
 CLAUDE_OAUTH_TOKEN_URL = "https://platform.claude.com/v1/oauth/token"
-CLAUDE_OAUTH_SCOPES = "user:profile user:inference user:sessions:claude_code"
+CLAUDE_OAUTH_MANUAL_REDIRECT_URL = "https://platform.claude.com/oauth/code/callback"
+CLAUDE_OAUTH_SCOPES = "org:create_api_key user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload"
 
 
 def generate_pkce_pair() -> tuple[str, str]:
-    """Gera code_verifier e code_challenge (S256 base64url) conforme RFC 7636."""
-    verifier = secrets.token_urlsafe(64)
+    """Gera code_verifier e code_challenge (S256 base64url) conforme RFC 7636 e padrão Claude Code."""
+    verifier = secrets.token_urlsafe(32)
     digest = hashlib.sha256(verifier.encode("ascii")).digest()
     challenge = base64.urlsafe_b64encode(digest).decode("ascii").rstrip("=")
     return verifier, challenge
@@ -57,6 +60,74 @@ def get_sso_cache_dir() -> Path:
 def get_sso_cache_file() -> Path:
     """Retorna o arquivo de cache de tokens SSO."""
     return get_sso_cache_dir() / "sso_cache.json"
+
+
+def exchange_claude_oauth_code(
+    code_or_raw: str,
+    code_verifier: str,
+    redirect_uri: str,
+    state: str | None = None,
+) -> tuple[str | None, int | None, str | None]:
+    """Troca authorization_code pelo access_token e refresh_token junto à Anthropic."""
+    code = code_or_raw.strip()
+    if "#" in code:
+        parts = code.split("#", 1)
+        code = parts[0].strip()
+        if not state and len(parts) > 1:
+            state = parts[1].strip()
+
+    payload: dict = {
+        "grant_type": "authorization_code",
+        "code": code,
+        "redirect_uri": redirect_uri,
+        "client_id": CLAUDE_OAUTH_CLIENT_ID,
+        "code_verifier": code_verifier,
+    }
+    if state:
+        payload["state"] = state
+
+    try:
+        req = urllib.request.Request(
+            CLAUDE_OAUTH_TOKEN_URL,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={
+                "Content-Type": "application/json",
+                "User-Agent": "claude-cli/2.1.267",
+            },
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            access_token = data.get("access_token") or data.get("accessToken")
+            refresh_token = data.get("refresh_token") or data.get("refreshToken")
+            expires_in = data.get("expires_in")
+
+            # Tenta gerar uma chave de API nativa via endpoint oficial de CLI se disponível
+            if access_token:
+                try:
+                    key_req = urllib.request.Request(
+                        "https://api.anthropic.com/api/oauth/claude_cli/create_api_key",
+                        headers={
+                            "Authorization": f"Bearer {access_token}",
+                            "Content-Type": "application/json",
+                            "User-Agent": "claude-cli/2.1.267",
+                        },
+                        data=b"",
+                        method="POST",
+                    )
+                    with urllib.request.urlopen(key_req, timeout=15) as key_resp:
+                        key_data = json.loads(key_resp.read().decode("utf-8"))
+                        raw_key = key_data.get("raw_key")
+                        if raw_key and str(raw_key).startswith("sk-ant-"):
+                            return str(raw_key).strip(), expires_in, refresh_token
+                except Exception:
+                    pass
+
+                return str(access_token).strip(), expires_in, refresh_token
+    except Exception as exc:
+        logger.warning("Falha na troca de código OAuth Anthropic: %s", exc)
+        return None, None, None
+    return None, None, None
 
 
 def refresh_claude_oauth_token(refresh_token: str) -> str | None:
@@ -80,9 +151,15 @@ def refresh_claude_oauth_token(refresh_token: str) -> str | None:
         with urllib.request.urlopen(req, timeout=30) as resp:
             data = json.loads(resp.read().decode("utf-8"))
             token = data.get("accessToken") or data.get("access_token")
+            new_refresh = data.get("refreshToken") or data.get("refresh_token") or refresh_token
             expires_in = data.get("expires_in")
             if token:
-                save_cached_token("claude_sso", str(token).strip(), expires_in)
+                save_cached_token(
+                    "claude_sso",
+                    str(token).strip(),
+                    expires_in=expires_in,
+                    refresh_token=new_refresh,
+                )
                 return str(token).strip()
     except Exception:
         pass
@@ -103,6 +180,13 @@ def get_cached_token(provider_name: str) -> str | None:
                     token = item.get("token")
                     if token and str(token).strip():
                         return str(token).strip()
+
+                # Se o token expirou e temos refresh_token registrado, tenta renovar
+                ref_tok = item.get("refresh_token")
+                if ref_tok and "claude" in provider_name.lower():
+                    refreshed = refresh_claude_oauth_token(ref_tok)
+                    if refreshed:
+                        return refreshed
         except Exception:
             pass
 
@@ -142,6 +226,7 @@ def save_cached_token(
     provider_name: str,
     token: str,
     expires_in: int | None = None,
+    refresh_token: str | None = None,
 ) -> None:
     """Armazena o token de autenticação SSO no cache seguro local."""
     cache_file = get_sso_cache_file()
@@ -155,6 +240,8 @@ def save_cached_token(
     item: dict = {"token": token.strip(), "updated_at": time.time()}
     if expires_in:
         item["expires_at"] = time.time() + expires_in
+    if refresh_token:
+        item["refresh_token"] = refresh_token.strip()
 
     data[provider_name] = item
 
@@ -425,26 +512,46 @@ class LoopbackAuthHandler(http.server.BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         parsed = urllib.parse.urlparse(self.path)
 
-        # Rota para iniciar fluxo OAuth PKCE oficial com Claude.ai
+        # Rota para iniciar fluxo OAuth PKCE automático via localhost
         if parsed.path == "/oauth/claude/login":
-            verifier, challenge = generate_pkce_pair()
-            state = secrets.token_urlsafe(16)
-            self.server_instance.code_verifier = verifier
-            self.server_instance.oauth_state = state
-
             port = self.server_instance.server_address[1]
-            oauth_params = {
-                "code": "true",
-                "client_id": CLAUDE_OAUTH_CLIENT_ID,
-                "response_type": "code",
-                "redirect_uri": f"http://localhost:{port}/callback",
-                "scope": CLAUDE_OAUTH_SCOPES,
-                "code_challenge": challenge,
-                "code_challenge_method": "S256",
-                "state": state,
-            }
-            auth_url = f"{CLAUDE_OAUTH_AUTHORIZE_URL}?{urllib.parse.urlencode(oauth_params)}"
+            auth_url = self.server_instance.auto_auth_url or (
+                f"{CLAUDE_OAUTH_AUTHORIZE_URL}?"
+                + urllib.parse.urlencode(
+                    {
+                        "code": "true",
+                        "client_id": CLAUDE_OAUTH_CLIENT_ID,
+                        "response_type": "code",
+                        "redirect_uri": f"http://localhost:{port}/callback",
+                        "scope": CLAUDE_OAUTH_SCOPES,
+                        "code_challenge": self.server_instance.code_challenge or "",
+                        "code_challenge_method": "S256",
+                        "state": self.server_instance.oauth_state or "",
+                    }
+                )
+            )
+            self.send_response(302)
+            self.send_header("Location", auth_url)
+            self.end_headers()
+            return
 
+        # Rota para iniciar fluxo OAuth PKCE manual via tela de cópia oficial da Anthropic
+        if parsed.path == "/oauth/claude/manual":
+            auth_url = self.server_instance.manual_auth_url or (
+                f"{CLAUDE_OAUTH_AUTHORIZE_URL}?"
+                + urllib.parse.urlencode(
+                    {
+                        "code": "true",
+                        "client_id": CLAUDE_OAUTH_CLIENT_ID,
+                        "response_type": "code",
+                        "redirect_uri": CLAUDE_OAUTH_MANUAL_REDIRECT_URL,
+                        "scope": CLAUDE_OAUTH_SCOPES,
+                        "code_challenge": self.server_instance.code_challenge or "",
+                        "code_challenge_method": "S256",
+                        "state": self.server_instance.oauth_state or "",
+                    }
+                )
+            )
             self.send_response(302)
             self.send_header("Location", auth_url)
             self.end_headers()
@@ -455,41 +562,35 @@ class LoopbackAuthHandler(http.server.BaseHTTPRequestHandler):
             params = urllib.parse.parse_qs(parsed.query)
             code = params.get("code", [None])[0]
             token = params.get("token", [None])[0]
+            cb_state = params.get("state", [None])[0] or self.server_instance.oauth_state
 
             # Se recebemos um authorization_code do Claude.ai e temos o code_verifier
             if code and self.server_instance.code_verifier:
                 port = self.server_instance.server_address[1]
-                token_payload = {
-                    "grant_type": "authorization_code",
-                    "code": code,
-                    "redirect_uri": f"http://localhost:{port}/callback",
-                    "client_id": CLAUDE_OAUTH_CLIENT_ID,
-                    "code_verifier": self.server_instance.code_verifier,
-                    "state": self.server_instance.oauth_state or "",
-                }
-                try:
-                    req = urllib.request.Request(
-                        CLAUDE_OAUTH_TOKEN_URL,
-                        data=json.dumps(token_payload).encode("utf-8"),
-                        headers={
-                            "Content-Type": "application/json",
-                            "User-Agent": "claude-cli/2.1.267",
-                        },
-                        method="POST",
+                tok, exp, ref = exchange_claude_oauth_code(
+                    code,
+                    self.server_instance.code_verifier,
+                    redirect_uri=f"http://localhost:{port}/callback",
+                    state=cb_state,
+                )
+                if tok:
+                    save_cached_token(
+                        self.server_instance.provider_name,
+                        tok,
+                        expires_in=exp,
+                        refresh_token=ref,
                     )
-                    with urllib.request.urlopen(req, timeout=30) as resp:
-                        resp_data = json.loads(resp.read().decode("utf-8"))
-                        token = resp_data.get("accessToken") or resp_data.get("access_token")
-                        expires_in = resp_data.get("expires_in")
-                        if token:
-                            save_cached_token(self.server_instance.provider_name, token, expires_in)
-                except Exception:
-                    token = code
+                    self.server_instance.captured_token = tok
+                    self._send_success_response()
+                    return
+                # Se a troca falhou pelo endpoint mas temos o code, armazena code
+                token = code
             elif code and not token:
                 token = code
 
             if token:
                 self.server_instance.captured_token = token.strip()
+                save_cached_token(self.server_instance.provider_name, token.strip())
                 self._send_success_response()
                 return
 
@@ -502,21 +603,42 @@ class LoopbackAuthHandler(http.server.BaseHTTPRequestHandler):
             content_length = int(self.headers.get("Content-Length", 0))
             post_data = self.rfile.read(content_length)
 
-            token: str | None = None
+            raw_input: str | None = None
             content_type = self.headers.get("Content-Type", "")
 
             if "application/json" in content_type:
                 try:
                     payload = json.loads(post_data.decode("utf-8"))
-                    token = payload.get("token") or payload.get("code")
+                    raw_input = payload.get("token") or payload.get("code")
                 except Exception:
                     pass
             else:
                 form_fields = urllib.parse.parse_qs(post_data.decode("utf-8"))
-                token = form_fields.get("token", [None])[0]
+                raw_input = form_fields.get("token", [None])[0]
 
-            if token:
-                self.server_instance.captured_token = token.strip()
+            if raw_input:
+                entered = raw_input.strip()
+                # Se for código de autorização manual (# ou prefixo cai_)
+                if ("#" in entered or entered.startswith("cai_")) and self.server_instance.code_verifier:
+                    tok, exp, ref = exchange_claude_oauth_code(
+                        entered,
+                        self.server_instance.code_verifier,
+                        redirect_uri=CLAUDE_OAUTH_MANUAL_REDIRECT_URL,
+                        state=self.server_instance.oauth_state,
+                    )
+                    if tok:
+                        self.server_instance.captured_token = tok
+                        save_cached_token(
+                            self.server_instance.provider_name,
+                            tok,
+                            expires_in=exp,
+                            refresh_token=ref,
+                        )
+                        self._send_success_response()
+                        return
+
+                self.server_instance.captured_token = entered
+                save_cached_token(self.server_instance.provider_name, entered)
                 self._send_success_response()
                 return
 
@@ -529,11 +651,14 @@ class LoopbackAuthHandler(http.server.BaseHTTPRequestHandler):
         extra_action_html = ""
         if "claude" in provider_name.lower():
             extra_action_html = """
-            <div style="margin-bottom: 24px; text-align: center;">
+            <div style="margin-bottom: 24px; text-align: center; display: flex; flex-direction: column; gap: 10px;">
               <a href="/oauth/claude/login" style="display: block; width: 100%; text-decoration: none; background: linear-gradient(135deg, #d97706 0%, #b45309 100%); color: #fff; border-radius: 10px; padding: 14px; font-weight: 700; font-size: 15px; box-shadow: 0 4px 14px rgba(217, 119, 6, 0.4);">
-                ✨ Conectar com Conta Claude Pro / Team no Navegador
+                ✨ Conectar com Conta Claude Pro / Team (Automático)
               </a>
-              <p style="color: #94a3b8; font-size: 12px; margin-top: 8px;">Ou informe o token manualmente abaixo caso já possua:</p>
+              <a href="/oauth/claude/manual" target="_blank" style="display: block; width: 100%; text-decoration: none; background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.2); color: #cbd5e1; border-radius: 10px; padding: 10px; font-weight: 600; font-size: 13px;">
+                📋 Abrir Autorização Manual (com Código de Cópia)
+              </a>
+              <p style="color: #94a3b8; font-size: 12px; margin-top: 4px;">Após autorizar, você também pode colar o código ou token abaixo:</p>
             </div>
             """
 
@@ -574,7 +699,10 @@ class LoopbackAuthServer(http.server.HTTPServer):
         self.instructions_html = instructions_html
         self.captured_token: str | None = None
         self.code_verifier: str | None = None
+        self.code_challenge: str | None = None
         self.oauth_state: str | None = None
+        self.auto_auth_url: str = ""
+        self.manual_auth_url: str = ""
 
 
 def login_via_browser(
@@ -602,8 +730,10 @@ def login_via_browser(
     elif service == "anthropic":
         instructions = (
             "Para autenticar no <strong>Claude (Anthropic)</strong> com sua <strong>Conta Pro / Team</strong>, "
-            "clique no botão laranja abaixo para autorizar no navegador via fluxo OAuth oficial.<br>"
-            "Caso prefira utilizar credenciais manuais de um gateway corporativo, cole o token no campo abaixo."
+            "autorize o acesso na plataforma oficial. Você pode utilizar o fluxo automático com redirecionamento "
+            "local ou o fluxo com cópia manual do código.<br>"
+            "Caso possua uma chave de API Anthropic (sk-ant-api...) ou token de gateway corporativo, "
+            "basta colar no formulário abaixo."
         )
     else:
         instructions = f"Informe o token corporativo de sessão para o provedor <strong>{html.escape(provider_name)}</strong>."
@@ -622,16 +752,86 @@ def login_via_browser(
         instructions_html=instructions,
     )
 
+    verifier, challenge = generate_pkce_pair()
+    oauth_state = secrets.token_urlsafe(32)
+    server.code_verifier = verifier
+    server.code_challenge = challenge
+    server.oauth_state = oauth_state
+
+    is_claude = "claude" in provider_name.lower() or provider.service == "anthropic"
+    if is_claude:
+        auto_params = {
+            "code": "true",
+            "client_id": CLAUDE_OAUTH_CLIENT_ID,
+            "response_type": "code",
+            "redirect_uri": f"http://localhost:{port}/callback",
+            "scope": CLAUDE_OAUTH_SCOPES,
+            "code_challenge": challenge,
+            "code_challenge_method": "S256",
+            "state": oauth_state,
+        }
+        server.auto_auth_url = f"{CLAUDE_OAUTH_AUTHORIZE_URL}?{urllib.parse.urlencode(auto_params)}"
+
+        manual_params = {
+            "code": "true",
+            "client_id": CLAUDE_OAUTH_CLIENT_ID,
+            "response_type": "code",
+            "redirect_uri": CLAUDE_OAUTH_MANUAL_REDIRECT_URL,
+            "scope": CLAUDE_OAUTH_SCOPES,
+            "code_challenge": challenge,
+            "code_challenge_method": "S256",
+            "state": oauth_state,
+        }
+        server.manual_auth_url = f"{CLAUDE_OAUTH_AUTHORIZE_URL}?{urllib.parse.urlencode(manual_params)}"
+
     server_thread = threading.Thread(target=server.serve_forever, daemon=True)
     server_thread.start()
 
-    target_url = auth_url_custom if (auth_url_custom and "callback" in auth_url_custom) else loopback_url
+    target_url = (
+        server.auto_auth_url
+        if is_claude
+        else (auth_url_custom if (auth_url_custom and "callback" in auth_url_custom) else loopback_url)
+    )
 
     console.print(
         f"\n[bold cyan]🌐 Abrindo o navegador para login SSO com:[/bold cyan] [bold yellow]{provider_name}[/bold yellow]"
     )
-    console.print(f"[dim]URL de autenticação local: {loopback_url}[/dim]")
-    console.print(f"[dim]Aguardando resposta do navegador (timeout: {timeout_seconds}s)...[/dim]")
+    if is_claude:
+        console.print(
+            f"[bold green]🔗 URL oficial Claude OAuth:[/bold green] [underline]{server.auto_auth_url}[/underline]"
+        )
+        console.print(f"[dim]Alternativa manual (cópia de código): {server.manual_auth_url}[/dim]")
+    else:
+        console.print(f"[dim]URL de autenticação local: {loopback_url}[/dim]")
+    console.print(
+        f"[dim]Aguardando autorização no navegador ou entrada manual no terminal (timeout: {timeout_seconds}s)...[/dim]"
+    )
+
+    # Thread em segundo plano para ler código ou token digitado no terminal sem travar
+    def _listen_terminal_input() -> None:
+        try:
+            if sys.stdin.isatty():
+                line = sys.stdin.readline()
+                if line and line.strip():
+                    entered = line.strip()
+                    if ("#" in entered or entered.startswith("cai_")) and server.code_verifier:
+                        tok, exp, ref = exchange_claude_oauth_code(
+                            entered,
+                            server.code_verifier,
+                            redirect_uri=CLAUDE_OAUTH_MANUAL_REDIRECT_URL,
+                            state=server.oauth_state,
+                        )
+                        if tok:
+                            server.captured_token = tok
+                            save_cached_token(provider_name, tok, expires_in=exp, refresh_token=ref)
+                            return
+                    server.captured_token = entered
+                    save_cached_token(provider_name, entered)
+        except Exception:
+            pass
+
+    terminal_thread = threading.Thread(target=_listen_terminal_input, daemon=True)
+    terminal_thread.start()
 
     # Tenta abrir o navegador padrão
     opened = False
@@ -644,9 +844,9 @@ def login_via_browser(
         console.print(
             "[yellow]⚠️ Não foi possível abrir o navegador automaticamente (ambiente sem interface gráfica ou bloqueado).[/yellow]"
         )
-        console.print(f"[bold]Acesse o link no seu navegador:[/bold] [underline]{loopback_url}[/underline]\n")
+        console.print(f"[bold]Acesse o link no seu navegador:[/bold] [underline]{target_url}[/underline]\n")
 
-    # Loop de espera pelo callback
+    # Loop de espera pelo callback ou entrada manual
     start_time = time.time()
     while time.time() - start_time < timeout_seconds:
         if server.captured_token:
@@ -658,15 +858,28 @@ def login_via_browser(
     server.server_close()
 
     if not captured:
-        # Fallback interativo no terminal caso o usuário não tenha concluído no browser
-        console.print(
-            "[yellow]Tempo limite do navegador esgotado ou nenhum token recebido pelo callback.[/yellow]"
-        )
+        # Fallback interativo caso o usuário ainda queira informar
+        console.print("[yellow]Tempo limite esgotado ou nenhum token recebido pelo callback.[/yellow]")
         if sys.stdin.isatty():
             token_input = console.input(
-                f"[bold green]Cole o token de SSO para '{provider_name}' manualmente (ou pressione Enter para cancelar): [/bold green]"
+                f"[bold green]Cole o token ou código de SSO para '{provider_name}' manualmente (ou pressione Enter para cancelar): [/bold green]"
             )
-            captured = token_input.strip() if token_input else None
+            if token_input and token_input.strip():
+                entered = token_input.strip()
+                if ("#" in entered or entered.startswith("cai_")) and server.code_verifier:
+                    tok, exp, ref = exchange_claude_oauth_code(
+                        entered,
+                        server.code_verifier,
+                        redirect_uri=CLAUDE_OAUTH_MANUAL_REDIRECT_URL,
+                        state=server.oauth_state,
+                    )
+                    if tok:
+                        captured = tok
+                        save_cached_token(provider_name, tok, expires_in=exp, refresh_token=ref)
+                    else:
+                        captured = entered
+                else:
+                    captured = entered
 
     if not captured:
         raise TimeoutError(
@@ -676,6 +889,6 @@ def login_via_browser(
     # Salva no cache local seguro
     save_cached_token(provider_name, captured)
     console.print(
-        f"[bold green]✓ Autenticação SSO concluída![/bold green] Token armazenado com segurança em: [dim]{get_sso_cache_file()}[/dim]\n"
+        f"[bold green]✓ Autenticação SSO concluída![/bold green] Sessão armazenada com segurança em: [dim]{get_sso_cache_file()}[/dim]\n"
     )
     return captured

@@ -67,6 +67,7 @@ uxsentinel = [
     "scenarios/library/*.yaml",
     "assets/*.png",
     "assets/*.js",
+    "assets/*.json",
 ]
 
 # ==============================================================================
