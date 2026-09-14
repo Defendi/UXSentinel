@@ -93,6 +93,7 @@ class Scenario(BaseModel):
     provider: str | None = None
     tags: list[str] = Field(default_factory=list)
     env: dict[str, str] = Field(default_factory=dict)
+    headless: bool | None = None
     steps: list[StepAction] = Field(default_factory=list)
 
 

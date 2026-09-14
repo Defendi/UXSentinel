@@ -67,6 +67,17 @@ def load_scenario(file_path: str) -> Scenario:
             )
         )
 
+    headless_raw = parsed_dict.get("headless")
+    headless_val: bool | None = None
+    if isinstance(headless_raw, bool):
+        headless_val = headless_raw
+    elif headless_raw is not None:
+        normalized = str(headless_raw).strip().lower()
+        if normalized in ("true", "1", "yes", "sim", "y"):
+            headless_val = True
+        elif normalized in ("false", "0", "no", "nao", "não", "n"):
+            headless_val = False
+
     return Scenario(
         id=parsed_dict.get("id", path.stem),
         title=parsed_dict.get("title", path.stem),
@@ -75,5 +86,6 @@ def load_scenario(file_path: str) -> Scenario:
         provider=parsed_dict.get("provider"),
         tags=parsed_dict.get("tags", []),
         env=resolved_env,
+        headless=headless_val,
         steps=steps,
     )

@@ -8,7 +8,7 @@ from rich.table import Table
 
 from uxsentinel import __version__
 from uxsentinel.core.agent import UXSentinelAgent
-from uxsentinel.core.config import load_config
+from uxsentinel.core.config import load_config, resolve_display_mode
 from uxsentinel.scenarios.parser import load_scenario
 
 console = Console()
@@ -174,7 +174,10 @@ visível na tela e inspecionando cada checkpoint com Inteligência Artificial Mu
   uxsentinel -s scenarios/teste.yaml -p ollama_local  # Executa com IA 100% local (Ollama)
   uxsentinel -s scenarios/odoo_teste.yaml --profile odoo # Executa com driver especializado para Odoo OWL
   uxsentinel -s scenarios/teste.yaml --slowmo 500       # Executa com delay de 500ms entre passos
-  uxsentinel -s scenarios/teste.yaml --headless        # Executa sem interface gráfica (modo CI/CD)
+  uxsentinel -s scenarios/teste.yaml --headless        # Executa sem interface gráfica (modo CI/CD / headless)
+  uxsentinel -s scenarios/teste.yaml --headed          # Força abertura visual da janela (modo headed / gui)
+  uxsentinel -s scenarios/teste.yaml --no-gui          # Alias para --headless / --silent
+  uxsentinel -s scenarios/teste.yaml --gui             # Alias para --headed / --visible
   uxsentinel --check-ai                                # Testa a conexão com o provedor de IA configurado
   uxsentinel --check-ai -p gemini_sso                  # Testa a conexão com o Gemini via SSO
   uxsentinel --login-sso -p gemini_sso                 # Abre o navegador para autenticar no Gemini via SSO
@@ -220,10 +223,24 @@ Documentação completa: https://github.com/Defendi/UXSentinel""",
         "--profile",
         help="Sobrescreve o perfil de framework (ex: generic, odoo).",
     )
-    parser.add_argument(
+    display_group = parser.add_mutually_exclusive_group()
+    display_group.add_argument(
         "--headless",
+        "--no-gui",
+        "--silent",
+        dest="headless",
         action="store_true",
-        help="Executa o navegador em modo invisível (sem GUI). Padrão é visível.",
+        default=None,
+        help="Força execução do navegador em modo invisível / background (sem GUI).",
+    )
+    display_group.add_argument(
+        "--headed",
+        "--gui",
+        "--visible",
+        dest="headless",
+        action="store_false",
+        default=None,
+        help="Força abertura visual da janela do Chromium mesmo se o cenário/config indicar headless.",
     )
     parser.add_argument(
         "--slowmo",
@@ -444,8 +461,6 @@ Documentação completa: https://github.com/Defendi/UXSentinel""",
     if args.jira_project:
         cfg.jira.project_key = args.jira_project
 
-    if args.headless:
-        cfg.browser.headless = True
     if args.slowmo is not None:
         cfg.browser.slow_mo_ms = args.slowmo
     if args.output_dir:
@@ -471,7 +486,18 @@ Documentação completa: https://github.com/Defendi/UXSentinel""",
     elif scenario.provider:
         cfg.active_provider = scenario.provider
 
-    agent = UXSentinelAgent(cfg)
+    # Hierarquia de resolução do modo de visualização (Headless vs Headed):
+    # 1. CLI flag (--headless/--no-gui/--silent vs --headed/--gui/--visible)
+    # 2. Cenário YAML (campo 'headless' no arquivo do cenário)
+    # 3. Config global config.yaml (BrowserSettings.headless)
+    # 4. Fallback padrão: False (visível com ritmo humano)
+    cfg.browser.headless = resolve_display_mode(
+        cli_headless=args.headless,
+        scenario_headless=scenario.headless,
+        config_headless=cfg.browser.headless,
+    )
+
+    agent = UXSentinelAgent(cfg, headless_override=args.headless)
     report = await agent.run_scenario(scenario)
 
     return 0 if report.success else 1

@@ -35,6 +35,26 @@ class BrowserSettings(BaseModel):
     self_healing: bool = True
 
 
+def resolve_display_mode(
+    cli_headless: bool | None = None,
+    scenario_headless: bool | None = None,
+    config_headless: bool | None = None,
+) -> bool:
+    """Resolve o modo de execução do navegador (headless vs headed) seguindo a hierarquia estrita:
+    1. CLI flag (--headless/--no-gui/--silent vs --headed/--gui/--visible)
+    2. Cenário YAML (campo 'headless' definido no cenário)
+    3. Config global (BrowserSettings.headless)
+    4. Fallback padrão: False (visível com ritmo humano)
+    """
+    if cli_headless is not None:
+        return cli_headless
+    if scenario_headless is not None:
+        return scenario_headless
+    if config_headless is not None:
+        return config_headless
+    return False
+
+
 class ReportingSettings(BaseModel):
     output_dir: str = "scenarios/report"
     generate_html: bool = True

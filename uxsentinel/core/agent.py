@@ -4,13 +4,22 @@ from datetime import datetime
 from pathlib import Path
 
 from rich.console import Console
+from rich.panel import Panel
+from rich.progress import (
+    BarColumn,
+    Progress,
+    SpinnerColumn,
+    TaskProgressColumn,
+    TextColumn,
+    TimeElapsedColumn,
+)
 from rich.table import Table
 
 from uxsentinel.browser.drivers.base_driver import BaseDriver
 from uxsentinel.browser.drivers.odoo_driver import OdooDriver
 from uxsentinel.browser.healing import SelectorHealer
 from uxsentinel.browser.session import open_browser_session
-from uxsentinel.core.config import GlobalConfig
+from uxsentinel.core.config import GlobalConfig, resolve_display_mode
 from uxsentinel.core.models import ExecutionResult, Scenario, StepAction, TestReport
 from uxsentinel.reporter.html_builder import save_html_report
 from uxsentinel.reporter.json_builder import save_json_report
@@ -22,8 +31,9 @@ console = Console()
 class UXSentinelAgent:
     """Agente de QA Visual que executa a navegação e orquestra a auditoria de telas."""
 
-    def __init__(self, config: GlobalConfig):
+    def __init__(self, config: GlobalConfig, headless_override: bool | None = None):
         self.config = config
+        self.headless_override = headless_override
         self.inspector = ScreenInspector(config)
         self.healer = SelectorHealer(
             vision_client=self.inspector.client,
@@ -31,16 +41,37 @@ class UXSentinelAgent:
         )
         self.last_execution_result: ExecutionResult | None = None
 
-    async def run_scenario(self, scenario: Scenario) -> TestReport:
+    async def run_scenario(self, scenario: Scenario, headless_override: bool | None = None) -> TestReport:
         profile = scenario.profile or "generic"
         start_time = time.time()
+
+        # Determina o modo headless efetivo respeitando a hierarquia:
+        # CLI Flag > Cenário YAML > Config global > Fallback False (visível)
+        effective_cli = headless_override if headless_override is not None else self.headless_override
+        effective_headless = resolve_display_mode(
+            cli_headless=effective_cli,
+            scenario_headless=scenario.headless,
+            config_headless=self.config.browser.headless,
+        )
+        browser_settings = self.config.browser.model_copy(update={"headless": effective_headless})
 
         console.print(
             f"\n[bold cyan]🛡️ UXSentinel iniciado[/bold cyan] | Cenário: [bold]{scenario.title}[/bold] ([dim]{scenario.id}[/dim])"
         )
         console.print(
-            f"   Perfil: [magenta]{profile}[/magenta] | Provedor IA: [yellow]{self.config.active_provider}[/yellow] | Headless: [blue]{self.config.browser.headless}[/blue] | Self-Healing: [green]{self.config.browser.self_healing}[/green]\n"
+            f"   Perfil: [magenta]{profile}[/magenta] | Provedor IA: [yellow]{self.config.active_provider}[/yellow] | Headless: [blue]{effective_headless}[/blue] | Self-Healing: [green]{browser_settings.self_healing}[/green]\n"
         )
+
+        if effective_headless:
+            console.print(
+                Panel(
+                    "[bold yellow]🕶️  MODO HEADLESS ATIVO (Execução sem interface gráfica)[/bold yellow]\n"
+                    "[dim]O navegador Chromium está executando em segundo plano.\n"
+                    "Acompanhe o status e progresso em tempo real das ações abaixo:[/dim]",
+                    title="[bold cyan]UXSentinel Display Mode[/bold cyan]",
+                    border_style="yellow",
+                )
+            )
 
         report = TestReport(
             scenario_id=scenario.id,
@@ -79,11 +110,42 @@ class UXSentinelAgent:
         console.print(f"[bold green]✓ Conexão com a IA estabelecida:[/bold green] {ai_msg}\n")
 
         try:
-            async with open_browser_session(
-                self.config.browser, profile=profile, healer=self.healer
-            ) as driver:
-                for idx, step in enumerate(scenario.steps, start=1):
-                    await self._execute_step(idx, step, driver, scenario, report, out_dir)
+            async with open_browser_session(browser_settings, profile=profile, healer=self.healer) as driver:
+                if effective_headless and len(scenario.steps) > 0:
+                    with Progress(
+                        SpinnerColumn(style="bold cyan"),
+                        TextColumn("[bold cyan]{task.description}"),
+                        BarColumn(bar_width=30, style="dim white", complete_style="bold green"),
+                        TaskProgressColumn(),
+                        TimeElapsedColumn(),
+                        console=console,
+                        transient=False,
+                    ) as progress:
+                        task_id = progress.add_task(
+                            f"[cyan]Executando {scenario.title}...", total=len(scenario.steps)
+                        )
+                        for idx, step in enumerate(scenario.steps, start=1):
+                            action_desc = (
+                                step.description or f"{step.action} {step.selector or step.url or ''}"
+                            )
+                            progress.update(
+                                task_id,
+                                description=f"[cyan]Passo {idx:02d}/{len(scenario.steps):02d}: [white]{action_desc[:35]}",
+                            )
+                            await self._execute_step(
+                                idx,
+                                step,
+                                driver,
+                                scenario,
+                                report,
+                                out_dir,
+                                progress=progress,
+                                task_id=task_id,
+                            )
+                            progress.advance(task_id)
+                else:
+                    for idx, step in enumerate(scenario.steps, start=1):
+                        await self._execute_step(idx, step, driver, scenario, report, out_dir)
 
         except Exception as exc:
             console.print(f"[bold red]❌ Erro fatal na execução do cenário:[/bold red] {exc}")
@@ -157,10 +219,13 @@ class UXSentinelAgent:
         scenario: Scenario,
         report: TestReport,
         out_dir: Path,
+        progress: Progress | None = None,
+        task_id: int | None = None,
     ) -> None:
+        p_console = progress.console if progress is not None else console
         action = step.action.lower().strip()
         desc = step.description or f"{action} {step.selector or step.url or ''}"
-        console.print(f"  [cyan]Passo {index:02d}:[/cyan] [dim]{desc}[/dim]")
+        p_console.print(f"  [cyan]Passo {index:02d}:[/cyan] [dim]{desc}[/dim]")
 
         initial_healing_count = len(driver.healing_events)
 
@@ -226,7 +291,7 @@ class UXSentinelAgent:
         elif action == "wait_modal" or action == "wait_for_modal":
             modal_opened = await driver.wait_for_modal(timeout=step.timeout or 10000)
             if not modal_opened:
-                console.print("    [yellow]⚠️ Modal não detectado após timeout.[/yellow]")
+                p_console.print("    [yellow]⚠️ Modal não detectado após timeout.[/yellow]")
 
         elif action == "wait_modal_close":
             await driver.wait_modal_close(timeout=step.timeout or 10000)
@@ -236,7 +301,16 @@ class UXSentinelAgent:
             await asyncio.sleep(duration)
 
         elif action == "checkpoint":
-            await self._handle_checkpoint(step, driver, report, out_dir)
+            await self._handle_checkpoint(
+                step,
+                driver,
+                report,
+                out_dir,
+                progress=progress,
+                task_id=task_id,
+                step_index=index,
+                total_steps=len(scenario.steps),
+            )
 
         else:
             raise ValueError(f"Ação desconhecida: '{action}'")
@@ -250,12 +324,12 @@ class UXSentinelAgent:
                     "Acessibilidade Semântica" if ev.strategy == "accessibility" else "Visão Multimodal LMM"
                 )
                 target_recovered = ev.recovered_selector or f"coords {ev.coordinates}"
-                console.print(
+                p_console.print(
                     f"    [bold yellow]⚡ Self-Healing Ativado:[/bold yellow] Seletor [strikethrough]{ev.original_selector}[/strikethrough] "
                     f"recuperado via [bold magenta]{strat_label}[/bold magenta] -> [bold green]{target_recovered}[/bold green]"
                 )
                 if ev.yaml_fix_suggestion:
-                    console.print(
+                    p_console.print(
                         f"      [dim]💡 Sugestão para o arquivo YAML: {ev.yaml_fix_suggestion}[/dim]"
                     )
 
@@ -265,11 +339,16 @@ class UXSentinelAgent:
         driver: BaseDriver,
         report: TestReport,
         out_dir: Path,
+        progress: Progress | None = None,
+        task_id: int | None = None,
+        step_index: int | None = None,
+        total_steps: int | None = None,
     ) -> None:
+        p_console = progress.console if progress is not None else console
         cp_name = step.name or f"checkpoint_{len(report.checkpoints) + 1}"
         expected = step.expected_behavior or "A tela deve estar limpa e sem erros."
 
-        console.print(f"    [bold yellow]📸 Checkpoint acionado:[/bold yellow] [italic]{cp_name}[/italic]")
+        p_console.print(f"    [bold yellow]📸 Checkpoint acionado:[/bold yellow] [italic]{cp_name}[/italic]")
         screenshot_file = out_dir / f"{report.scenario_id}_{cp_name}.png"
 
         # Captura screenshot em alta resolução
@@ -284,7 +363,14 @@ class UXSentinelAgent:
             if odoo_errors:
                 dom_text += "\n\n[ERROS DETECTADOS NO ODOO]:\n" + "\n".join(odoo_errors)
 
-        console.print("    [dim]🔍 Invocando auditor de visão com IA...[/dim]")
+        if progress is not None and task_id is not None:
+            step_lbl = f"Passo {step_index:02d}/{total_steps:02d}: " if step_index and total_steps else ""
+            progress.update(
+                task_id,
+                description=f"[cyan]{step_lbl}[white]🔍 Invocando IA ({cp_name})...",
+            )
+
+        p_console.print("    [dim]🔍 Invocando auditor de visão com IA...[/dim]")
         cp_result = await self.inspector.inspect(
             checkpoint_name=cp_name,
             expected_behavior=expected,
@@ -297,13 +383,13 @@ class UXSentinelAgent:
         report.checkpoints.append(cp_result)
 
         if cp_result.status == "ok":
-            console.print("    [bold green]✓ Checkpoint aprovado sem inconformidades![/bold green]")
+            p_console.print("    [bold green]✓ Checkpoint aprovado sem inconformidades![/bold green]")
         else:
-            console.print(
+            p_console.print(
                 f"    [bold red]✗ Checkpoint com problemas ({len(cp_result.issues)} issues encontradas)[/bold red]"
             )
             for issue in cp_result.issues:
-                console.print(f"      - [{issue.severidade.value.upper()}] {issue.descricao}")
+                p_console.print(f"      - [{issue.severidade.value.upper()}] {issue.descricao}")
 
     def _print_summary(self, report: TestReport) -> None:
         table = Table(title=f"Resumo da Execução - {report.scenario_title}")

@@ -24,8 +24,11 @@ class BrowserSession:
         settings: BrowserSettings,
         profile: str = "generic",
         healer: SelectorHealer | None = None,
+        headless: bool | None = None,
     ):
-        self.settings = settings
+        self.settings = (
+            settings.model_copy(update={"headless": headless}) if headless is not None else settings
+        )
         self.profile = profile.lower().strip()
         self.healer = healer
         self.playwright = None
@@ -80,8 +83,9 @@ async def open_browser_session(
     settings: BrowserSettings,
     profile: str = "generic",
     healer: SelectorHealer | None = None,
+    headless: bool | None = None,
 ) -> AsyncGenerator[BaseDriver, None]:
-    session = BrowserSession(settings, profile, healer=healer)
+    session = BrowserSession(settings, profile, healer=healer, headless=headless)
     driver = await session.start()
     try:
         yield driver
