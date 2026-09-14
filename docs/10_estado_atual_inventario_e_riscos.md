@@ -72,7 +72,7 @@ Para eliminar qualquer divergência entre o "estado desejado" e o "estado real",
 | **Árbitro Reverso & Anti-Alucinação** | `uxsentinel.vision.arbiter` | **Pronto Para Testar** | `UXS-6` | Devil's Advocate, allowlist i18n, validação DOM e Set-of-Marks (tests/test_high_precision_mechanisms.py). |
 | **Baseline Visual com Slider Antes/Depois**| `uxsentinel.vision.diff` / `reporter` | **Pronto Para Testar** | `UXS-7` | Regressão visual perceptual Pillow, slider interativo antes/depois e Jira diff (tests/test_visual_baseline.py). |
 | **Motor Axe-Core Integrado** | `uxsentinel.browser.axe_runner` | **Pronto Para Testar** | `UXS-8` | Auditoria WCAG 2.2 local offline, A11y Score e relatórios HTML (tests/test_axe_core.py). |
-| **Ações Semânticas `ai_action`** | `uxsentinel.scenarios` | *Pendente* | `UXS-9` | Passos no YAML em linguagem natural resolvidos por visão. Fase 2 (Prioridade: Medium). |
+| **Ações Semânticas `ai_action`** | `uxsentinel.browser.semantic_actions` | **Pronto Para Testar** | `UXS-9` | Execução declarativa por linguagem natural: ai_click, ai_fill, ai_assert (tests/test_semantic_actions.py). |
 | **UXSentinel Studio (Live Mission Control)**| Novo módulo `studio/` | *Pendente* | `UXS-10` | Frontend Web com visualização e controle em tempo real. Fase 4 (Prioridade: High). |
 | **YAML Studio com IA Assistente** | Novo módulo `studio/` | *Pendente* | `UXS-11` | Interface visual para criação e teste de YAMLs com IA. Fase 4 (Prioridade: Medium). |
 | **Modo Exploratório Autônomo (`--crawl`)** | `uxsentinel.engine` | *Pendente* | `UXS-12` | Descoberta autônoma de fluxos e páginas. Fase 3 (Prioridade: Low). |

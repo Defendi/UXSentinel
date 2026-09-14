@@ -1,7 +1,7 @@
 # 🧠 UXSentinel — Memória Compactada e Operacional do Projeto
 
 > **Status do Repositório:** Ativo & Estável | **Última Atualização:** 14 de Setembro de 2026  
-> **Versão Corrente:** v0.1.0+ | **Testes:** 100% Verde (`uv run pytest` — 121 testes aprovados)
+> **Versão Corrente:** v0.1.0+ | **Testes:** 100% Verde (`uv run pytest` — 138 testes aprovados)
 
 ---
 
@@ -105,7 +105,7 @@ UXSentinel/
 | **`UXS-6`** | Mecanismos Complementares de Alta Precisão (Zero Falsos Positivos) | Fase 2 | **Highest** | **Pronto Para Testar** |
 | **`UXS-7`** | Baseline Visual com Slider Comparativo (Antes vs Depois) | Fase 2 | **Medium** | **Pronto Para Testar** |
 | **`UXS-8`** | Motor Axe-Core para Acessibilidade Rigorosa (WCAG 2.2) | Fase 2 | **Medium** | **Pronto Para Testar** |
-| **`UXS-9`** | Ações Semânticas em Linguagem Natural (`ai_action`) | Fase 2 | **Medium** | *Backlog* |
+| **`UXS-9`** | Ações Semânticas em Linguagem Natural (`ai_action`) | Fase 2 | **Medium** | **Pronto Para Testar** |
 | **`UXS-10`** | Frontend UXSentinel Studio: Live Mission Control & Configuração | Fase 4 | **High** | *Backlog* |
 | **`UXS-11`** | Frontend UXSentinel Studio: Assistente IA de Criação de YAML (YAML Studio) | Fase 4 | **Medium** | *Backlog* |
 | **`UXS-12`** | Modo Exploratório Autônomo (`uxsentinel --crawl`) | Fase 3 | **Low** | *Backlog* |
