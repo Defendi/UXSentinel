@@ -1,7 +1,7 @@
 # 🧠 UXSentinel — Memória Compactada e Operacional do Projeto
 
 > **Status do Repositório:** Ativo & Estável | **Última Atualização:** 14 de Setembro de 2026  
-> **Versão Corrente:** v0.1.0+ | **Testes:** 100% Verde (`uv run pytest` — 108 testes aprovados)
+> **Versão Corrente:** v0.1.0+ | **Testes:** 100% Verde (`uv run pytest` — 121 testes aprovados)
 
 ---
 
@@ -103,7 +103,7 @@ UXSentinel/
 | **`UXS-4`** | Controle Opcional da Visualização no Chromium (Headed/Headless) | Fase 1 | **Highest** | **Pronto Para Testar** |
 | **`UXS-5`** | Arquitetura Multiagente Especializada (Mixture of Evaluators >95%) | Fase 2 | **Highest** | **Pronto Para Testar** |
 | **`UXS-6`** | Mecanismos Complementares de Alta Precisão (Zero Falsos Positivos) | Fase 2 | **Highest** | **Pronto Para Testar** |
-| **`UXS-7`** | Baseline Visual com Slider Comparativo (Antes vs Depois) | Fase 2 | **Medium** | *Backlog* |
+| **`UXS-7`** | Baseline Visual com Slider Comparativo (Antes vs Depois) | Fase 2 | **Medium** | **Pronto Para Testar** |
 | **`UXS-8`** | Motor Axe-Core para Acessibilidade Rigorosa (WCAG 2.2) | Fase 2 | **Medium** | **Pronto Para Testar** |
 | **`UXS-9`** | Ações Semânticas em Linguagem Natural (`ai_action`) | Fase 2 | **Medium** | *Backlog* |
 | **`UXS-10`** | Frontend UXSentinel Studio: Live Mission Control & Configuração | Fase 4 | **High** | *Backlog* |
