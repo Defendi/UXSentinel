@@ -66,7 +66,7 @@ Para eliminar qualquer divergência entre o "estado desejado" e o "estado real",
 | **Suíte de Testes Hermética** | `tests/test_engine.py` | **Concluído** | `UXS-25` | 12/12 testes passando sem mocks frágeis ou dependências externas (`uv run pytest`). |
 | **Self-Healing de Seletores** | `uxsentinel.browser.healing` | **Pronto Para Testar** | `UXS-1` | Autocura via acessibilidade e visão multimodal implementada (tests/test_self_healing.py). |
 | **Gravação de Vídeo e GIF de Sessão** | `uxsentinel.reporter.video_helper` | **Pronto Para Testar** | `UXS-2` | Gravação Playwright, utilitário ffmpeg/Pillow, player HTML e anexo Jira (tests/test_video_recording.py). |
-| **Auditoria Multi-Viewport** | `uxsentinel.browser` | *Pendente* | `UXS-3` | Desktop, Tablet, Mobile em paralelo. Fase 1 (Prioridade: High). |
+| **Auditoria Multi-Viewport** | `uxsentinel.core.agent` / `models` | **Pronto Para Testar** | `UXS-3` | Presets desktop/tablet/mobile, flags CLI, filtros HTML e anexo Jira (tests/test_multi_viewport.py). |
 | **Controle Headed/Headless na CLI** | `uxsentinel.cli` | **Pronto Para Testar** | `UXS-4` | Flags simétricas, resolução hierárquica e Rich monitor implementados (tests/test_cli_display_mode.py). |
 | **Arquitetura Mixture of Evaluators (>95%)** | `uxsentinel.vision` | *Pendente* | `UXS-5` | 4 subagentes especializados com contexto focado. Fase 2 (Prioridade: Highest). |
 | **Árbitro Reverso & Anti-Alucinação** | `uxsentinel.vision` | *Pendente* | `UXS-6` | Devil's Advocate e validação cruzada para zero falsos positivos. Fase 2 (Prioridade: Highest). |
