@@ -200,9 +200,9 @@ class VisionSettings(BaseModel):
 class JiraSettings(BaseModel):
     enabled: bool = False
     url: str = Field(default="", description="URL base do Jira (ex: https://empresa.atlassian.net)")
-    email: str = Field(default="${JIRA_EMAIL}", description="Email do usuário Atlassian")
-    api_token: str = Field(default="${JIRA_API_TOKEN}", description="Token de API do Jira")
-    project_key: str = Field(default="${JIRA_PROJECT_KEY}", description="Chave do projeto (ex: UX, QA)")
+    email: str | None = Field(default="", description="Email do usuário Atlassian")
+    api_token: str | None = Field(default="", description="Token de API do Jira")
+    project_key: str | None = Field(default="", description="Chave do projeto (ex: UX, QA)")
     issue_type: str = Field(default="Bug", description="Tipo da issue")
     labels: list[str] = Field(default_factory=lambda: ["uxsentinel", "qa-audit"])
 
@@ -540,14 +540,14 @@ def load_config(config_path: str | None = None) -> GlobalConfig:
         generate_fix_prompt=reporting_dict.get("generate_fix_prompt", False),
     )
 
-    jira_dict = raw_dict.get("jira", {})
+    jira_dict = raw_dict.get("jira") or {}
     jira_settings = JiraSettings(
-        enabled=jira_dict.get("enabled", False),
-        url=jira_dict.get("url", ""),
-        email=jira_dict.get("email", "${JIRA_EMAIL}"),
-        api_token=jira_dict.get("api_token", "${JIRA_API_TOKEN}"),
-        project_key=jira_dict.get("project_key", "${JIRA_PROJECT_KEY}"),
-        issue_type=jira_dict.get("issue_type", "Bug"),
+        enabled=bool(jira_dict.get("enabled", False)),
+        url=jira_dict.get("url") or "",
+        email=jira_dict.get("email") or "",
+        api_token=jira_dict.get("api_token") or "",
+        project_key=jira_dict.get("project_key") or "",
+        issue_type=jira_dict.get("issue_type") or "Bug",
         labels=jira_dict.get("labels") or ["uxsentinel", "qa-audit"],
     )
 

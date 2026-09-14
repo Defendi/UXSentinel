@@ -624,6 +624,39 @@ def test_cli_fix_prompt_and_jira_flags():
     print("✓ Teste de Flags CLI (--fix-prompt, --jira, --jira-project) passou!")
 
 
+def test_jira_config_empty_env_vars_resilience():
+    """Valida que o parser de configuração é resiliente a variáveis de ambiente ausentes ou campos nulos no Jira."""
+    import tempfile
+    from pathlib import Path
+
+    from uxsentinel.core.config import load_config
+
+    yaml_content = """
+active_provider: anthropic_cloud
+jira:
+  enabled: false
+  url: https://sua-empresa.atlassian.net
+  email: ${JIRA_EMAIL}
+  api_token: ${JIRA_API_TOKEN}
+  project_key: ${JIRA_PROJECT_KEY}
+  issue_type: Bug
+"""
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+        f.write(yaml_content)
+        tmp_path = f.name
+
+    try:
+        cfg = load_config(tmp_path)
+        assert cfg.jira.enabled is False
+        assert cfg.jira.email == ""
+        assert cfg.jira.api_token == ""
+        assert cfg.jira.project_key == ""
+    finally:
+        Path(tmp_path).unlink(missing_ok=True)
+
+    print("✓ Teste de Resiliência do Jira Config com Variáveis Ausentes passou!")
+
+
 if __name__ == "__main__":
     test_cli_version()
     test_resolve_scenario_path_rules()
@@ -638,6 +671,7 @@ if __name__ == "__main__":
     with tempfile.TemporaryDirectory() as td:
         test_fix_prompt_builder(Path(td))
     test_cli_fix_prompt_and_jira_flags()
+    test_jira_config_empty_env_vars_resilience()
     asyncio.run(test_browser_session_headless())
     asyncio.run(test_ai_preflight_check())
     print("\n🎉 TODOS OS TESTES INTERNOS PASSARAM COM SUCESSO!")
