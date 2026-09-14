@@ -81,7 +81,60 @@ Para eliminar qualquer divergência entre o "estado desejado" e o "estado real",
 
 ---
 
-## 3. Matriz e Registro de Riscos (Técnicos e de Produto)
+## 3. Sequência Canônica de Implementação do Roadmap (4 Ondas / 14 Passos)
+
+Para orientar os subagentes e a equipe de desenvolvimento, a implementação do roadmap segue 4 ondas ordenadas por dependência técnica e impacto no produto:
+
+```mermaid
+flowchart TD
+    subgraph Onda1["Onda 1: Estabilidade e Resiliência Operacional"]
+        UXS4["1. UXS-4: Controle Headed/Headless"] --> UXS1["2. UXS-1: Self-Healing de Seletores"]
+        UXS1 --> UXS2["3. UXS-2: Gravação Vídeo & GIF"]
+        UXS2 --> UXS3["4. UXS-3: Multi-Viewport"]
+    end
+
+    subgraph Onda2["Onda 2: Precisão Cognitiva e Acurácia IA (>95%)"]
+        UXS3 --> UXS5["5. UXS-5: Mixture of Evaluators"]
+        UXS5 --> UXS6["6. UXS-6: Árbitro Reverso Anti-Alucinação"]
+        UXS6 --> UXS8["7. UXS-8: Motor Axe-Core (WCAG)"]
+        UXS8 --> UXS7["8. UXS-7: Baseline Visual Slider"]
+        UXS7 --> UXS9["9. UXS-9: Ações Semânticas (ai_action)"]
+    end
+
+    subgraph Onda3["Onda 3: Métricas, Autonomia e Ciclo Fechado"]
+        UXS9 --> UXS14["10. UXS-14: Hub de Métricas (SQLite)"]
+        UXS14 --> UXS12["11. UXS-12: Modo Crawler Autônomo"]
+        UXS12 --> UXS13["12. UXS-13: Abertura Automática de PRs"]
+    end
+
+    subgraph Onda4["Onda 4: UXSentinel Studio (Frontend Web)"]
+        UXS14 -.-> UXS10["13. UXS-10: Live Mission Control"]
+        UXS10 --> UXS11["14. UXS-11: YAML Studio com IA"]
+    end
+```
+
+### 3.1 Sequenciamento Operacional Detalhado
+
+| Ordem | Chave | Título da Tarefa | Onda | Prioridade | Complexidade | Justificativa de Engenharia |
+| :---: | :--- | :--- | :---: | :---: | :---: | :--- |
+| **1º** | **`UXS-4`** | **Controle Opcional Chromium (Headed/Headless)** | Onda 1 | **Highest** | Baixa | **Quick Win Imediato**: Formaliza flags complementares (`--headed`, `--no-gui`, `--gui`), destravando CI/CD e preparando base para as próximas tarefas. |
+| **2º** | **`UXS-1`** | **Self-Healing de Seletores com Visão e A11y** | Onda 1 | **Highest** | Média-Alta | **Elimina Flakiness**: Auto-recuperação de seletores CSS quebrados via árvore de acessibilidade e visão multimodal. |
+| **3º** | **`UXS-2`** | **Gravação Nativa de Vídeo e Geração de GIF** | Onda 1 | **High** | Média | **Observabilidade Visual**: Artefatos visuais automáticos no `BrowserSession` acoplados aos relatórios de erro do Self-Healing. |
+| **4º** | **`UXS-3`** | **Auditoria de Responsividade Multi-Viewport** | Onda 1 | **High** | Média | **Fecha a Fase 1**: Execução paralela para Desktop (1920x1080), Tablet (768x1024) e Mobile (375x812). |
+| **5º** | **`UXS-5`** | **Mixture of Evaluators (>95% Assertividade)** | Onda 2 | **Highest** | Alta | **Especialização de IA**: Subagentes especialistas em Layout, Conteúdo/i18n, Acessibilidade e Quebras Explícitas. |
+| **6º** | **`UXS-6`** | **Árbitro Reverso & Blindagem Anti-Alucinação**| Onda 2 | **Highest** | Média-Alta | **Zero Falsos Positivos**: *Devil's Advocate* que valida os achados do `UXS-5` exigindo coordenadas reais e refutando alucinações. |
+| **7º** | **`UXS-8`** | **Motor Axe-Core Integrado (WCAG 2.2)** | Onda 2 | **Medium** | Média | **Auditoria Determinística**: Injeção do `axe-core` no DOM para conformidade matemática aliada à visão de IA. |
+| **8º** | **`UXS-7`** | **Baseline Visual com Slider Antes/Depois** | Onda 2 | **Medium** | Média | **Regressão Perceptual**: Comparador visual com slider interativo embutido no relatório HTML usando capturas multi-viewport. |
+| **9º** | **`UXS-9`** | **Ações Semânticas em Linguagem Natural** | Onda 2 | **Medium** | Média | **Flexibilidade de Roteiro**: Passo `ai_action` no YAML para comandos semânticos interpretados por visão. |
+| **10º**| **`UXS-14`**| **Painel Histórico de Qualidade (UXSentinel Hub)** | Onda 3 | **Low** | Média | **Persistência de Dados**: Banco local SQLite para histórico temporal, base de dados para o Crawler e Studio. |
+| **11º**| **`UXS-12`**| **Modo Exploratório Autônomo (`--crawl`)** | Onda 3 | **Low** | Alta | **Autonomia Máxima**: Varrimento autônomo de sitemaps e links sem necessidade de roteiro YAML prévio. |
+| **12º**| **`UXS-13`**| **Criação Automática de Pull Requests (`--create-pr`)**| Onda 3 | **Low** | Média | **Ciclo Fechado**: Abertura automática de PRs no GitHub com patches de correção sugeridos. |
+| **13º**| **`UXS-10`**| **Frontend UXSentinel Studio (Live Mission Control)** | Onda 4 | **High** | Alta | **Interface Web em Tempo Real**: Dashboard FastAPI + Next.js com streaming WebSocket do navegador. |
+| **14º**| **`UXS-11`**| **Assistente IA de Criação de YAML (YAML Studio)** | Onda 4 | **Medium** | Alta | **Experiência Visual Interativa**: Assistente conversacional para prototipagem e validação de cenários com IA. |
+
+---
+
+## 4. Matriz e Registro de Riscos (Técnicos e de Produto)
 
 A gestão proativa de riscos assegura a estabilidade do agente em ambientes corporativos e esteiras de CI/CD:
 
@@ -95,9 +148,9 @@ A gestão proativa de riscos assegura a estabilidade do agente em ambientes corp
 
 ---
 
-## 4. Registro de Decisões de Arquitetura (ADRs Implementadas e Descartadas)
+## 5. Registro de Decisões de Arquitetura (ADRs Implementadas e Descartadas)
 
-### 4.1 Decisões Implementadas
+### 5.1 Decisões Implementadas
 
 1. **ADR-01: Configuração Global em Diretório XDG do Usuário (`~/.config/uxsentinel/`)**
    - *Contexto:* Inicialmente, configurações ficavam restritas ao diretório do projeto ou exigiam permissão de escrita local.
@@ -114,7 +167,7 @@ A gestão proativa de riscos assegura a estabilidade do agente em ambientes corp
    - *Decisão:* Implementar cliente REST nativo (`JiraClient`) com autenticação via Basic Auth (e-mail + API Token), payload estruturado em Atlassian Document Format (ADF) e suporte a anexo de screenshots.
    - *Consequência:* Automação ponta a ponta: inspeção visual $\rightarrow$ geração de issue categorizada no Jira com severidade mapeada.
 
-### 4.2 Decisões Descartadas / Rejeitadas
+### 5.2 Decisões Descartadas / Rejeitadas
 
 1. **DESC-01: Dependência Exclusiva de Modelos Proprietários em Nuvem (OpenAI / Anthropic)**
    - *Motivo do Descarte:* Empresas com requisitos rígidos de conformidade (LGPD, sigilo bancário) não podem enviar screenshots de sistemas internos para APIs externas.

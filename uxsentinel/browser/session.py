@@ -1,5 +1,8 @@
+from __future__ import annotations
+
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from typing import TYPE_CHECKING
 
 from playwright.async_api import Browser, BrowserContext, Page, async_playwright
 
@@ -9,13 +12,22 @@ from uxsentinel.browser.drivers.odoo_driver import OdooDriver
 from uxsentinel.browser.visual_overlay import OVERLAY_INJECTION_SCRIPT
 from uxsentinel.core.config import BrowserSettings
 
+if TYPE_CHECKING:
+    from uxsentinel.browser.healing import SelectorHealer
+
 
 class BrowserSession:
     """Gerencia o ciclo de vida do navegador Playwright e do driver selecionado."""
 
-    def __init__(self, settings: BrowserSettings, profile: str = "generic"):
+    def __init__(
+        self,
+        settings: BrowserSettings,
+        profile: str = "generic",
+        healer: SelectorHealer | None = None,
+    ):
         self.settings = settings
         self.profile = profile.lower().strip()
+        self.healer = healer
         self.playwright = None
         self.browser: Browser | None = None
         self.context: BrowserContext | None = None
@@ -49,6 +61,9 @@ class BrowserSession:
         else:
             self.driver = GenericDriver(self.page, highlight_clicks=self.settings.highlight_clicks)
 
+        if self.healer:
+            self.driver.healer = self.healer
+
         return self.driver
 
     async def close(self) -> None:
@@ -62,9 +77,11 @@ class BrowserSession:
 
 @asynccontextmanager
 async def open_browser_session(
-    settings: BrowserSettings, profile: str = "generic"
+    settings: BrowserSettings,
+    profile: str = "generic",
+    healer: SelectorHealer | None = None,
 ) -> AsyncGenerator[BaseDriver, None]:
-    session = BrowserSession(settings, profile)
+    session = BrowserSession(settings, profile, healer=healer)
     driver = await session.start()
     try:
         yield driver

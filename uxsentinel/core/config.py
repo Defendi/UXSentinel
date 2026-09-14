@@ -32,6 +32,7 @@ class BrowserSettings(BaseModel):
     viewport_height: int = 900
     highlight_clicks: bool = True
     timeout_ms: int = 15000
+    self_healing: bool = True
 
 
 class ReportingSettings(BaseModel):

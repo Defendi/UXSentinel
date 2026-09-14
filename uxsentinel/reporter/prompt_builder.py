@@ -30,7 +30,7 @@ def build_fix_prompt(report: TestReport) -> str:
         for issue in cp.issues:
             all_issues.append((cp.name, cp.expected_behavior, issue))
 
-    if not all_issues:
+    if not all_issues and not report.healed_steps:
         return (
             f"# 🛠️ Relatório de Auditoria UXSentinel - {report.scenario_title}\n\n"
             f"> **Status:** Todos os checkpoints foram aprovados sem inconformidades!\n"
@@ -76,7 +76,29 @@ def build_fix_prompt(report: TestReport) -> str:
         f"  - 🔴 Bloqueantes: **{total_bloqueantes}** | 🟠 Altas: **{total_altas}** | "
         f"🟡 Médias: **{total_medias}** | 🔵 Baixas: **{total_baixas}**"
     )
+    if report.healed_steps:
+        lines.append(f"- **⚡ Seletores Auto-Curados (Self-Healing):** {len(report.healed_steps)}")
     lines.append("")
+
+    if report.healed_steps:
+        lines.append("---")
+        lines.append("")
+        lines.append("## ⚡ Sugestões de Correção de Seletores YAML (Self-Healing)")
+        lines.append(
+            "Durante a execução, os seguintes seletores sofreram timeout e foram recuperados automaticamente. "
+            "Recomenda-se atualizar o arquivo de cenário YAML com as sugestões abaixo:"
+        )
+        lines.append("")
+        for h_idx, step in enumerate(report.healed_steps, start=1):
+            target = step.recovered_selector or f"coords {step.coordinates}"
+            lines.append(f"### #{h_idx:02d} Ação `{step.action}` no Passo {step.step_index or 'N/A'}")
+            lines.append(f"- **Seletor Original:** `{step.original_selector}`")
+            lines.append(f"- **Estratégia de Recuperação:** `{step.strategy}`")
+            lines.append(f"- **Destino Recuperado:** `{target}`")
+            if step.yaml_fix_suggestion:
+                lines.append(f"- **Sugestão para o YAML:** `{step.yaml_fix_suggestion}`")
+            lines.append("")
+
     lines.append("---")
     lines.append("")
     lines.append("## 📋 Regras de Ouro para a Resolução")
@@ -122,8 +144,11 @@ def build_fix_prompt(report: TestReport) -> str:
 
     lines.append("## ✅ Checklist de Verificação Pós-Correção")
     lines.append("1. [ ] Implementar as alterações nos arquivos e templates correspondentes.")
-    lines.append("2. [ ] Testar localmente a renderização no navegador.")
-    lines.append("3. [ ] Re-executar o UXSentinel para validar a aprovação completa:")
+    lines.append(
+        "2. [ ] Atualizar seletores obsoletos nos cenários YAML com base nas sugestões de Self-Healing."
+    )
+    lines.append("3. [ ] Testar localmente a renderização no navegador.")
+    lines.append("4. [ ] Re-executar o UXSentinel para validar a aprovação completa:")
     lines.append(f"   ```bash\n   uxsentinel -s scenarios/{report.scenario_id}.yaml\n   ```")
     lines.append("")
 

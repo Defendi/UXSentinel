@@ -37,6 +37,29 @@ class Issue(BaseModel):
     trecho_codigo: str | None = None
 
 
+class HealingStrategy(StrEnum):
+    ACCESSIBILITY = "accessibility"
+    VISION_COORDINATES = "vision_coordinates"
+    SEMANTIC_MATCH = "semantic_match"
+
+
+class HealingEvent(BaseModel):
+    step_index: int | None = None
+    action: str
+    original_selector: str
+    strategy: HealingStrategy | str
+    recovered_selector: str | None = None
+    coordinates: dict[str, float] | tuple[float, float] | None = None
+    yaml_fix_suggestion: str | None = None
+    confidence: float | None = None
+    description: str | None = None
+    timestamp: datetime = Field(default_factory=datetime.now)
+
+
+# Alias para conformidade e interoperabilidade
+HealedStep = HealingEvent
+
+
 class CheckpointResult(BaseModel):
     name: str
     description: str | None = None
@@ -47,6 +70,7 @@ class CheckpointResult(BaseModel):
     issues: list[Issue] = Field(default_factory=list)
     dom_summary: str | None = None
     raw_response: str | None = None
+    healed_events: list[HealingEvent] = Field(default_factory=list)
 
 
 class StepAction(BaseModel):
@@ -83,6 +107,8 @@ class TestReport(BaseModel):
     finished_at: datetime | None = None
     duration_seconds: float = 0.0
     checkpoints: list[CheckpointResult] = Field(default_factory=list)
+    healed_steps: list[HealingEvent] = Field(default_factory=list)
+    healing_events: list[HealingEvent] = Field(default_factory=list)
     total_issues: int = 0
     total_bloqueantes: int = 0
     total_altas: int = 0
@@ -117,3 +143,12 @@ class TestReport(BaseModel):
             self.success = False
         else:
             self.success = True
+
+
+class ExecutionResult(BaseModel):
+    scenario_id: str
+    success: bool = True
+    status: str = "ok"
+    healed_events: list[HealingEvent] = Field(default_factory=list)
+    report: TestReport | None = None
+    error_message: str | None = None

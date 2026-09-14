@@ -8,9 +8,10 @@ from rich.table import Table
 
 from uxsentinel.browser.drivers.base_driver import BaseDriver
 from uxsentinel.browser.drivers.odoo_driver import OdooDriver
+from uxsentinel.browser.healing import SelectorHealer
 from uxsentinel.browser.session import open_browser_session
 from uxsentinel.core.config import GlobalConfig
-from uxsentinel.core.models import Scenario, StepAction, TestReport
+from uxsentinel.core.models import ExecutionResult, Scenario, StepAction, TestReport
 from uxsentinel.reporter.html_builder import save_html_report
 from uxsentinel.reporter.json_builder import save_json_report
 from uxsentinel.vision.inspector import ScreenInspector
@@ -24,6 +25,11 @@ class UXSentinelAgent:
     def __init__(self, config: GlobalConfig):
         self.config = config
         self.inspector = ScreenInspector(config)
+        self.healer = SelectorHealer(
+            vision_client=self.inspector.client,
+            enabled=self.config.browser.self_healing,
+        )
+        self.last_execution_result: ExecutionResult | None = None
 
     async def run_scenario(self, scenario: Scenario) -> TestReport:
         profile = scenario.profile or "generic"
@@ -33,7 +39,7 @@ class UXSentinelAgent:
             f"\n[bold cyan]🛡️ UXSentinel iniciado[/bold cyan] | Cenário: [bold]{scenario.title}[/bold] ([dim]{scenario.id}[/dim])"
         )
         console.print(
-            f"   Perfil: [magenta]{profile}[/magenta] | Provedor IA: [yellow]{self.config.active_provider}[/yellow] | Headless: [blue]{self.config.browser.headless}[/blue]\n"
+            f"   Perfil: [magenta]{profile}[/magenta] | Provedor IA: [yellow]{self.config.active_provider}[/yellow] | Headless: [blue]{self.config.browser.headless}[/blue] | Self-Healing: [green]{self.config.browser.self_healing}[/green]\n"
         )
 
         report = TestReport(
@@ -61,12 +67,21 @@ class UXSentinelAgent:
             report.success = False
             report.finished_at = datetime.now()
             report.duration_seconds = time.time() - start_time
+            self.last_execution_result = ExecutionResult(
+                scenario_id=scenario.id,
+                success=False,
+                status="erro_conexao_ia",
+                report=report,
+                error_message=report.error_message,
+            )
             return report
 
         console.print(f"[bold green]✓ Conexão com a IA estabelecida:[/bold green] {ai_msg}\n")
 
         try:
-            async with open_browser_session(self.config.browser, profile=profile) as driver:
+            async with open_browser_session(
+                self.config.browser, profile=profile, healer=self.healer
+            ) as driver:
                 for idx, step in enumerate(scenario.steps, start=1):
                     await self._execute_step(idx, step, driver, scenario, report, out_dir)
 
@@ -78,6 +93,15 @@ class UXSentinelAgent:
             report.finished_at = datetime.now()
             report.duration_seconds = time.time() - start_time
             report.compute_totals()
+
+            self.last_execution_result = ExecutionResult(
+                scenario_id=scenario.id,
+                success=report.success,
+                status="ok" if report.success else "erro",
+                healed_events=report.healed_steps,
+                report=report,
+                error_message=report.error_message,
+            )
 
             # Salva relatórios
             if self.config.reporting.generate_json:
@@ -138,6 +162,8 @@ class UXSentinelAgent:
         desc = step.description or f"{action} {step.selector or step.url or ''}"
         console.print(f"  [cyan]Passo {index:02d}:[/cyan] [dim]{desc}[/dim]")
 
+        initial_healing_count = len(driver.healing_events)
+
         if action == "goto":
             if not step.url:
                 raise ValueError(f"Passo {index}: 'goto' requer 'url'")
@@ -146,17 +172,34 @@ class UXSentinelAgent:
         elif action == "click":
             if not step.selector:
                 raise ValueError(f"Passo {index}: 'click' requer 'selector'")
-            await driver.click(step.selector, timeout=step.timeout or 10000)
+            await driver.click(
+                step.selector,
+                timeout=step.timeout or 10000,
+                description=desc,
+                step_index=index,
+            )
 
         elif action == "fill":
             if not step.selector:
                 raise ValueError(f"Passo {index}: 'fill' requer 'selector'")
-            await driver.fill(step.selector, step.value or "", timeout=step.timeout or 10000)
+            await driver.fill(
+                step.selector,
+                step.value or "",
+                timeout=step.timeout or 10000,
+                description=desc,
+                step_index=index,
+            )
 
         elif action == "select":
             if not step.selector:
                 raise ValueError(f"Passo {index}: 'select' requer 'selector'")
-            await driver.select_option(step.selector, step.value or "", timeout=step.timeout or 10000)
+            await driver.select_option(
+                step.selector,
+                step.value or "",
+                timeout=step.timeout or 10000,
+                description=desc,
+                step_index=index,
+            )
 
         elif action == "press":
             if not step.value:
@@ -166,7 +209,12 @@ class UXSentinelAgent:
         elif action == "hover":
             if not step.selector:
                 raise ValueError(f"Passo {index}: 'hover' requer 'selector'")
-            await driver.hover(step.selector, timeout=step.timeout or 10000)
+            await driver.hover(
+                step.selector,
+                timeout=step.timeout or 10000,
+                description=desc,
+                step_index=index,
+            )
 
         elif action == "scroll":
             direction = step.value or "down"
@@ -192,6 +240,24 @@ class UXSentinelAgent:
 
         else:
             raise ValueError(f"Ação desconhecida: '{action}'")
+
+        # Verifica se ocorreram eventos de self-healing neste passo
+        if len(driver.healing_events) > initial_healing_count:
+            for ev in driver.healing_events[initial_healing_count:]:
+                report.healed_steps.append(ev)
+                report.healing_events.append(ev)
+                strat_label = (
+                    "Acessibilidade Semântica" if ev.strategy == "accessibility" else "Visão Multimodal LMM"
+                )
+                target_recovered = ev.recovered_selector or f"coords {ev.coordinates}"
+                console.print(
+                    f"    [bold yellow]⚡ Self-Healing Ativado:[/bold yellow] Seletor [strikethrough]{ev.original_selector}[/strikethrough] "
+                    f"recuperado via [bold magenta]{strat_label}[/bold magenta] -> [bold green]{target_recovered}[/bold green]"
+                )
+                if ev.yaml_fix_suggestion:
+                    console.print(
+                        f"      [dim]💡 Sugestão para o arquivo YAML: {ev.yaml_fix_suggestion}[/dim]"
+                    )
 
     async def _handle_checkpoint(
         self,
@@ -227,6 +293,7 @@ class UXSentinelAgent:
             description=step.description,
         )
 
+        cp_result.healed_events = list(report.healed_steps)
         report.checkpoints.append(cp_result)
 
         if cp_result.status == "ok":
@@ -249,6 +316,11 @@ class UXSentinelAgent:
         )
         table.add_row("Duração", f"{report.duration_seconds:.1f} segundos")
         table.add_row("Checkpoints Avaliados", str(len(report.checkpoints)))
+        if report.healed_steps:
+            table.add_row(
+                "Seletores Auto-Curados (Self-Healing)",
+                f"[bold yellow]{len(report.healed_steps)}[/bold yellow]",
+            )
         table.add_row("Total de Inconformidades", str(report.total_issues))
         table.add_row("Bloqueantes", f"[red]{report.total_bloqueantes}[/red]")
         table.add_row("Alta Severidade", f"[orange3]{report.total_altas}[/orange3]")

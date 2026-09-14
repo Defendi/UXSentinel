@@ -209,7 +209,48 @@ HTML_TEMPLATE = """
                 <div class="metric-val">{{ report.total_baixas }}</div>
                 <div class="metric-label">Baixa Severidade</div>
             </div>
+            {% if report.healed_steps %}
+            <div class="metric-card" style="color: #fbbf24;">
+                <div class="metric-val">{{ report.healed_steps|length }}</div>
+                <div class="metric-label">Auto-Curados (Self-Healing)</div>
+            </div>
+            {% endif %}
         </div>
+
+        {% if report.healed_steps %}
+        <div class="checkpoint-card" style="border-left: 4px solid #f59e0b;">
+            <div class="checkpoint-header">
+                <div class="checkpoint-title">⚡ Seletores Recuperados Dinamicamente (Self-Healing)</div>
+                <div><span class="badge badge-warning">{{ report.healed_steps|length }} Auto-Curas</span></div>
+            </div>
+            <div style="padding: 1rem 0;">
+                <p style="color: var(--text-muted); margin-bottom: 1rem;">
+                    Os seletores abaixo sofreram TimeoutError durante a execução e foram recuperados com sucesso pelas camadas de Acessibilidade ou Visão LMM.
+                </p>
+                <div style="display: flex; flex-direction: column; gap: 0.75rem;">
+                    {% for step in report.healed_steps %}
+                    <div style="background: rgba(255,255,255,0.03); border: 1px solid var(--border); border-radius: 8px; padding: 1rem;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                            <strong>Passo {{ step.step_index or 'N/A' }}: <code>{{ step.action }}</code></strong>
+                            <span class="badge badge-info">{{ step.strategy }}</span>
+                        </div>
+                        <div style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 0.25rem;">
+                            Seletor Original: <code style="color: #f87171; text-decoration: line-through;">{{ step.original_selector }}</code>
+                        </div>
+                        <div style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 0.25rem;">
+                            Destino Recuperado: <code style="color: #34d399;">{{ step.recovered_selector or step.coordinates }}</code>
+                        </div>
+                        {% if step.yaml_fix_suggestion %}
+                        <div style="font-size: 0.85rem; background: rgba(0,0,0,0.3); padding: 0.5rem; border-radius: 4px; margin-top: 0.5rem; font-family: monospace; color: #fbbf24;">
+                            Sugestão YAML: {{ step.yaml_fix_suggestion }}
+                        </div>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+        {% endif %}
 
         {% for cp in report.checkpoints %}
         <div class="checkpoint-card">
