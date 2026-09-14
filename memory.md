@@ -1,7 +1,7 @@
 # 🧠 UXSentinel — Memória Compactada e Operacional do Projeto
 
 > **Status do Repositório:** Ativo & Estável | **Última Atualização:** 14 de Setembro de 2026  
-> **Versão Corrente:** v0.1.0+ | **Testes:** 100% Verde (`uv run pytest` — 22 testes aprovados)
+> **Versão Corrente:** v0.1.0+ | **Testes:** 100% Verde (`uv run pytest` — 39 testes aprovados)
 
 ---
 
@@ -97,10 +97,10 @@ UXSentinel/
 
 | Chave Jira | Título da Tarefa | Fase | Prioridade | Status |
 | :--- | :--- | :---: | :---: | :---: |
-| **`UXS-1`** | Self-Healing de Seletores com Visão e Acessibilidade | Fase 1 | **Highest** | **Concluído** |
+| **`UXS-1`** | Self-Healing de Seletores com Visão e Acessibilidade | Fase 1 | **Highest** | **Pronto Para Testar** |
 | **`UXS-2`** | Gravação Nativa de Vídeo e Geração de GIF da Sessão | Fase 1 | **High** | *Backlog* |
 | **`UXS-3`** | Auditoria de Responsividade Multi-Viewport | Fase 1 | **High** | *Backlog* |
-| **`UXS-4`** | Controle Opcional da Visualização no Chromium (Headed/Headless) | Fase 1 | **Highest** | *Parcial* (`--headless` ativo) |
+| **`UXS-4`** | Controle Opcional da Visualização no Chromium (Headed/Headless) | Fase 1 | **Highest** | **Pronto Para Testar** |
 | **`UXS-5`** | Arquitetura Multiagente Especializada (Mixture of Evaluators >95%) | Fase 2 | **Highest** | *Backlog* |
 | **`UXS-6`** | Mecanismos Complementares de Alta Precisão (Zero Falsos Positivos) | Fase 2 | **Highest** | *Backlog* |
 | **`UXS-7`** | Baseline Visual com Slider Comparativo (Antes vs Depois) | Fase 2 | **Medium** | *Backlog* |

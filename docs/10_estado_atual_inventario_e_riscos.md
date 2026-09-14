@@ -64,10 +64,10 @@ Para eliminar qualquer divergência entre o "estado desejado" e o "estado real",
 | **Abertura Automática de Cards no Jira** | `uxsentinel.integrations.jira` | **Concluído** | `UXS-23` | Flag `--jira` cria issues com severidade, steps e screenshots anexados. |
 | **Configurador Interativo Jira CLI e XDG** | `uxsentinel.cli` / `core.config` | **Concluído** | `UXS-24` | Padrão XDG em `~/.config/uxsentinel/config.yaml` e `--set-jira-token` protegido. |
 | **Suíte de Testes Hermética** | `tests/test_engine.py` | **Concluído** | `UXS-25` | 12/12 testes passando sem mocks frágeis ou dependências externas (`uv run pytest`). |
-| **Self-Healing de Seletores** | `uxsentinel.browser` | *Pendente* | `UXS-1` | Fase 1 do Roadmap (Prioridade: Highest). |
+| **Self-Healing de Seletores** | `uxsentinel.browser.healing` | **Pronto Para Testar** | `UXS-1` | Autocura via acessibilidade e visão multimodal implementada (tests/test_self_healing.py). |
 | **Gravação de Vídeo e GIF de Sessão** | `uxsentinel.browser.session` | *Pendente* | `UXS-2` | Fase 1 do Roadmap (Prioridade: High). |
 | **Auditoria Multi-Viewport** | `uxsentinel.browser` | *Pendente* | `UXS-3` | Desktop, Tablet, Mobile em paralelo. Fase 1 (Prioridade: High). |
-| **Controle Headed/Headless na CLI** | `uxsentinel.cli` | *Parcial* | `UXS-4` | Flag `--headless` existe; falta aprimorar flags complementares `--headed`/`--no-gui`. |
+| **Controle Headed/Headless na CLI** | `uxsentinel.cli` | **Pronto Para Testar** | `UXS-4` | Flags simétricas, resolução hierárquica e Rich monitor implementados (tests/test_cli_display_mode.py). |
 | **Arquitetura Mixture of Evaluators (>95%)** | `uxsentinel.vision` | *Pendente* | `UXS-5` | 4 subagentes especializados com contexto focado. Fase 2 (Prioridade: Highest). |
 | **Árbitro Reverso & Anti-Alucinação** | `uxsentinel.vision` | *Pendente* | `UXS-6` | Devil's Advocate e validação cruzada para zero falsos positivos. Fase 2 (Prioridade: Highest). |
 | **Baseline Visual com Slider Antes/Depois**| `uxsentinel.reporter` | *Pendente* | `UXS-7` | Regressão visual perceptual com delta visual. Fase 2 (Prioridade: Medium). |
