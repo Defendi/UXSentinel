@@ -30,7 +30,7 @@ jobs:
       - name: Instalar Ferramentas de Build, Linter e Dependências
         run: |
           python -m pip install --upgrade pip
-          pip install build twine ruff
+          pip install build "twine>=5.1.1" ruff pytest pytest-asyncio
           pip install -r requirements.txt
           pip install -e .
 
@@ -45,7 +45,7 @@ jobs:
 
       - name: Executar Bateria de Testes Automatizados
         run: |
-          python tests/test_engine.py
+          pytest
 
       - name: Construir Pacotes de Distribuição (Wheel e Sdist)
         run: |
