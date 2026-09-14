@@ -98,20 +98,39 @@ class JiraClient:
         expected_behavior: str,
         issue: Issue,
         screenshot_path: str | None = None,
+        viewport: str | None = None,
     ) -> str:
         """Formata a descrição detalhada para o card do Jira em sintaxe Jira Wiki/Confluence."""
+        vp_val = issue.viewport or viewport
         lines = [
             "h2. 🛡️ Inconformidade Detectada pelo UXSentinel",
             f"*Cenário:* {scenario_id} ({scenario_title})",
             f"*Checkpoint:* {checkpoint_name}",
-            f"*Comportamento Esperado:* {expected_behavior}",
-            f"*Categoria:* {issue.categoria.value.upper()}",
-            f"*Severidade:* *{issue.severidade.value.upper()}*",
-            "",
-            "h3. 📝 Descrição da Falha",
-            issue.descricao.strip(),
-            "",
         ]
+        if vp_val:
+            lines.append(f"*Dispositivo / Resolução:* {vp_val}")
+
+        lines.extend(
+            [
+                f"*Comportamento Esperado:* {expected_behavior}",
+                f"*Categoria:* {issue.categoria.value.upper()}",
+                f"*Severidade:* *{issue.severidade.value.upper()}*",
+                "",
+                "h3. 📝 Descrição da Falha",
+                issue.descricao.strip(),
+                "",
+            ]
+        )
+
+        if vp_val:
+            lines.extend(
+                [
+                    "h3. 📱 Resolução / Dispositivo Afetado",
+                    f"*Viewport:* {vp_val}",
+                    "Esta inconformidade foi observada especificamente sob esta resolução/dispositivo.",
+                    "",
+                ]
+            )
 
         if issue.elemento_alvo:
             lines.extend(
@@ -166,10 +185,11 @@ class JiraClient:
             )
             return []
 
-        all_items: list[tuple[str, str, Issue, str | None]] = []
+        all_items: list[tuple[str, str, Issue, str | None, str | None]] = []
         for cp in report.checkpoints:
             for issue in cp.issues:
-                all_items.append((cp.name, cp.expected_behavior, issue, cp.screenshot_path))
+                vp = issue.viewport or cp.viewport
+                all_items.append((cp.name, cp.expected_behavior, issue, cp.screenshot_path, vp))
 
         if not all_items:
             console.print(
@@ -186,8 +206,13 @@ class JiraClient:
         created_card_urls: list[str] = []
 
         async with httpx.AsyncClient(**kwargs) as client:
-            for cp_name, expected, issue, screenshot_path in all_items:
-                summary = f"[UXSentinel][{issue.categoria.value.upper()}][{issue.severidade.value.upper()}] {issue.descricao}"
+            for cp_name, expected, issue, screenshot_path, vp in all_items:
+                vp_prefix = ""
+                if vp:
+                    short_name = vp.split()[0].upper()
+                    vp_prefix = f"[{short_name}]"
+
+                summary = f"[UXSentinel]{vp_prefix}[{issue.categoria.value.upper()}][{issue.severidade.value.upper()}] {issue.descricao}"
                 if len(summary) > 250:
                     summary = summary[:247] + "..."
 
@@ -198,12 +223,15 @@ class JiraClient:
                     expected_behavior=expected,
                     issue=issue,
                     screenshot_path=screenshot_path,
+                    viewport=vp,
                 )
 
+                extra_labels = [f"viewport-{vp.split()[0].lower()}"] if vp else []
                 issue_labels = list(
                     set(
                         self.labels
                         + ["uxsentinel", issue.categoria.value.lower(), issue.severidade.value.lower()]
+                        + extra_labels
                     )
                 )
 

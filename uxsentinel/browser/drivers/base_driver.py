@@ -56,6 +56,11 @@ class BaseDriver(ABC):
                 {"x": x, "y": y},
             )
 
+    async def set_viewport(self, width: int, height: int) -> None:
+        """Ajusta dinamicamente as dimensões da viewport da página atual."""
+        if hasattr(self.page, "set_viewport_size"):
+            await self.page.set_viewport_size({"width": width, "height": height})
+
     async def goto(self, url: str, timeout: int = 30000) -> None:
         await self.page.goto(url, timeout=timeout)
         await self.wait_until_ready()

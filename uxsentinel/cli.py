@@ -8,7 +8,12 @@ from rich.table import Table
 
 from uxsentinel import __version__
 from uxsentinel.core.agent import UXSentinelAgent
-from uxsentinel.core.config import load_config, resolve_display_mode, resolve_video_mode
+from uxsentinel.core.config import (
+    load_config,
+    resolve_display_mode,
+    resolve_video_mode,
+    resolve_viewports,
+)
 from uxsentinel.scenarios.parser import load_scenario
 
 console = Console()
@@ -257,6 +262,19 @@ Documentação completa: https://github.com/Defendi/UXSentinel""",
         action="store_false",
         default=None,
         help="Desativa a gravação de vídeo da sessão.",
+    )
+    viewport_group = parser.add_mutually_exclusive_group()
+    viewport_group.add_argument(
+        "--viewports",
+        type=str,
+        default=None,
+        help="Lista de viewports separadas por vírgula para auditoria de responsividade (ex: 'desktop,tablet,mobile' ou '1920x1080,375x812').",
+    )
+    viewport_group.add_argument(
+        "--viewport",
+        type=str,
+        default=None,
+        help="Preset ou resolução única de viewport (ex: 'desktop', 'mobile', '1280x720').",
     )
     parser.add_argument(
         "--slowmo",
@@ -524,10 +542,23 @@ Documentação completa: https://github.com/Defendi/UXSentinel""",
         config_video=cfg.browser.record_video,
     )
 
+    # Hierarquia de resolução de viewports:
+    # 1. CLI flag (--viewports / --viewport)
+    # 2. Cenário YAML (campo 'viewports' no arquivo do cenário)
+    # 3. Config global config.yaml (BrowserSettings.viewports)
+    # 4. Fallback padrão: desktop padrão 1280x800
+    cli_viewport_arg = args.viewports or args.viewport
+    cfg.browser.viewports = resolve_viewports(
+        cli_viewports=cli_viewport_arg,
+        scenario_viewports=scenario.viewports,
+        config_viewports=cfg.browser.viewports,
+    )
+
     agent = UXSentinelAgent(
         cfg,
         headless_override=args.headless,
         record_video_override=args.record_video,
+        viewports_override=cli_viewport_arg,
     )
     report = await agent.run_scenario(scenario)
 

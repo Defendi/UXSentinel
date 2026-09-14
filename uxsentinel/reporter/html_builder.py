@@ -160,6 +160,28 @@ HTML_TEMPLATE = """
             text-align: center;
             font-weight: 500;
         }
+        .viewport-filter-btn {
+            background: var(--surface-alt);
+            border: 1px solid var(--border);
+            color: var(--text);
+            padding: 0.45rem 1rem;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 0.85rem;
+            font-weight: 500;
+            transition: all 0.2s ease;
+        }
+        .viewport-filter-btn:hover {
+            border-color: var(--primary);
+            background: rgba(59, 130, 246, 0.15);
+        }
+        .viewport-filter-btn.active {
+            background: var(--primary);
+            border-color: var(--primary);
+            color: #fff;
+            font-weight: 600;
+            box-shadow: 0 2px 8px rgba(59, 130, 246, 0.4);
+        }
     </style>
 </head>
 <body>
@@ -176,6 +198,7 @@ HTML_TEMPLATE = """
                         Perfil: <strong>{{ report.profile }}</strong> |
                         Provedor IA: <strong>{{ report.provider_used }}</strong> |
                         Duração: <strong>{{ "%.1f"|format(report.duration_seconds) }}s</strong>
+                        {% if report.viewports_tested %} | Viewports: <strong>{{ report.viewports_tested|join(', ') }}</strong>{% endif %}
                     </div>
                 </div>
             </div>
@@ -288,10 +311,43 @@ HTML_TEMPLATE = """
         </div>
         {% endif %}
 
+        {% set unique_viewports = [] %}
         {% for cp in report.checkpoints %}
-        <div class="checkpoint-card">
+            {% if cp.viewport and cp.viewport not in unique_viewports %}
+                {% set _ = unique_viewports.append(cp.viewport) %}
+            {% endif %}
+        {% endfor %}
+
+        {% if unique_viewports|length > 1 or (unique_viewports|length == 1 and unique_viewports[0]) %}
+        <div class="viewport-filter-container" style="background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 1rem 1.5rem; margin-bottom: 2rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem;">
+            <div style="display: flex; align-items: center; gap: 0.5rem;">
+                <span style="font-size: 1.2rem;">📱</span>
+                <strong style="font-size: 0.95rem;">Filtrar Checkpoints por Viewport / Resolução:</strong>
+            </div>
+            <div class="viewport-filters" style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                <button type="button" class="viewport-filter-btn active" data-filter="all" onclick="filterViewport('all')">
+                    Todas as Resoluções ({{ report.checkpoints|length }})
+                </button>
+                {% for vp in unique_viewports %}
+                <button type="button" class="viewport-filter-btn" data-filter="{{ vp }}" onclick="filterViewport('{{ vp }}')">
+                    {% if 'mobile' in vp|lower %}📱{% elif 'tablet' in vp|lower %}📟{% else %}🖥️{% endif %} {{ vp }}
+                </button>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+
+        {% for cp in report.checkpoints %}
+        <div class="checkpoint-card" data-viewport="{{ cp.viewport or 'default' }}">
             <div class="checkpoint-header">
-                <div class="checkpoint-title">📍 Checkpoint: {{ cp.name }}</div>
+                <div class="checkpoint-title">
+                    📍 Checkpoint: {{ cp.name }}
+                    {% if cp.viewport %}
+                        <span class="badge badge-info" style="margin-left: 0.5rem; font-size: 0.8rem;">
+                            {% if 'mobile' in cp.viewport|lower %}📱{% elif 'tablet' in cp.viewport|lower %}📟{% else %}🖥️{% endif %} {{ cp.viewport }}
+                        </span>
+                    {% endif %}
+                </div>
                 <div>
                     {% if cp.status == 'ok' %}
                         <span class="badge badge-success">Conforme</span>
@@ -324,9 +380,16 @@ HTML_TEMPLATE = """
                         {% for issue in cp.issues %}
                         <div class="issue-item {{ issue.severidade.value }}">
                             <div class="issue-top">
-                                <span class="badge badge-{{ 'danger' if issue.severidade.value in ['bloqueante', 'alta'] else 'warning' if issue.severidade.value == 'media' else 'info' }}">
-                                    {{ issue.severidade.value }}
-                                </span>
+                                <div>
+                                    <span class="badge badge-{{ 'danger' if issue.severidade.value in ['bloqueante', 'alta'] else 'warning' if issue.severidade.value == 'media' else 'info' }}">
+                                        {{ issue.severidade.value }}
+                                    </span>
+                                    {% if issue.viewport %}
+                                        <span class="badge badge-info" style="font-size: 0.75rem; margin-left: 0.25rem;">
+                                            {% if 'mobile' in issue.viewport|lower %}📱{% elif 'tablet' in issue.viewport|lower %}📟{% else %}🖥️{% endif %} {{ issue.viewport }}
+                                        </span>
+                                    {% endif %}
+                                </div>
                                 <span style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase;">
                                     🏷️ {{ issue.categoria.value }}
                                 </span>
@@ -354,6 +417,27 @@ HTML_TEMPLATE = """
         </div>
         {% endfor %}
     </div>
+
+    <script>
+        function filterViewport(viewport) {
+            const buttons = document.querySelectorAll('.viewport-filter-btn');
+            buttons.forEach(btn => {
+                if (btn.getAttribute('data-filter') === viewport) {
+                    btn.classList.add('active');
+                } else {
+                    btn.classList.remove('active');
+                }
+            });
+            const cards = document.querySelectorAll('.checkpoint-card[data-viewport]');
+            cards.forEach(card => {
+                if (viewport === 'all' || card.getAttribute('data-viewport') === viewport) {
+                    card.style.display = '';
+                } else {
+                    card.style.display = 'none';
+                }
+            });
+        }
+    </script>
 </body>
 </html>
 """

@@ -20,7 +20,15 @@ from uxsentinel.browser.drivers.odoo_driver import OdooDriver
 from uxsentinel.browser.healing import SelectorHealer
 from uxsentinel.browser.session import open_browser_session
 from uxsentinel.core.config import GlobalConfig, resolve_display_mode, resolve_video_mode
-from uxsentinel.core.models import ExecutionResult, Scenario, StepAction, TestReport
+from uxsentinel.core.models import (
+    ExecutionResult,
+    Scenario,
+    StepAction,
+    TestReport,
+    ViewportConfig,
+    parse_viewport_spec,
+    resolve_viewports,
+)
 from uxsentinel.reporter.html_builder import save_html_report
 from uxsentinel.reporter.json_builder import save_json_report
 from uxsentinel.reporter.video_helper import create_session_gif, finalize_session_video
@@ -37,10 +45,12 @@ class UXSentinelAgent:
         config: GlobalConfig,
         headless_override: bool | None = None,
         record_video_override: bool | None = None,
+        viewports_override: str | list[str] | list[ViewportConfig] | None = None,
     ):
         self.config = config
         self.headless_override = headless_override
         self.record_video_override = record_video_override
+        self.viewports_override = viewports_override
         self.inspector = ScreenInspector(config)
         self.healer = SelectorHealer(
             vision_client=self.inspector.client,
@@ -53,6 +63,7 @@ class UXSentinelAgent:
         scenario: Scenario,
         headless_override: bool | None = None,
         record_video_override: bool | None = None,
+        viewports_override: str | list[str] | list[ViewportConfig] | None = None,
     ) -> TestReport:
         profile = scenario.profile or "generic"
         start_time = time.time()
@@ -79,25 +90,40 @@ class UXSentinelAgent:
             config_video=self.config.browser.record_video,
         )
 
+        # Determina a lista de viewports a auditar respeitando a hierarquia:
+        # CLI Flag (--viewports / --viewport) > Cenário YAML > Config global > Fallback (desktop 1280x800)
+        effective_cli_viewports = (
+            viewports_override if viewports_override is not None else self.viewports_override
+        )
+        effective_viewports = resolve_viewports(
+            cli_viewports=effective_cli_viewports,
+            scenario_viewports=scenario.viewports,
+            config_viewports=self.config.browser.viewports,
+        )
+
         out_dir = Path(self.config.reporting.output_dir)
         out_dir.mkdir(parents=True, exist_ok=True)
         videos_dir = out_dir / "videos"
         if effective_video:
             videos_dir.mkdir(parents=True, exist_ok=True)
 
+        initial_vp = effective_viewports[0]
         browser_settings = self.config.browser.model_copy(
             update={
                 "headless": effective_headless,
                 "record_video": effective_video,
                 "record_video_dir": str(videos_dir),
+                "viewport_width": initial_vp.width,
+                "viewport_height": initial_vp.height,
             }
         )
 
         console.print(
             f"\n[bold cyan]🛡️ UXSentinel iniciado[/bold cyan] | Cenário: [bold]{scenario.title}[/bold] ([dim]{scenario.id}[/dim])"
         )
+        vp_summary_str = ", ".join(vp.label for vp in effective_viewports)
         console.print(
-            f"   Perfil: [magenta]{profile}[/magenta] | Provedor IA: [yellow]{self.config.active_provider}[/yellow] | Headless: [blue]{effective_headless}[/blue] | Self-Healing: [green]{browser_settings.self_healing}[/green]\n"
+            f"   Perfil: [magenta]{profile}[/magenta] | Provedor IA: [yellow]{self.config.active_provider}[/yellow] | Headless: [blue]{effective_headless}[/blue] | Viewports: [cyan]{vp_summary_str}[/cyan] | Self-Healing: [green]{browser_settings.self_healing}[/green]\n"
         )
 
         if effective_headless:
@@ -117,6 +143,7 @@ class UXSentinelAgent:
             profile=profile,
             provider_used=self.config.active_provider,
             started_at=datetime.now(),
+            viewports_tested=[vp.label for vp in effective_viewports],
         )
 
         console.print(
@@ -152,9 +179,13 @@ class UXSentinelAgent:
                 healer=self.healer,
                 record_video=effective_video,
                 record_video_dir=str(videos_dir),
+                initial_viewport=initial_vp,
             ) as driver:
                 captured_driver = driver
-                if effective_headless and len(scenario.steps) > 0:
+                multi_vp = len(effective_viewports) > 1
+                total_work = len(scenario.steps) * len(effective_viewports)
+
+                if effective_headless and total_work > 0:
                     with Progress(
                         SpinnerColumn(style="bold cyan"),
                         TextColumn("[bold cyan]{task.description}"),
@@ -164,17 +195,47 @@ class UXSentinelAgent:
                         console=console,
                         transient=False,
                     ) as progress:
-                        task_id = progress.add_task(
-                            f"[cyan]Executando {scenario.title}...", total=len(scenario.steps)
-                        )
+                        task_id = progress.add_task(f"[cyan]Executando {scenario.title}...", total=total_work)
+                        for vp in effective_viewports:
+                            if hasattr(driver, "set_viewport"):
+                                await driver.set_viewport(vp.width, vp.height)
+                            elif hasattr(driver, "page") and hasattr(driver.page, "set_viewport_size"):
+                                await driver.page.set_viewport_size({"width": vp.width, "height": vp.height})
+
+                            for idx, step in enumerate(scenario.steps, start=1):
+                                action_desc = (
+                                    step.description or f"{step.action} {step.selector or step.url or ''}"
+                                )
+                                vp_tag = f" [{vp.name}]" if multi_vp else ""
+                                progress.update(
+                                    task_id,
+                                    description=f"[cyan]Passo {idx:02d}/{len(scenario.steps):02d}{vp_tag}: [white]{action_desc[:35]}",
+                                )
+                                await self._execute_step(
+                                    idx,
+                                    step,
+                                    driver,
+                                    scenario,
+                                    report,
+                                    out_dir,
+                                    progress=progress,
+                                    task_id=task_id,
+                                    current_viewport=vp,
+                                    multi_viewport=multi_vp,
+                                )
+                                progress.advance(task_id)
+                else:
+                    for vp in effective_viewports:
+                        if multi_vp:
+                            console.print(
+                                f"\n[bold cyan]📱 Alternando Viewport:[/bold cyan] [bold]{vp.label}[/bold]"
+                            )
+                        if hasattr(driver, "set_viewport"):
+                            await driver.set_viewport(vp.width, vp.height)
+                        elif hasattr(driver, "page") and hasattr(driver.page, "set_viewport_size"):
+                            await driver.page.set_viewport_size({"width": vp.width, "height": vp.height})
+
                         for idx, step in enumerate(scenario.steps, start=1):
-                            action_desc = (
-                                step.description or f"{step.action} {step.selector or step.url or ''}"
-                            )
-                            progress.update(
-                                task_id,
-                                description=f"[cyan]Passo {idx:02d}/{len(scenario.steps):02d}: [white]{action_desc[:35]}",
-                            )
                             await self._execute_step(
                                 idx,
                                 step,
@@ -182,13 +243,9 @@ class UXSentinelAgent:
                                 scenario,
                                 report,
                                 out_dir,
-                                progress=progress,
-                                task_id=task_id,
+                                current_viewport=vp,
+                                multi_viewport=multi_vp,
                             )
-                            progress.advance(task_id)
-                else:
-                    for idx, step in enumerate(scenario.steps, start=1):
-                        await self._execute_step(idx, step, driver, scenario, report, out_dir)
 
         except Exception as exc:
             console.print(f"[bold red]❌ Erro fatal na execução do cenário:[/bold red] {exc}")
@@ -295,11 +352,14 @@ class UXSentinelAgent:
         out_dir: Path,
         progress: Progress | None = None,
         task_id: int | None = None,
+        current_viewport: ViewportConfig | None = None,
+        multi_viewport: bool = False,
     ) -> None:
         p_console = progress.console if progress is not None else console
         action = step.action.lower().strip()
         desc = step.description or f"{action} {step.selector or step.url or ''}"
-        p_console.print(f"  [cyan]Passo {index:02d}:[/cyan] [dim]{desc}[/dim]")
+        vp_tag = f" [dim][{current_viewport.name}][/dim]" if (multi_viewport and current_viewport) else ""
+        p_console.print(f"  [cyan]Passo {index:02d}:[/cyan] [dim]{desc}[/dim]{vp_tag}")
 
         initial_healing_count = len(driver.healing_events)
 
@@ -307,6 +367,15 @@ class UXSentinelAgent:
             if not step.url:
                 raise ValueError(f"Passo {index}: 'goto' requer 'url'")
             await driver.goto(step.url, timeout=step.timeout or self.config.browser.timeout_ms)
+
+        elif action == "set_viewport":
+            val = step.value or "desktop"
+            vp_custom = parse_viewport_spec(val)
+            if hasattr(driver, "set_viewport"):
+                await driver.set_viewport(vp_custom.width, vp_custom.height)
+            elif hasattr(driver, "page") and hasattr(driver.page, "set_viewport_size"):
+                await driver.page.set_viewport_size({"width": vp_custom.width, "height": vp_custom.height})
+            p_console.print(f"    [dim]Viewport alterada para {vp_custom.label}[/dim]")
 
         elif action == "click":
             if not step.selector:
@@ -384,6 +453,8 @@ class UXSentinelAgent:
                 task_id=task_id,
                 step_index=index,
                 total_steps=len(scenario.steps),
+                current_viewport=current_viewport,
+                multi_viewport=multi_viewport,
             )
 
         else:
@@ -417,16 +488,30 @@ class UXSentinelAgent:
         task_id: int | None = None,
         step_index: int | None = None,
         total_steps: int | None = None,
+        current_viewport: ViewportConfig | None = None,
+        multi_viewport: bool = False,
     ) -> None:
         p_console = progress.console if progress is not None else console
-        cp_name = step.name or f"checkpoint_{len(report.checkpoints) + 1}"
+        base_cp_name = step.name or f"checkpoint_{len(report.checkpoints) + 1}"
         expected = step.expected_behavior or "A tela deve estar limpa e sem erros."
 
-        p_console.print(f"    [bold yellow]📸 Checkpoint acionado:[/bold yellow] [italic]{cp_name}[/italic]")
-        screenshot_file = out_dir / f"{report.scenario_id}_{cp_name}.png"
+        if multi_viewport and current_viewport:
+            clean_vp = current_viewport.name.replace(":", "_").replace(" ", "_")
+            cp_name = f"{base_cp_name}_{clean_vp}"
+            screenshot_file = out_dir / f"{report.scenario_id}_{clean_vp}_{base_cp_name}.png"
+        else:
+            cp_name = base_cp_name
+            screenshot_file = out_dir / f"{report.scenario_id}_{cp_name}.png"
+
+        vp_label = current_viewport.label if current_viewport else None
+        vp_suffix = f" [{vp_label}]" if vp_label else ""
+        p_console.print(
+            f"    [bold yellow]📸 Checkpoint acionado:[/bold yellow] [italic]{cp_name}[/italic]{vp_suffix}"
+        )
 
         # Captura screenshot em alta resolução
-        await driver.page.screenshot(path=str(screenshot_file), full_page=True)
+        if hasattr(driver, "page") and hasattr(driver.page, "screenshot"):
+            await driver.page.screenshot(path=str(screenshot_file), full_page=True)
 
         # Extrai o texto limpo do DOM
         dom_text = await driver.get_clean_dom_text()
@@ -453,6 +538,10 @@ class UXSentinelAgent:
             description=step.description,
         )
 
+        cp_result.viewport = vp_label
+        for issue in cp_result.issues:
+            issue.viewport = vp_label
+
         cp_result.healed_events = list(report.healed_steps)
         report.checkpoints.append(cp_result)
 
@@ -475,6 +564,8 @@ class UXSentinelAgent:
             "[bold green]APROVADO[/bold green]" if report.success else "[bold red]REPROVADO[/bold red]",
         )
         table.add_row("Duração", f"{report.duration_seconds:.1f} segundos")
+        if report.viewports_tested:
+            table.add_row("Viewports Auditadas", ", ".join(report.viewports_tested))
         table.add_row("Checkpoints Avaliados", str(len(report.checkpoints)))
         if report.healed_steps:
             table.add_row(

@@ -13,6 +13,7 @@ from uxsentinel.browser.drivers.generic_driver import GenericDriver
 from uxsentinel.browser.drivers.odoo_driver import OdooDriver
 from uxsentinel.browser.visual_overlay import OVERLAY_INJECTION_SCRIPT
 from uxsentinel.core.config import BrowserSettings
+from uxsentinel.core.models import ViewportConfig
 
 if TYPE_CHECKING:
     from uxsentinel.browser.healing import SelectorHealer
@@ -29,6 +30,7 @@ class BrowserSession:
         headless: bool | None = None,
         record_video: bool | None = None,
         record_video_dir: str | None = None,
+        initial_viewport: ViewportConfig | None = None,
     ):
         updates: dict[str, object] = {}
         if headless is not None:
@@ -37,6 +39,9 @@ class BrowserSession:
             updates["record_video"] = record_video
         if record_video_dir is not None:
             updates["record_video_dir"] = record_video_dir
+        if initial_viewport is not None:
+            updates["viewport_width"] = initial_viewport.width
+            updates["viewport_height"] = initial_viewport.height
 
         self.settings = settings.model_copy(update=updates) if updates else settings
         self.profile = profile.lower().strip()
@@ -95,6 +100,13 @@ class BrowserSession:
 
         return self.driver
 
+    async def set_viewport(self, width: int, height: int) -> None:
+        """Altera a resolução da viewport da página em tempo de execução."""
+        if self.page:
+            await self.page.set_viewport_size({"width": width, "height": height})
+        self.settings.viewport_width = width
+        self.settings.viewport_height = height
+
     async def close(self) -> None:
         video_ref = self.page.video if self.page else None
 
@@ -131,6 +143,7 @@ async def open_browser_session(
     headless: bool | None = None,
     record_video: bool | None = None,
     record_video_dir: str | None = None,
+    initial_viewport: ViewportConfig | None = None,
 ) -> AsyncGenerator[BaseDriver, None]:
     session = BrowserSession(
         settings,
@@ -139,6 +152,7 @@ async def open_browser_session(
         headless=headless,
         record_video=record_video,
         record_video_dir=record_video_dir,
+        initial_viewport=initial_viewport,
     )
     driver = await session.start()
     try:

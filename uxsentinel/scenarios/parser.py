@@ -89,6 +89,13 @@ def load_scenario(file_path: str) -> Scenario:
         elif normalized in ("false", "0", "no", "nao", "não", "n"):
             video_val = False
 
+    viewports_raw = parsed_dict.get("viewports")
+    viewports_val: list[str] | None = None
+    if isinstance(viewports_raw, list):
+        viewports_val = [str(v) for v in viewports_raw]
+    elif isinstance(viewports_raw, str):
+        viewports_val = [s.strip() for s in viewports_raw.split(",") if s.strip()]
+
     return Scenario(
         id=parsed_dict.get("id", path.stem),
         title=parsed_dict.get("title", path.stem),
@@ -99,5 +106,6 @@ def load_scenario(file_path: str) -> Scenario:
         env=resolved_env,
         headless=headless_val,
         video=video_val,
+        viewports=viewports_val,
         steps=steps,
     )

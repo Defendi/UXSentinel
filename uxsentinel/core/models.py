@@ -28,6 +28,107 @@ class IssueCategory(StrEnum):
     OUTRO = "outro"
 
 
+class ViewportConfig(BaseModel):
+    name: str
+    width: int
+    height: int
+    is_mobile: bool = False
+
+    @property
+    def label(self) -> str:
+        return f"{self.name} ({self.width}x{self.height})"
+
+    def __str__(self) -> str:
+        return self.label
+
+
+CANONICAL_VIEWPORTS: dict[str, ViewportConfig] = {
+    "desktop": ViewportConfig(name="desktop", width=1440, height=900, is_mobile=False),
+    "tablet": ViewportConfig(name="tablet", width=768, height=1024, is_mobile=False),
+    "mobile": ViewportConfig(name="mobile", width=375, height=812, is_mobile=True),
+}
+
+DEFAULT_FALLBACK_VIEWPORT = ViewportConfig(name="desktop", width=1280, height=800, is_mobile=False)
+
+
+def parse_viewport_spec(spec: str | ViewportConfig | dict) -> ViewportConfig:
+    if isinstance(spec, ViewportConfig):
+        return spec
+    if isinstance(spec, dict):
+        return ViewportConfig(**spec)
+    if isinstance(spec, str):
+        clean = spec.strip().lower()
+        if clean in CANONICAL_VIEWPORTS:
+            return CANONICAL_VIEWPORTS[clean]
+        import re
+
+        match = re.match(r"^(\d+)\s*[xX]\s*(\d+)$", clean)
+        if match:
+            w = int(match.group(1))
+            h = int(match.group(2))
+            is_mobile = (w <= 500) or (w < h and w <= 768)
+            return ViewportConfig(name=f"{w}x{h}", width=w, height=h, is_mobile=is_mobile)
+        match_named = re.match(r"^([a-zA-Z0-9_\-]+)[:=](\d+)\s*[xX]\s*(\d+)$", clean)
+        if match_named:
+            name = match_named.group(1)
+            w = int(match_named.group(2))
+            h = int(match_named.group(3))
+            is_mobile = (w <= 500) or (w < h and w <= 768)
+            return ViewportConfig(name=name, width=w, height=h, is_mobile=is_mobile)
+        raise ValueError(
+            f"Formato de viewport inválido: '{spec}'. Use presets conhecidos ('desktop', 'tablet', 'mobile') ou 'LARGURAxALTURA' (ex: '1920x1080')."
+        )
+    raise TypeError(f"Tipo de viewport inválido: {type(spec)}")
+
+
+def parse_viewports(
+    specs: str | list[str | ViewportConfig | dict] | None,
+) -> list[ViewportConfig]:
+    if not specs:
+        return []
+    if isinstance(specs, str):
+        items = [s.strip() for s in specs.split(",") if s.strip()]
+        return [parse_viewport_spec(item) for item in items]
+    result: list[ViewportConfig] = []
+    for item in specs:
+        if isinstance(item, str) and "," in item:
+            for sub in item.split(","):
+                if sub.strip():
+                    result.append(parse_viewport_spec(sub.strip()))
+        else:
+            result.append(parse_viewport_spec(item))
+    return result
+
+
+def resolve_viewports(
+    cli_viewports: str | list[str] | None = None,
+    scenario_viewports: list[str | ViewportConfig] | str | None = None,
+    config_viewports: list[str | ViewportConfig] | str | None = None,
+) -> list[ViewportConfig]:
+    """Resolve a lista de viewports com a precedência estrita:
+    1. CLI (--viewports / --viewport)
+    2. Cenário YAML (campo 'viewports')
+    3. Config global (BrowserSettings.viewports)
+    4. Fallback padrão: desktop padrão 1280x800
+    """
+    if cli_viewports:
+        vps = parse_viewports(cli_viewports)
+        if vps:
+            return vps
+
+    if scenario_viewports:
+        vps = parse_viewports(scenario_viewports)
+        if vps:
+            return vps
+
+    if config_viewports:
+        vps = parse_viewports(config_viewports)
+        if vps:
+            return vps
+
+    return [DEFAULT_FALLBACK_VIEWPORT]
+
+
 class Issue(BaseModel):
     categoria: IssueCategory
     severidade: IssueSeverity
@@ -35,6 +136,7 @@ class Issue(BaseModel):
     sugestao_correcao: str | None = None
     elemento_alvo: str | None = None
     trecho_codigo: str | None = None
+    viewport: str | None = None
 
 
 class HealingStrategy(StrEnum):
@@ -71,6 +173,7 @@ class CheckpointResult(BaseModel):
     dom_summary: str | None = None
     raw_response: str | None = None
     healed_events: list[HealingEvent] = Field(default_factory=list)
+    viewport: str | None = None
 
 
 class StepAction(BaseModel):
@@ -95,6 +198,7 @@ class Scenario(BaseModel):
     env: dict[str, str] = Field(default_factory=dict)
     headless: bool | None = None
     video: bool | None = None
+    viewports: list[str] | list[ViewportConfig] | None = None
     steps: list[StepAction] = Field(default_factory=list)
 
 
@@ -113,6 +217,7 @@ class TestReport(BaseModel):
     healing_events: list[HealingEvent] = Field(default_factory=list)
     video_path: str | None = None
     gif_path: str | None = None
+    viewports_tested: list[str] = Field(default_factory=list)
     total_issues: int = 0
     total_bloqueantes: int = 0
     total_altas: int = 0

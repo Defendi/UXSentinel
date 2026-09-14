@@ -7,6 +7,15 @@ import yaml
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
 
+from uxsentinel.core.models import (
+    CANONICAL_VIEWPORTS,
+    DEFAULT_FALLBACK_VIEWPORT,
+    ViewportConfig,
+    parse_viewport_spec,
+    parse_viewports,
+    resolve_viewports,
+)
+
 # Carrega primeiro o .env do diretório atual (projeto alvo) e depois o global
 load_dotenv(dotenv_path=Path.cwd() / ".env")
 load_dotenv()
@@ -30,6 +39,7 @@ class BrowserSettings(BaseModel):
     slow_mo_ms: int = 350
     viewport_width: int = 1440
     viewport_height: int = 900
+    viewports: list[ViewportConfig] | list[str] | None = None
     highlight_clicks: bool = True
     timeout_ms: int = 15000
     self_healing: bool = True
@@ -214,6 +224,10 @@ browser:
   viewport:
     width: 1440
     height: 900
+  # viewports:                 # Lista de viewports padrão para auditoria responsiva
+  #   - desktop                # 1440x900
+  #   - tablet                 # 768x1024
+  #   - mobile                 # 375x812
   highlight_clicks: true       # Halo visual no elemento clicado ou focado
   timeout_ms: 15000
   record_video: false          # Gravação nativa em vídeo da sessão de teste
@@ -389,12 +403,15 @@ def load_config(config_path: str | None = None) -> GlobalConfig:
 
     browser_dict = raw_dict.get("browser", {})
     viewport = browser_dict.get("viewport", {})
+    raw_viewports = browser_dict.get("viewports")
+    parsed_viewports = parse_viewports(raw_viewports) if raw_viewports else None
     video_size_dict = browser_dict.get("record_video_size") or browser_dict.get("video_size")
     browser_settings = BrowserSettings(
         headless=browser_dict.get("headless", False),
         slow_mo_ms=browser_dict.get("slow_mo_ms", 350),
         viewport_width=viewport.get("width", 1440),
         viewport_height=viewport.get("height", 900),
+        viewports=parsed_viewports,
         highlight_clicks=browser_dict.get("highlight_clicks", True),
         timeout_ms=browser_dict.get("timeout_ms", 15000),
         record_video=browser_dict.get("record_video", False),
@@ -484,3 +501,27 @@ def save_jira_config(
     with contextlib.suppress(Exception):
         cfg_file.chmod(0o600)
     return cfg_file
+
+
+__all__ = [
+    "BUILTIN_PROVIDERS",
+    "CANONICAL_VIEWPORTS",
+    "DEFAULT_CONFIG_TEMPLATE",
+    "DEFAULT_FALLBACK_VIEWPORT",
+    "BrowserSettings",
+    "GlobalConfig",
+    "JiraSettings",
+    "ProviderSettings",
+    "ReportingSettings",
+    "ViewportConfig",
+    "ensure_user_config",
+    "get_user_config_dir",
+    "get_user_config_path",
+    "load_config",
+    "parse_viewport_spec",
+    "parse_viewports",
+    "resolve_display_mode",
+    "resolve_video_mode",
+    "resolve_viewports",
+    "save_jira_config",
+]
