@@ -17,6 +17,8 @@ class IssueSeverity(StrEnum):
     ALTA = "alta"
     MEDIA = "media"
     BAIXA = "baixa"
+    CRITICAL = "bloqueante"
+    MAJOR = "alta"
 
 
 class IssueCategory(StrEnum):
@@ -221,6 +223,27 @@ class CheckpointResult(BaseModel):
     visual_diff: VisualDiffResult | None = None
 
 
+class SemanticStrategy(StrEnum):
+    ACCESSIBILITY = "accessibility"
+    VISION_COORDINATES = "vision_coordinates"
+    VISION_SELECTOR = "vision_selector"
+    LMM_ASSERTION = "lmm_assertion"
+
+
+class SemanticStepResult(BaseModel):
+    step_index: int | None = None
+    action: str  # ai_click, ai_fill, ai_assert, ai_action
+    target: str
+    value: str | None = None
+    strategy: SemanticStrategy | str | None = None
+    resolved_selector: str | None = None
+    coordinates: dict[str, float] | tuple[float, float] | None = None
+    confidence: float | None = None
+    passed: bool = True
+    reasoning: str | None = None
+    timestamp: datetime = Field(default_factory=datetime.now)
+
+
 class StepAction(BaseModel):
     action: str
     selector: str | None = None
@@ -231,6 +254,15 @@ class StepAction(BaseModel):
     name: str | None = None
     expected_behavior: str | None = None
     criteria: list[str] | None = None
+    ai_click: str | None = None
+    ai_fill: str | None = None
+    ai_assert: str | None = None
+    ai_action: str | None = None
+    target: str | None = None
+
+
+# Alias para conformidade e expressividade
+Step = StepAction
 
 
 class Scenario(BaseModel):
@@ -264,6 +296,7 @@ class TestReport(BaseModel):
     checkpoints: list[CheckpointResult] = Field(default_factory=list)
     healed_steps: list[HealingEvent] = Field(default_factory=list)
     healing_events: list[HealingEvent] = Field(default_factory=list)
+    semantic_steps: list[SemanticStepResult] = Field(default_factory=list)
     video_path: str | None = None
     gif_path: str | None = None
     viewports_tested: list[str] = Field(default_factory=list)

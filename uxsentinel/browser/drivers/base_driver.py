@@ -11,6 +11,10 @@ from uxsentinel.core.models import HealingEvent, Issue
 
 if TYPE_CHECKING:
     from uxsentinel.browser.healing import SelectorHealer
+    from uxsentinel.browser.semantic_actions import (
+        SemanticActionExecutor,
+        SemanticAssertResult,
+    )
 
 
 class BaseDriver(ABC):
@@ -21,6 +25,7 @@ class BaseDriver(ABC):
         self.highlight_clicks = highlight_clicks
         self.healer: SelectorHealer | None = None
         self.healing_events: list[HealingEvent] = []
+        self.semantic_executor: SemanticActionExecutor | None = None
         self.video_path: str | None = None
         self.session: Any | None = None
         self.dom_validator: DOMValidator = DOMValidator()
@@ -236,3 +241,90 @@ class BaseDriver(ABC):
     async def wait_modal_close(self, timeout: int = 10000) -> bool:
         """Aguarda fechamento e desaparecimento do modal."""
         pass
+
+    def _get_semantic_executor(self) -> SemanticActionExecutor:
+        """Obtém ou instancia o executor de ações semânticas."""
+        if self.semantic_executor is None:
+            from uxsentinel.browser.semantic_actions import SemanticActionExecutor
+
+            vision_client = self.healer.vision_client if self.healer else None
+            self.semantic_executor = SemanticActionExecutor(
+                page=self.page,
+                vision_client=vision_client,
+                highlight_clicks=self.highlight_clicks,
+            )
+        return self.semantic_executor
+
+    async def ai_click(
+        self,
+        target: str,
+        timeout: int = 10000,
+        description: str | None = None,
+        step_index: int | None = None,
+    ) -> Any:
+        """Executa clique semântico guiado por linguagem natural."""
+        executor = self._get_semantic_executor()
+        res = await executor.execute_ai_click(
+            target=target,
+            timeout=timeout,
+            description=description,
+            step_index=step_index,
+        )
+        await self.wait_until_ready()
+        return res
+
+    async def ai_fill(
+        self,
+        target: str,
+        value: str,
+        timeout: int = 10000,
+        description: str | None = None,
+        step_index: int | None = None,
+    ) -> Any:
+        """Executa preenchimento semântico guiado por linguagem natural."""
+        executor = self._get_semantic_executor()
+        res = await executor.execute_ai_fill(
+            target=target,
+            value=value,
+            timeout=timeout,
+            description=description,
+            step_index=step_index,
+        )
+        await self.wait_until_ready()
+        return res
+
+    async def ai_assert(
+        self,
+        assertion: str,
+        timeout: int = 10000,
+        description: str | None = None,
+        step_index: int | None = None,
+    ) -> SemanticAssertResult:
+        """Executa asserção declarativa cognitiva visual via LMM."""
+        executor = self._get_semantic_executor()
+        return await executor.execute_ai_assert(
+            assertion=assertion,
+            timeout=timeout,
+            description=description,
+            step_index=step_index,
+        )
+
+    async def ai_action(
+        self,
+        instruction: str,
+        value: str | None = None,
+        timeout: int = 10000,
+        description: str | None = None,
+        step_index: int | None = None,
+    ) -> Any:
+        """Executa ação semântica genérica em linguagem natural."""
+        executor = self._get_semantic_executor()
+        res = await executor.execute_ai_action(
+            instruction=instruction,
+            value=value,
+            timeout=timeout,
+            description=description,
+            step_index=step_index,
+        )
+        await self.wait_until_ready()
+        return res

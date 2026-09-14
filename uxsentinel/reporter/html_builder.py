@@ -393,6 +393,12 @@ HTML_TEMPLATE = """
                 <div class="metric-label">Auto-Curados (Self-Healing)</div>
             </div>
             {% endif %}
+            {% if report.semantic_steps %}
+            <div class="metric-card" style="color: #a855f7; border: 1px solid rgba(168, 85, 247, 0.3);">
+                <div class="metric-val">{{ report.semantic_steps|length }}</div>
+                <div class="metric-label">Ações Semânticas (IA)</div>
+            </div>
+            {% endif %}
         </div>
 
         {% if video_rel_path or gif_rel_path %}
@@ -457,6 +463,68 @@ HTML_TEMPLATE = """
                         {% if step.yaml_fix_suggestion %}
                         <div style="font-size: 0.85rem; background: rgba(0,0,0,0.3); padding: 0.5rem; border-radius: 4px; margin-top: 0.5rem; font-family: monospace; color: #fbbf24;">
                             Sugestão YAML: {{ step.yaml_fix_suggestion }}
+                        </div>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        {% if report.semantic_steps %}
+        <div class="checkpoint-card" style="border-left: 4px solid #a855f7;">
+            <div class="checkpoint-header">
+                <div class="checkpoint-title">🤖 Ações Semânticas em Linguagem Natural (ai_action)</div>
+                <div><span class="badge badge-info" style="background: rgba(168, 85, 247, 0.2); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.4);">{{ report.semantic_steps|length }} Ações Executadas</span></div>
+            </div>
+            <div style="padding: 1rem 0;">
+                <p style="color: var(--text-muted); margin-bottom: 1rem;">
+                    Passos semânticos declarativos interpretados e resolvidos em tempo de execução via Árvore de Acessibilidade e Visão Multimodal LMM.
+                </p>
+                <div style="display: flex; flex-direction: column; gap: 0.75rem;">
+                    {% for step in report.semantic_steps %}
+                    <div style="background: rgba(255,255,255,0.03); border: 1px solid var(--border); border-radius: 8px; padding: 1rem;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; flex-wrap: wrap; gap: 0.5rem;">
+                            <div>
+                                <span class="badge" style="background: rgba(168, 85, 247, 0.2); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.4); margin-right: 0.5rem;">Passo {{ step.step_index or 'N/A' }}</span>
+                                <strong style="font-size: 1.05rem; font-family: monospace; color: #38bdf8;">{{ step.action }}</strong>
+                            </div>
+                            <div style="display: flex; gap: 0.5rem; align-items: center;">
+                                {% if step.strategy %}
+                                <span class="badge badge-info">{{ step.strategy }}</span>
+                                {% endif %}
+                                {% if step.passed %}
+                                <span class="badge badge-success">Aprovado</span>
+                                {% else %}
+                                <span class="badge badge-danger">Reprovado</span>
+                                {% endif %}
+                            </div>
+                        </div>
+                        <div style="font-size: 0.95rem; margin-bottom: 0.35rem;">
+                            <span style="color: var(--text-muted);">Alvo Declarativo:</span>
+                            <strong style="color: #f8fafc;">"{{ step.target }}"</strong>
+                            {% if step.value %}
+                            <span style="color: var(--text-muted); margin-left: 0.5rem;">Valor:</span>
+                            <code style="color: #34d399; background: rgba(0,0,0,0.3); padding: 0.2rem 0.4rem; border-radius: 4px;">{{ step.value }}</code>
+                            {% endif %}
+                        </div>
+                        {% if step.resolved_selector or step.coordinates %}
+                        <div style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.25rem;">
+                            {% if step.resolved_selector %}
+                            <span>Seletor Resolvido: <code style="color: #38bdf8;">{{ step.resolved_selector }}</code></span>
+                            {% endif %}
+                            {% if step.coordinates %}
+                            <span style="margin-left: 0.5rem;">Coordenadas: <code style="color: #fbbf24;">({{ step.coordinates.x }}, {{ step.coordinates.y }})</code></span>
+                            {% endif %}
+                            {% if step.confidence %}
+                            <span style="margin-left: 0.5rem;">Confiança: <span style="color: #34d399;">{{ "%.0f"|format(step.confidence * 100) }}%</span></span>
+                            {% endif %}
+                        </div>
+                        {% endif %}
+                        {% if step.reasoning %}
+                        <div style="font-size: 0.85rem; background: rgba(0,0,0,0.25); border-left: 3px solid #a855f7; padding: 0.5rem 0.75rem; border-radius: 0 4px 4px 0; margin-top: 0.5rem; color: #cbd5e1;">
+                            <strong>Justificativa Cognitiva:</strong> {{ step.reasoning }}
                         </div>
                         {% endif %}
                     </div>

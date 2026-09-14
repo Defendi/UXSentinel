@@ -53,9 +53,45 @@ def load_scenario(file_path: str) -> Scenario:
     steps_raw = parsed_dict.get("steps", [])
     steps: list[StepAction] = []
     for s in steps_raw:
+        if not isinstance(s, dict):
+            continue
+
+        action = s.get("action", "")
+        ai_click_val = s.get("ai_click")
+        ai_fill_val = s.get("ai_fill")
+        ai_assert_val = s.get("ai_assert")
+        ai_action_val = s.get("ai_action")
+        target_val = s.get("target")
+
+        # Se a ação não foi explicitada via 'action', deduz a partir das chaves semânticas
+        if not action:
+            if ai_click_val is not None:
+                action = "ai_click"
+            elif ai_fill_val is not None:
+                action = "ai_fill"
+            elif ai_assert_val is not None:
+                action = "ai_assert"
+            elif ai_action_val is not None:
+                action = "ai_action"
+
+        # Garante que target e os campos específicos estejam sincronizados
+        target = target_val
+        if action == "ai_click":
+            target = target or ai_click_val or s.get("selector")
+            ai_click_val = ai_click_val or target
+        elif action == "ai_fill":
+            target = target or ai_fill_val or s.get("selector")
+            ai_fill_val = ai_fill_val or target
+        elif action == "ai_assert":
+            target = target or ai_assert_val or s.get("expected_behavior")
+            ai_assert_val = ai_assert_val or target
+        elif action == "ai_action":
+            target = target or ai_action_val or s.get("description")
+            ai_action_val = ai_action_val or target
+
         steps.append(
             StepAction(
-                action=s.get("action", ""),
+                action=action,
                 selector=s.get("selector"),
                 value=s.get("value"),
                 url=s.get("url"),
@@ -64,6 +100,11 @@ def load_scenario(file_path: str) -> Scenario:
                 name=s.get("name"),
                 expected_behavior=s.get("expected_behavior"),
                 criteria=s.get("criteria"),
+                ai_click=ai_click_val,
+                ai_fill=ai_fill_val,
+                ai_assert=ai_assert_val,
+                ai_action=ai_action_val,
+                target=target,
             )
         )
 

@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import shutil
 import time
 from datetime import datetime
@@ -34,11 +35,14 @@ from uxsentinel.core.config import (
     resolve_video_mode,
 )
 from uxsentinel.core.models import (
+    CheckpointResult,
     ExecutionResult,
     Issue,
     IssueCategory,
     IssueSeverity,
     Scenario,
+    SemanticStepResult,
+    SemanticStrategy,
     StepAction,
     TestReport,
     ViewportConfig,
@@ -259,6 +263,13 @@ class UXSentinelAgent:
                 initial_viewport=initial_vp,
             ) as driver:
                 captured_driver = driver
+                from uxsentinel.browser.semantic_actions import SemanticActionExecutor
+
+                driver.semantic_executor = SemanticActionExecutor(
+                    page=driver.page,
+                    vision_client=self.inspector.client,
+                    highlight_clicks=getattr(driver, "highlight_clicks", True),
+                )
                 multi_vp = len(effective_viewports) > 1
                 total_work = len(scenario.steps) * len(effective_viewports)
 
@@ -446,9 +457,15 @@ class UXSentinelAgent:
     ) -> None:
         p_console = progress.console if progress is not None else console
         action = step.action.lower().strip()
-        desc = step.description or f"{action} {step.selector or step.url or ''}"
+        desc = step.description or f"{action} {step.selector or step.url or step.target or ''}"
         vp_tag = f" [dim][{current_viewport.name}][/dim]" if (multi_viewport and current_viewport) else ""
-        p_console.print(f"  [cyan]Passo {index:02d}:[/cyan] [dim]{desc}[/dim]{vp_tag}")
+        if action in ("ai_click", "ai_fill", "ai_assert", "ai_action"):
+            ai_target = (
+                step.ai_click or step.ai_fill or step.ai_assert or step.ai_action or step.target or desc
+            )
+            p_console.print(f"  [bold magenta]🤖 IA-ACTION: [{ai_target}][/bold magenta]{vp_tag}")
+        else:
+            p_console.print(f"  [cyan]Passo {index:02d}:[/cyan] [dim]{desc}[/dim]{vp_tag}")
 
         initial_healing_count = len(driver.healing_events)
 
@@ -548,6 +565,123 @@ class UXSentinelAgent:
                 effective_baseline_dir=effective_baseline_dir,
                 effective_update_baseline=effective_update_baseline,
                 effective_diff_threshold=effective_diff_threshold,
+            )
+
+        elif action == "ai_click":
+            target = step.ai_click or step.target or step.selector or ""
+            if not target:
+                raise ValueError(f"Passo {index}: 'ai_click' requer alvo descritivo em linguagem natural")
+            sem_res = await driver.ai_click(
+                target=target,
+                timeout=step.timeout or 10000,
+                description=desc,
+                step_index=index,
+            )
+            report.semantic_steps.append(sem_res)
+            strat_label = (
+                "Acessibilidade" if sem_res.strategy == SemanticStrategy.ACCESSIBILITY else "Visão LMM"
+            )
+            loc_label = sem_res.resolved_selector or (
+                f"coords {sem_res.coordinates}" if sem_res.coordinates else "ok"
+            )
+            p_console.print(f"    [green]✔ Alvo clicado via {strat_label}:[/green] [dim]{loc_label}[/dim]")
+
+        elif action == "ai_fill":
+            target = step.ai_fill or step.target or step.selector or ""
+            if not target:
+                raise ValueError(f"Passo {index}: 'ai_fill' requer alvo descritivo em linguagem natural")
+            val = step.value or ""
+            sem_res = await driver.ai_fill(
+                target=target,
+                value=val,
+                timeout=step.timeout or 10000,
+                description=desc,
+                step_index=index,
+            )
+            report.semantic_steps.append(sem_res)
+            strat_label = (
+                "Acessibilidade" if sem_res.strategy == SemanticStrategy.ACCESSIBILITY else "Visão LMM"
+            )
+            loc_label = sem_res.resolved_selector or (
+                f"coords {sem_res.coordinates}" if sem_res.coordinates else "ok"
+            )
+            p_console.print(
+                f"    [green]✔ Campo preenchido via {strat_label}:[/green] [dim]{loc_label}[/dim]"
+            )
+
+        elif action == "ai_assert":
+            assertion = step.ai_assert or step.target or step.expected_behavior or ""
+            if not assertion:
+                raise ValueError(f"Passo {index}: 'ai_assert' requer texto da asserção declarativa")
+            assert_res = await driver.ai_assert(
+                assertion=assertion,
+                timeout=step.timeout or 10000,
+                description=desc,
+                step_index=index,
+            )
+            sem_step = SemanticStepResult(
+                step_index=index,
+                action="ai_assert",
+                target=assertion,
+                strategy=SemanticStrategy.LMM_ASSERTION,
+                confidence=assert_res.confidence,
+                passed=assert_res.passed,
+                reasoning=assert_res.reasoning,
+            )
+            report.semantic_steps.append(sem_step)
+
+            if assert_res.passed:
+                p_console.print(
+                    f"    [bold green]✅ Asserção Cognitiva Aprovada:[/bold green] [dim]{assert_res.reasoning}[/dim]"
+                )
+            else:
+                p_console.print(
+                    f"    [bold red]❌ FALHA NA ASSERÇÃO COGNITIVA:[/bold red] {assert_res.reasoning}"
+                )
+                issue = Issue(
+                    categoria=IssueCategory.REGRA_NEGOCIO,
+                    severidade=assert_res.severity,
+                    descricao=f"Falha na asserção cognitiva: '{assertion}'. Avaliação LMM: {assert_res.reasoning}",
+                    sugestao_correcao=assert_res.suggestion
+                    or "Verificar se o estado visual da tela corresponde ao esperado pela asserção declarativa.",
+                    viewport=current_viewport.label if current_viewport else None,
+                    evaluator="ai_assert",
+                )
+                # Registra como Issue e marca falha no checkpoint
+                if report.checkpoints:
+                    target_cp = report.checkpoints[-1]
+                    target_cp.issues.append(issue)
+                    target_cp.status = "problemas_encontrados"
+                else:
+                    screenshot_file = out_dir / f"{report.scenario_id}_ai_assert_step_{index}.png"
+                    if hasattr(driver, "page") and hasattr(driver.page, "screenshot"):
+                        with contextlib.suppress(Exception):
+                            await driver.page.screenshot(path=str(screenshot_file), full_page=True)
+                    cp = CheckpointResult(
+                        name=f"ai_assert_step_{index}",
+                        description=f"Validação cognitiva da asserção: {assertion}",
+                        expected_behavior=assertion,
+                        screenshot_path=str(screenshot_file) if screenshot_file.is_file() else None,
+                        status="problemas_encontrados",
+                        issues=[issue],
+                        viewport=current_viewport.label if current_viewport else None,
+                    )
+                    report.checkpoints.append(cp)
+
+        elif action == "ai_action":
+            instruction = step.ai_action or step.target or step.description or ""
+            if not instruction:
+                raise ValueError(f"Passo {index}: 'ai_action' requer instrução em linguagem natural")
+            sem_res = await driver.ai_action(
+                instruction=instruction,
+                value=step.value,
+                timeout=step.timeout or 10000,
+                description=desc,
+                step_index=index,
+            )
+            report.semantic_steps.append(sem_res)
+            p_console.print(
+                f"    [green]✔ Ação semântica executada:[/green] [dim]{sem_res.reasoning or 'sucesso'}[/dim]"
             )
 
         else:
