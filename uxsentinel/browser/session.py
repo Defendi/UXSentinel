@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import contextlib
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
@@ -153,6 +154,8 @@ class BrowserSession:
         if self.playwright:
             with contextlib.suppress(Exception):
                 await self.playwright.stop()
+            with contextlib.suppress(Exception):
+                await asyncio.sleep(0.05)
 
 
 @asynccontextmanager

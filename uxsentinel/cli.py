@@ -712,15 +712,29 @@ Documentação completa: https://github.com/Defendi/UXSentinel""",
         devtools_override=args.devtools,
     )
 
+    await asyncio.sleep(0.05)
     return 0 if report.success else 1
 
 
 def main() -> None:
     try:
-        sys.exit(asyncio.run(async_main()))
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            exit_code = loop.run_until_complete(async_main())
+        finally:
+            try:
+                loop.run_until_complete(loop.shutdown_asyncgens())
+                loop.run_until_complete(asyncio.sleep(0.05))
+            except Exception:
+                pass
+            loop.close()
+            asyncio.set_event_loop(None)
     except KeyboardInterrupt:
         console.print("\n[yellow]Execução cancelada pelo usuário.[/yellow]")
         sys.exit(130)
+    else:
+        sys.exit(exit_code)
 
 
 if __name__ == "__main__":

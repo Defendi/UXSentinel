@@ -42,3 +42,12 @@ Este documento estabelece as regras mandatórias que TODOS os agentes de IA, sub
 ## 🧪 4. Hermeticidade dos Testes
 
 - Todos os testes em `tests/` devem ser **100% herméticos**, rápidos e isolados (sem chamadas a redes externas reais ou credenciais de produção).
+
+---
+
+## 🎯 5. Skill Oficial do Projeto e Proibição Expressa
+
+> [!IMPORTANT]
+> - A skill oficial, exclusiva e mandatória para qualquer tarefa técnica ou operacional neste repositório é **`UXSentinel/.gemini/skills/uxsentinel-guide`** ([`uxsentinel-guide`](file:///mnt/home/alexandre/Projetos/UXSentinel/.gemini/skills/uxsentinel-guide/SKILL.md)).
+> - **PROIBIÇÃO EXPRESSA**: É **terminantemente proibido** utilizar, carregar, consultar ou fazer qualquer menção à skill `gotryx-project` ou a regras do ecossistema Gotryx no repositório **UXSentinel**.
+> - O **UXSentinel** é um projeto de código aberto, universal, neutro e totalmente desacoplado de projetos específicos de clientes.

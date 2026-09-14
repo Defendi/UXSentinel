@@ -30,6 +30,12 @@ O agente combina automação Playwright com **Modelos de Linguagem e Visão Mult
 > 4. **Solicitar autorização explícita do usuário para gerar a nova versão**;
 > 5. Somente após a aprovação formal do usuário, prosseguir com o bump de versão, commit, tag e disparo de publicação.
 
+> [!IMPORTANT]
+> ### 🎯 Skill Oficial do Projeto e Proibição Expressa
+> - A skill oficial, exclusiva e mandatória para qualquer tarefa técnica ou operacional neste repositório é **`UXSentinel/.gemini/skills/uxsentinel-guide`** ([`uxsentinel-guide`](file:///mnt/home/alexandre/Projetos/UXSentinel/.gemini/skills/uxsentinel-guide/SKILL.md)).
+> - **PROIBIÇÃO EXPRESSA**: É **terminantemente proibido** utilizar, carregar, consultar ou fazer qualquer menção à skill `gotryx-project` ou a regras do ecossistema Gotryx no repositório **UXSentinel**.
+> - O **UXSentinel** é um projeto de código aberto, universal, neutro e totalmente desacoplado de projetos específicos de clientes.
+
 ---
 
 ## 🏗️ 2. Arquitetura do Sistema e Estrutura Real do Código
