@@ -4,9 +4,94 @@ from pathlib import Path
 
 import yaml
 
-from uxsentinel.core.models import Scenario, StepAction
+from uxsentinel.core.models import Scenario, ScenarioExceptions, StepAction
 
 ENV_VAR_PATTERN = re.compile(r"\$\{([A-Za-z0-9_]+)(?::-([^}]*))?\}")
+
+
+def _normalize_string_list(val: object) -> list[str]:
+    if isinstance(val, list):
+        return [str(item).strip() for item in val if str(item).strip()]
+    if isinstance(val, str) and val.strip():
+        if "\n" in val:
+            return [line.strip() for line in val.splitlines() if line.strip()]
+        return [val.strip()]
+    return []
+
+
+def parse_scenario_exceptions(raw_data: object) -> ScenarioExceptions | None:
+    """Interpreta cláusula declarativa de exceções no formato estruturado (dict) ou sintético (list/str)."""
+    if not raw_data:
+        return None
+
+    allowed_texts: list[str] = []
+    ignored_selectors: list[str] = []
+    ignored_elements: list[str] = []
+    ignored_categories: list[str] = []
+    custom_rules: list[str] = []
+
+    if isinstance(raw_data, dict):
+        allowed_texts.extend(
+            _normalize_string_list(raw_data.get("allowed_texts") or raw_data.get("textos_permitidos") or [])
+        )
+        ignored_selectors.extend(
+            _normalize_string_list(
+                raw_data.get("ignored_selectors") or raw_data.get("seletores_ignorados") or []
+            )
+        )
+        ignored_elements.extend(
+            _normalize_string_list(
+                raw_data.get("ignored_elements") or raw_data.get("elementos_ignorados") or []
+            )
+        )
+        ignored_categories.extend(
+            _normalize_string_list(
+                raw_data.get("ignored_categories") or raw_data.get("categorias_ignoradas") or []
+            )
+        )
+        custom_rules.extend(
+            _normalize_string_list(
+                raw_data.get("custom_rules")
+                or raw_data.get("regras_customizadas")
+                or raw_data.get("regras")
+                or []
+            )
+        )
+    elif isinstance(raw_data, list):
+        for item in raw_data:
+            s_item = str(item).strip()
+            if not s_item:
+                continue
+            if s_item.startswith(("#", ".", "[")) or re.match(r"^[a-z]+(\.|#|\[)", s_item):
+                ignored_selectors.append(s_item)
+            elif (s_item.startswith(('"', "'")) and s_item.endswith(('"', "'"))) or len(s_item.split()) <= 4:
+                cleaned = s_item.strip("\"'")
+                allowed_texts.append(cleaned)
+            else:
+                custom_rules.append(s_item)
+                quoted = re.findall(r"[\"']([^\"']+)[\"']", s_item)
+                for q in quoted:
+                    if q.startswith(("#", ".")):
+                        ignored_selectors.append(q)
+                    else:
+                        allowed_texts.append(q)
+    elif isinstance(raw_data, str):
+        custom_rules.append(raw_data.strip())
+        quoted = re.findall(r"[\"']([^\"']+)[\"']", raw_data)
+        for q in quoted:
+            if q.startswith(("#", ".")):
+                ignored_selectors.append(q)
+            else:
+                allowed_texts.append(q)
+
+    res = ScenarioExceptions(
+        allowed_texts=list(dict.fromkeys(allowed_texts)),
+        ignored_selectors=list(dict.fromkeys(ignored_selectors)),
+        ignored_elements=list(dict.fromkeys(ignored_elements)),
+        ignored_categories=list(dict.fromkeys(ignored_categories)),
+        custom_rules=list(dict.fromkeys(custom_rules)),
+    )
+    return res if not res.is_empty() else None
 
 
 def _resolve_env_str(val: str, env_source: dict[str, str] | None = None) -> str:
@@ -89,6 +174,16 @@ def load_scenario(file_path: str) -> Scenario:
             target = target or ai_action_val or s.get("description")
             ai_action_val = ai_action_val or target
 
+        skip_raw = s.get("skip", s.get("ignore", s.get("ignorar", s.get("disabled", False))))
+        skip_val = False
+        if isinstance(skip_raw, bool):
+            skip_val = skip_raw
+        elif skip_raw is not None:
+            skip_val = str(skip_raw).strip().lower() in ("true", "1", "yes", "sim", "y")
+
+        step_exceptions_raw = s.get("exceptions") or s.get("excecoes") or s.get("tolerances")
+        step_exceptions = parse_scenario_exceptions(step_exceptions_raw)
+
         steps.append(
             StepAction(
                 action=action,
@@ -105,6 +200,8 @@ def load_scenario(file_path: str) -> Scenario:
                 ai_assert=ai_assert_val,
                 ai_action=ai_action_val,
                 target=target,
+                skip=skip_val,
+                exceptions=step_exceptions,
             )
         )
 
@@ -137,6 +234,11 @@ def load_scenario(file_path: str) -> Scenario:
     elif isinstance(viewports_raw, str):
         viewports_val = [s.strip() for s in viewports_raw.split(",") if s.strip()]
 
+    scenario_exceptions_raw = (
+        parsed_dict.get("exceptions") or parsed_dict.get("excecoes") or parsed_dict.get("tolerances")
+    )
+    scenario_exceptions = parse_scenario_exceptions(scenario_exceptions_raw)
+
     return Scenario(
         id=parsed_dict.get("id", path.stem),
         title=parsed_dict.get("title", path.stem),
@@ -148,5 +250,6 @@ def load_scenario(file_path: str) -> Scenario:
         headless=headless_val,
         video=video_val,
         viewports=viewports_val,
+        exceptions=scenario_exceptions,
         steps=steps,
     )

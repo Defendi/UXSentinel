@@ -1,7 +1,7 @@
 # 🧠 UXSentinel — Memória Compactada e Operacional do Projeto
 
 > **Status do Repositório:** Ativo & Estável | **Última Atualização:** 14 de Setembro de 2026  
-> **Versão Corrente:** v1.1.4 | **Testes:** 100% Verde (`uv run pytest` — 162 testes aprovados)
+> **Versão Corrente:** v1.1.5 (local) | **Testes:** 100% Verde (`uv run pytest` — 181 testes aprovados)
 
 ---
 

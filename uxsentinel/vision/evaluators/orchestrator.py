@@ -4,7 +4,7 @@ import re
 from difflib import SequenceMatcher
 
 from uxsentinel.core.config import GlobalConfig
-from uxsentinel.core.models import Issue, IssueSeverity
+from uxsentinel.core.models import Issue, IssueSeverity, ScenarioExceptions
 from uxsentinel.vision.client import UnifiedVisionClient
 from uxsentinel.vision.evaluators.base import BaseEvaluator, EvaluatorContext
 from uxsentinel.vision.evaluators.domain import DomainQAAgent
@@ -84,7 +84,7 @@ class MixtureOfEvaluators:
                 )
                 raw_issues.extend(res)
 
-        consolidated = self.consolidate_and_deduplicate(raw_issues)
+        consolidated = self.consolidate_and_deduplicate(raw_issues, exceptions=context.exceptions)
         logger.info(
             "Consolidação final: %d issues brutas reduzidas para %d issues consolidadas.",
             len(raw_issues),
@@ -92,7 +92,11 @@ class MixtureOfEvaluators:
         )
         return consolidated
 
-    def consolidate_and_deduplicate(self, issues: list[Issue]) -> list[Issue]:
+    def consolidate_and_deduplicate(
+        self,
+        issues: list[Issue],
+        exceptions: ScenarioExceptions | None = None,
+    ) -> list[Issue]:
         """Agrupa achados semelhantes relatados por diferentes avaliadores,
         preserva a severidade mais alta e unifica o rastreamento dos avaliadores.
         """
@@ -119,6 +123,9 @@ class MixtureOfEvaluators:
             key=lambda item: SEVERITY_WEIGHTS.get(item.severidade, 0),
             reverse=True,
         )
+
+        if exceptions and not exceptions.is_empty():
+            unique_issues = [i for i in unique_issues if not exceptions.matches_issue(i)]
 
         return unique_issues
 

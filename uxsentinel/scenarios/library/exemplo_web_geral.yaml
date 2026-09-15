@@ -16,6 +16,17 @@ env:
   usuario: "${QA_USER:-usuario_teste}"
   senha: "${QA_PASSWORD:-senha_segura}"
 
+# Cláusula de Exceções e Tolerâncias (opcional)
+exceptions:
+  allowed_texts:
+    - "By Gotryx"
+    - "Powered by"
+  ignored_selectors:
+    - "#botao-experimental"
+  custom_rules:
+    - "Manter a frase 'By Gotryx' no rodapé sem apontar erro de i18n"
+    - "Não testar o botão experimental"
+
 steps:
   - action: "goto"
     url: "${base_url}"

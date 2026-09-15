@@ -30,6 +30,8 @@ from uxsentinel.browser.som import SetOfMarksManager
 from uxsentinel.browser.telemetry import BrowserTelemetryCollector
 from uxsentinel.core.config import (
     GlobalConfig,
+    resolve_archive_dir,
+    resolve_archive_mode,
     resolve_axe_mode,
     resolve_baseline_mode,
     resolve_display_mode,
@@ -43,6 +45,7 @@ from uxsentinel.core.models import (
     IssueCategory,
     IssueSeverity,
     Scenario,
+    ScenarioExceptions,
     SemanticStepResult,
     SemanticStrategy,
     StepAction,
@@ -52,6 +55,7 @@ from uxsentinel.core.models import (
     parse_viewport_spec,
     resolve_viewports,
 )
+from uxsentinel.reporter.archiver import archive_previous_reports
 from uxsentinel.reporter.html_builder import save_html_report
 from uxsentinel.reporter.json_builder import save_json_report
 from uxsentinel.reporter.markdown_builder import save_markdown_report
@@ -77,6 +81,8 @@ class UXSentinelAgent:
         diff_threshold_override: float | None = None,
         markdown_override: bool | None = None,
         devtools_override: bool | None = None,
+        archive_override: bool | None = None,
+        archive_dir_override: str | Path | None = None,
     ):
         self.config = config
         self.headless_override = headless_override
@@ -88,6 +94,8 @@ class UXSentinelAgent:
         self.diff_threshold_override = diff_threshold_override
         self.markdown_override = markdown_override
         self.devtools_override = devtools_override
+        self.archive_override = archive_override
+        self.archive_dir_override = archive_dir_override
         self.inspector = ScreenInspector(config)
         self.healer = SelectorHealer(
             vision_client=self.inspector.client,
@@ -108,6 +116,8 @@ class UXSentinelAgent:
         diff_threshold_override: float | None = None,
         markdown_override: bool | None = None,
         devtools_override: bool | None = None,
+        archive_override: bool | None = None,
+        archive_dir_override: str | Path | None = None,
     ) -> TestReport:
         profile = scenario.profile or "generic"
         start_time = time.time()
@@ -211,8 +221,38 @@ class UXSentinelAgent:
             config_viewports=self.config.browser.viewports,
         )
 
+        # Determina o arquivamento da análise anterior respeitando a hierarquia:
+        # CLI Flag > Cenário YAML > Config global > Fallback True
+        effective_cli_archive = archive_override if archive_override is not None else self.archive_override
+        effective_archive = resolve_archive_mode(
+            cli_archive=effective_cli_archive,
+            scenario_archive=scenario.archive,
+            config_archive=self.config.reporting.archive_previous_reports,
+        )
+        effective_cli_archive_dir = (
+            archive_dir_override if archive_dir_override is not None else self.archive_dir_override
+        )
+        effective_archive_dir = resolve_archive_dir(
+            cli_archive_dir=str(effective_cli_archive_dir) if effective_cli_archive_dir else None,
+            scenario_archive_dir=scenario.archive_dir,
+            config_archive_dir=self.config.reporting.archive_dir,
+        )
+
         out_dir = Path(self.config.reporting.output_dir)
         out_dir.mkdir(parents=True, exist_ok=True)
+
+        archived_zip_path: Path | None = None
+        if effective_archive:
+            archived_zip_path = archive_previous_reports(
+                output_dir=out_dir,
+                archive_dir=effective_archive_dir,
+                label=scenario.id,
+            )
+            if archived_zip_path:
+                console.print(
+                    f"📦 [bold cyan]Análise anterior arquivada com sucesso em:[/bold cyan] [underline]{archived_zip_path}[/underline]\n"
+                )
+
         videos_dir = out_dir / "videos"
         if effective_video:
             videos_dir.mkdir(parents=True, exist_ok=True)
@@ -264,6 +304,7 @@ class UXSentinelAgent:
             provider_used=self.config.active_provider,
             started_at=datetime.now(),
             viewports_tested=[vp.label for vp in effective_viewports],
+            archived_report_path=str(archived_zip_path) if archived_zip_path else None,
         )
 
         console.print(
@@ -517,6 +558,35 @@ class UXSentinelAgent:
         action = step.action.lower().strip()
         desc = step.description or f"{action} {step.selector or step.url or step.target or ''}"
         vp_tag = f" [dim][{current_viewport.name}][/dim]" if (multi_viewport and current_viewport) else ""
+        if step.skip:
+            p_console.print(
+                f"  [yellow]⏭️ Passo {index:02d} pulado (marcado como exceção/skip):[/yellow] [dim]{desc}[/dim]{vp_tag}"
+            )
+            return
+
+        if scenario.exceptions:
+            target_match = step.selector or step.target or step.ai_click or step.ai_fill or ""
+            target_clean = target_match.strip().lower()
+            if target_clean:
+                if any(
+                    s.strip().lower() == target_clean
+                    for s in scenario.exceptions.ignored_selectors
+                    if s.strip()
+                ):
+                    p_console.print(
+                        f"  [yellow]⏭️ Passo {index:02d} ignorado (seletor '{target_match}' na cláusula de exceções)[/yellow]{vp_tag}"
+                    )
+                    return
+                if any(
+                    e.strip().lower() in target_clean or target_clean in e.strip().lower()
+                    for e in scenario.exceptions.ignored_elements
+                    if e.strip()
+                ):
+                    p_console.print(
+                        f"  [yellow]⏭️ Passo {index:02d} ignorado (elemento '{target_match}' na cláusula de exceções)[/yellow]{vp_tag}"
+                    )
+                    return
+
         if action in ("ai_click", "ai_fill", "ai_assert", "ai_action"):
             ai_target = (
                 step.ai_click or step.ai_fill or step.ai_assert or step.ai_action or step.target or desc
@@ -562,9 +632,31 @@ class UXSentinelAgent:
                 step_index=index,
             )
 
-        elif action == "select":
+        elif action in ("type", "digitar"):
             if not step.selector:
-                raise ValueError(f"Passo {index}: 'select' requer 'selector'")
+                raise ValueError(f"Passo {index}: 'type' requer 'selector'")
+            await driver.type_text(
+                step.selector,
+                step.value or "",
+                delay_ms=40,
+                timeout=step.timeout or 10000,
+                description=desc,
+                step_index=index,
+            )
+
+        elif action in ("clear", "limpar"):
+            if not step.selector:
+                raise ValueError(f"Passo {index}: 'clear' requer 'selector'")
+            await driver.clear(
+                step.selector,
+                timeout=step.timeout or 10000,
+                description=desc,
+                step_index=index,
+            )
+
+        elif action in ("select", "dropdown", "choose", "selecionar"):
+            if not step.selector:
+                raise ValueError(f"Passo {index}: '{action}' requer 'selector'")
             await driver.select_option(
                 step.selector,
                 step.value or "",
@@ -572,6 +664,90 @@ class UXSentinelAgent:
                 description=desc,
                 step_index=index,
             )
+
+        elif action in ("assert_required", "check_required", "validar_obrigatorio"):
+            targets = [step.selector] if step.selector else (step.criteria or [])
+            if not targets:
+                raise ValueError(f"Passo {index}: '{action}' requer 'selector' ou lista em 'criteria'")
+            for tgt in targets:
+                is_req, reason = await driver.check_field_required(tgt, timeout=step.timeout or 5000)
+                if not is_req:
+                    p_console.print(
+                        f"    [bold red]❌ FALHA EM CAMPO OBRIGATÓRIO:[/bold red] [{tgt}] {reason}"
+                    )
+                    issue = Issue(
+                        categoria=IssueCategory.REGRA_NEGOCIO,
+                        severidade=IssueSeverity.ALTA,
+                        descricao=f"Campo obrigatório não sinalizado adequadamente no seletor '{tgt}'. Motivo: {reason}",
+                        sugestao_correcao=f"Adicionar atributo 'required', 'aria-required=\"true\"' ou asterisco (*) no label do campo '{tgt}'.",
+                        elemento_alvo=tgt,
+                        viewport=current_viewport.label if current_viewport else None,
+                        evaluator="assert_required",
+                    )
+                    if report.checkpoints:
+                        target_cp = report.checkpoints[-1]
+                        target_cp.issues.append(issue)
+                        target_cp.status = "problemas_encontrados"
+                    else:
+                        screenshot_file = out_dir / f"{report.scenario_id}_required_step_{index}.png"
+                        if hasattr(driver, "page") and hasattr(driver.page, "screenshot"):
+                            with contextlib.suppress(Exception):
+                                await driver.page.screenshot(path=str(screenshot_file), full_page=True)
+                        cp = CheckpointResult(
+                            name=f"required_step_{index}",
+                            description=f"Validação de obrigatoriedade do campo: {tgt}",
+                            expected_behavior=f"O campo '{tgt}' deve ser obrigatório",
+                            screenshot_path=str(screenshot_file) if screenshot_file.is_file() else None,
+                            status="problemas_encontrados",
+                            issues=[issue],
+                            viewport=current_viewport.label if current_viewport else None,
+                        )
+                        report.checkpoints.append(cp)
+                else:
+                    p_console.print(
+                        f"    [bold green]✅ Campo obrigatório validado:[/bold green] [{tgt}] [dim]{reason}[/dim]"
+                    )
+
+        elif action in ("assert_invalid", "check_invalid", "validar_erro", "validar_invalido"):
+            if not step.selector:
+                raise ValueError(f"Passo {index}: '{action}' requer 'selector'")
+            is_inv, reason = await driver.check_field_invalid(step.selector, timeout=step.timeout or 5000)
+            if not is_inv:
+                p_console.print(
+                    f"    [bold red]❌ CAMPO DEVERIA ESTAR EM ESTADO DE ERRO:[/bold red] [{step.selector}] {reason}"
+                )
+                issue = Issue(
+                    categoria=IssueCategory.REGRA_NEGOCIO,
+                    severidade=IssueSeverity.ALTA,
+                    descricao=f"Campo deveria exibir validação de erro após submissão: seletor '{step.selector}'. Motivo: {reason}",
+                    sugestao_correcao=f"Garantir que a tentativa de submissão sem preenchimento ative ':invalid' ou exiba alerta em '{step.selector}'.",
+                    elemento_alvo=step.selector,
+                    viewport=current_viewport.label if current_viewport else None,
+                    evaluator="assert_invalid",
+                )
+                if report.checkpoints:
+                    target_cp = report.checkpoints[-1]
+                    target_cp.issues.append(issue)
+                    target_cp.status = "problemas_encontrados"
+                else:
+                    screenshot_file = out_dir / f"{report.scenario_id}_invalid_step_{index}.png"
+                    if hasattr(driver, "page") and hasattr(driver.page, "screenshot"):
+                        with contextlib.suppress(Exception):
+                            await driver.page.screenshot(path=str(screenshot_file), full_page=True)
+                    cp = CheckpointResult(
+                        name=f"invalid_step_{index}",
+                        description=f"Validação de estado de erro do campo: {step.selector}",
+                        expected_behavior=f"O campo '{step.selector}' deve acusar erro",
+                        screenshot_path=str(screenshot_file) if screenshot_file.is_file() else None,
+                        status="problemas_encontrados",
+                        issues=[issue],
+                        viewport=current_viewport.label if current_viewport else None,
+                    )
+                    report.checkpoints.append(cp)
+            else:
+                p_console.print(
+                    f"    [bold green]✅ Validação de erro confirmada no campo:[/bold green] [{step.selector}] [dim]{reason}[/dim]"
+                )
 
         elif action == "press":
             if not step.value:
@@ -623,6 +799,7 @@ class UXSentinelAgent:
                 effective_baseline_dir=effective_baseline_dir,
                 effective_update_baseline=effective_update_baseline,
                 effective_diff_threshold=effective_diff_threshold,
+                scenario_exceptions=scenario.exceptions,
             )
 
         elif action == "ai_click":
@@ -779,10 +956,19 @@ class UXSentinelAgent:
         effective_baseline_dir: str | Path = "scenarios/baselines",
         effective_update_baseline: bool = False,
         effective_diff_threshold: float = 0.1,
+        scenario_exceptions: ScenarioExceptions | None = None,
     ) -> None:
         p_console = progress.console if progress is not None else console
         base_cp_name = step.name or f"checkpoint_{len(report.checkpoints) + 1}"
         expected = step.expected_behavior or "A tela deve estar limpa e sem erros."
+
+        combined_exceptions: ScenarioExceptions | None = None
+        if scenario_exceptions:
+            combined_exceptions = scenario_exceptions
+        if step.exceptions:
+            combined_exceptions = (
+                combined_exceptions.merge(step.exceptions) if combined_exceptions else step.exceptions
+            )
 
         if multi_viewport and current_viewport:
             clean_vp = current_viewport.name.replace(":", "_").replace(" ", "_")
@@ -797,6 +983,16 @@ class UXSentinelAgent:
         p_console.print(
             f"    [bold yellow]📸 Checkpoint acionado:[/bold yellow] [italic]{cp_name}[/italic]{vp_suffix}"
         )
+        if combined_exceptions and not combined_exceptions.is_empty():
+            details: list[str] = []
+            if combined_exceptions.allowed_texts:
+                details.append(f"{len(combined_exceptions.allowed_texts)} texto(s) permitido(s)")
+            if combined_exceptions.ignored_selectors:
+                details.append(f"{len(combined_exceptions.ignored_selectors)} seletor(es) ignorado(s)")
+            if combined_exceptions.custom_rules:
+                details.append(f"{len(combined_exceptions.custom_rules)} regra(s)")
+            summary_info = f" ({', '.join(details)})" if details else ""
+            p_console.print(f"    [dim]🛡️ Cláusula de exceções ativa{summary_info}[/dim]")
 
         # Set-of-Marks (SoM) opcional para captura de screenshot com identificadores visuais numéricos
         som_enabled = getattr(self.config.vision, "enable_som", False)
@@ -954,6 +1150,7 @@ class UXSentinelAgent:
             description=step.description,
             viewport=vp_label,
             extra_issues=extra_dom_issues,
+            exceptions=combined_exceptions,
         )
 
         cp_result.viewport = vp_label
@@ -1046,3 +1243,7 @@ class UXSentinelAgent:
             table.add_row("Relatório MarkText (.md)", report.markdown_path)
 
         console.print("\n", table, "\n")
+
+
+# Alias semântico e ergonômico
+Agent = UXSentinelAgent

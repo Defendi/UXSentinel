@@ -25,6 +25,8 @@ headless: false
 devtools: false        # 'true' para abrir com o painel DevTools/Console acoplado
 video: false           # 'true' para gravar vídeo da sessão
 markdown: true         # 'true' para gerar relatório em Markdown para MarkText/Obsidian
+archive: true          # 'true' para compactar a análise anterior em .zip antes da nova execução
+archive_dir: "scenarios/report/archive" # Diretório opcional para armazenar os zips históricos
 
 # Viewports para auditoria de responsividade (presets ou dimensões LARGURAxALTURA)
 viewports:
@@ -105,8 +107,12 @@ steps:
 | :--- | :--- | :--- |
 | `goto` | `url` | Navega para URL relativa ou absoluta. |
 | `click` | `selector`, `timeout` | Clica em um elemento com feedback visual na tela. |
-| `fill` | `selector`, `value` | Digita texto em um campo de formulário. |
-| `select` | `selector`, `value` | Seleciona item de uma lista dropdown (`<select>`). |
+| `fill` | `selector`, `value` | Insere texto diretamente em um campo de formulário (input ou textarea). |
+| `type` / `digitar` | `selector`, `value` | Digita caractere por caractere com ritmo humano (ideal para inputs com máscaras como CPF, telefone, CEP ou autocompletes). |
+| `clear` / `limpar` | `selector` | Limpa o conteúdo preenchido em um campo de formulário. |
+| `select` / `dropdown` | `selector`, `value` | Seleciona item em `<select>` nativo ou em dropdowns customizados de frameworks (Bootstrap, Odoo OWL, React, Tailwind, Shadcn). |
+| `assert_required` | `selector` ou `criteria` | Valida deterministicamente se o campo está marcado como obrigatório (atributo `required`, `aria-required="true"`, classe `.required` ou asterisco `*` no label). |
+| `assert_invalid` | `selector` | Confirma se o campo está em estado de erro/invalidação (`:invalid`, `aria-invalid="true"`, `.is-invalid` ou mensagem de erro visível). |
 | `check` | `selector` | Marca checkbox ou radio button. |
 | `press` | `key` | Dispara tecla do teclado (ex: `Enter`, `Escape`, `Tab`). |
 | `hover` | `selector` | Passa o mouse sobre o elemento (útil para tooltips e menus suspensos). |
@@ -147,3 +153,75 @@ O UXSentinel implementa um mecanismo determinístico de resolução de arquivos 
    - ✅ **Exatamente 1 cenário presente**: Executa automaticamente o único cenário sem necessidade de parâmetros adicionais.
 3. **Listagem de Cenários**:
    - Execute `uxsentinel --list-scenarios` para visualizar todos os cenários disponíveis no projeto local e na biblioteca interna integrada.
+
+---
+
+## 5. Cláusula Declarativa de Exceções (`exceptions` / `excecoes`)
+
+O **UXSentinel** permite homologar regras de tolerância e exceções diretamente no arquivo de cenário YAML. Isso impede que a IA reporte falsos positivos em elementos conhecidos ou marcas permitidas e possibilita suspender temporariamente testes em botões ou trechos da interface.
+
+### 5.1 Formato Estruturado (Completo)
+
+Você pode declarar o bloco `exceptions:` (ou `excecoes:`) na raiz do cenário:
+
+```yaml
+version: "1.0"
+id: "auditoria_painel"
+title: "Auditoria com Exceções Homologadas"
+
+# Cláusula de Exceções do Cenário
+exceptions:
+  # Frases e marcas em inglês ou jargões autorizados (não reportar como erro de i18n ou vazamento)
+  allowed_texts:
+    - "By Gotryx"
+    - "Powered by"
+    - "Copyright 2026"
+    - "All rights reserved"
+
+  # Seletores CSS de elementos a serem ignorados nas auditorias de layout/acessibilidade
+  ignored_selectors:
+    - "#btn-feedback-experimental"
+    - "button.badge-legado"
+
+  # Nomes ou textos de elementos a desconsiderar
+  ignored_elements:
+    - "o botão x"
+    - "banner de cookies"
+
+  # Categorias de inconsistências a serem toleradas/desconsideradas
+  ignored_categories:
+    - "cosmetico"
+
+  # Diretrizes livres em linguagem natural para o Mixture of Evaluators e Devil's Advocate
+  custom_rules:
+    - "Manter a frase 'By Gotryx' no rodapé sem apontar inconformidade de idioma"
+    - "Não testar nem reportar inconsistências no botão experimental do canto inferior direito"
+
+steps:
+  # 1. Pular um passo específico temporariamente (skip: true ou ignore: true)
+  - action: "click"
+    selector: "#btn-feedback-experimental"
+    skip: true
+    description: "Não testar o botão x neste ciclo"
+
+  # 2. Checkpoint com herança das exceções globais e suporte a exceções específicas locais
+  - action: "checkpoint"
+    name: "visao_geral"
+    expected_behavior: "Tela principal renderizada sem erros visuais."
+    exceptions:
+      allowed_texts:
+        - "Status: Beta"
+```
+
+### 5.2 Formato Sintético (Lista Direta)
+
+Para cenários rápidos, você também pode declarar a cláusula como uma lista direta de regras ou termos entre aspas:
+
+```yaml
+exceptions:
+  - '"By Gotryx"'
+  - "#btn-x"
+  - "Não testar o botão x e manter frase 'Powered by'"
+```
+O parser inteligente do UXSentinel extrai automaticamente os seletores iniciados em `#` ou `.`, textos entre aspas para a lista de termos autorizados e regras completas para o prompt dos avaliadores cognitivos.
+

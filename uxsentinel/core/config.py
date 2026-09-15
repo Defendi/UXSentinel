@@ -160,6 +160,46 @@ def resolve_markdown_mode(
     return False
 
 
+def resolve_archive_mode(
+    cli_archive: bool | None = None,
+    scenario_archive: bool | None = None,
+    config_archive: bool | None = None,
+) -> bool:
+    """Resolve se os relatórios da análise anterior devem ser compactados em ZIP:
+    1. CLI flag (--archive vs --no-archive)
+    2. Cenário YAML (campo 'archive')
+    3. Config global (ReportingSettings.archive_previous_reports)
+    4. Fallback padrão: True
+    """
+    if cli_archive is not None:
+        return cli_archive
+    if scenario_archive is not None:
+        return scenario_archive
+    if config_archive is not None:
+        return config_archive
+    return True
+
+
+def resolve_archive_dir(
+    cli_archive_dir: str | None = None,
+    scenario_archive_dir: str | None = None,
+    config_archive_dir: str | None = None,
+) -> str | None:
+    """Resolve o diretório onde os arquivos ZIP arquivados serão salvos:
+    1. CLI flag (--archive-dir)
+    2. Cenário YAML (campo 'archive_dir')
+    3. Config global (ReportingSettings.archive_dir)
+    4. Fallback padrão: None (usa output_dir / 'archive')
+    """
+    if cli_archive_dir is not None:
+        return cli_archive_dir
+    if scenario_archive_dir is not None:
+        return scenario_archive_dir
+    if config_archive_dir is not None:
+        return config_archive_dir
+    return None
+
+
 class ReportingSettings(BaseModel):
     output_dir: str = "scenarios/report"
     generate_html: bool = True
@@ -167,6 +207,8 @@ class ReportingSettings(BaseModel):
     generate_markdown: bool = False
     save_screenshots: bool = True
     generate_fix_prompt: bool = False
+    archive_previous_reports: bool = True
+    archive_dir: str | None = None
 
 
 DEFAULT_I18N_ALLOWLIST: list[str] = [

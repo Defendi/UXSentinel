@@ -1,0 +1,100 @@
+version: "1.0"
+id: "teste_formulario_e_dropdowns"
+title: "Validação de Campos de Formulário, Dropdowns e Campos Obrigatórios"
+description: >
+  Demonstra e testa o preenchimento de inputs de texto, digitação cadenciada,
+  limpeza de campos, seleção de opções em dropdowns (select nativo e customizado)
+  e auditoria estrita de campos obrigatórios e mensagens de validação.
+
+profile: "generic"
+tags:
+  - "formulario"
+  - "dropdown"
+  - "validacao"
+  - "campos_obrigatorios"
+
+env:
+  base_url: "${APP_BASE_URL:-https://example.com}"
+
+exceptions:
+  allowed_texts:
+    - "By Gotryx"
+    - "Powered by"
+  ignored_selectors:
+    - "#campo-opcional-legado"
+
+steps:
+  # 1. Navega até a página com formulário
+  - action: "goto"
+    url: "${base_url}"
+    description: "Acessa a tela do formulário"
+
+  # 2. Testar validação de campos obrigatórios ANTES do preenchimento
+  - action: "assert_required"
+    selector: "input#nome"
+    description: "Verifica se o campo Nome possui atributo 'required' ou asterisco (*)"
+
+  # Também é possível checar múltiplos campos obrigatórios de uma vez via criteria:
+  - action: "assert_required"
+    criteria:
+      - "input#nome"
+      - "input#email"
+      - "select#pais"
+    description: "Audita se a trinca de campos cadastrais essenciais está marcada como obrigatória"
+
+  # 3. Testar a tentativa de submissão do formulário vazio para verificar validação de erro
+  - action: "click"
+    selector: "button[type='submit']"
+    description: "Tenta submeter o formulário em branco para disparar as validações"
+
+  # 4. Verificar se o campo obrigatório assumiu estado inválido/erro após submissão vazia
+  - action: "assert_invalid"
+    selector: "input#nome"
+    description: "Confirma que o campo Nome exibiu estado de erro ou classe :invalid"
+
+  # 5. Inserção de textos simples no formulário (fill)
+  - action: "fill"
+    selector: "input#nome"
+    value: "Alexandre Defendi"
+    description: "Preenche o nome completo"
+
+  # 6. Digitação cadenciada com ritmo humano caractere por caractere (type) - ideal para máscaras
+  - action: "type"
+    selector: "input#telefone"
+    value: "11987654321"
+    description: "Digita o telefone com cadência para acionar máscara de formatação"
+
+  # 7. Limpeza e reescrita de campo (clear + fill)
+  - action: "clear"
+    selector: "input#email"
+    description: "Limpa qualquer valor residual do campo de e-mail"
+
+  - action: "fill"
+    selector: "input#email"
+    value: "usuario@teste.com"
+    description: "Preenche o endereço de e-mail válido"
+
+  # 8. Seleção de opções em Dropdown / Select (suporta <select> e dropdowns customizados)
+  - action: "select"
+    selector: "select#pais, .dropdown-paises"
+    value: "Brasil"
+    description: "Seleciona a opção 'Brasil' no menu dropdown"
+
+  # 9. Pausa para visualização ao vivo no navegador
+  - action: "pause"
+    value: "1"
+    description: "Pausa visual para conferência humana"
+
+  # 10. Checkpoint de Auditoria Visual e Cognitiva com IA Multimodal
+  - action: "checkpoint"
+    name: "formulario_preenchido"
+    description: "Inspeção visual do formulário após preenchimento completo e opções selecionadas"
+    expected_behavior: >
+      Todos os campos obrigatórios devem estar devidamente preenchidos e válidos.
+      O dropdown deve exibir a opção 'Brasil' selecionada.
+      Não deve haver alertas vermelhos residuais de erro de validação após o preenchimento.
+      A interface deve estar 100% em português do Brasil sem termos técnicos expostos.
+    criteria:
+      - "i18n_pt_br"
+      - "form_validation"
+      - "business_rules"

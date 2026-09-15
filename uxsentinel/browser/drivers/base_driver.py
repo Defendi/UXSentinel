@@ -143,6 +143,72 @@ class BaseDriver(ABC):
                     return
             raise exc
 
+    async def clear(
+        self,
+        selector: str,
+        timeout: int = 10000,
+        description: str | None = None,
+        step_index: int | None = None,
+    ) -> None:
+        """Limpa o conteúdo de um campo de formulário (input ou textarea)."""
+        try:
+            await self.page.wait_for_selector(selector, state="visible", timeout=timeout)
+            await self._highlight_element(selector)
+            await self.page.fill(selector, "", timeout=timeout)
+        except Exception as exc:
+            if self.healer and self.healer.enabled:
+                event = await self.healer.heal_action(
+                    page=self.page,
+                    action="fill",
+                    selector=selector,
+                    value="",
+                    timeout=timeout,
+                    description=description,
+                    step_index=step_index,
+                    highlight_callback=self._show_click_effect,
+                )
+                if event:
+                    self.healing_events.append(event)
+                    return
+            raise exc
+
+    async def type_text(
+        self,
+        selector: str,
+        text: str,
+        delay_ms: int = 40,
+        timeout: int = 10000,
+        description: str | None = None,
+        step_index: int | None = None,
+    ) -> None:
+        """Digita texto caractere por caractere (com ritmo humano), ideal para campos com máscara e autocompletes."""
+        try:
+            await self.page.wait_for_selector(selector, state="visible", timeout=timeout)
+            await self._highlight_element(selector)
+            loc = self.page.locator(selector).first
+            await loc.focus(timeout=timeout)
+            if hasattr(loc, "press_sequentially"):
+                await loc.press_sequentially(text, delay=delay_ms, timeout=timeout)
+            else:
+                await self.page.type(selector, text, delay=delay_ms, timeout=timeout)
+            await self.wait_until_ready()
+        except Exception as exc:
+            if self.healer and self.healer.enabled:
+                event = await self.healer.heal_action(
+                    page=self.page,
+                    action="fill",
+                    selector=selector,
+                    value=text,
+                    timeout=timeout,
+                    description=description,
+                    step_index=step_index,
+                    highlight_callback=self._show_click_effect,
+                )
+                if event:
+                    self.healing_events.append(event)
+                    return
+            raise exc
+
     async def select_option(
         self,
         selector: str,
@@ -151,10 +217,56 @@ class BaseDriver(ABC):
         description: str | None = None,
         step_index: int | None = None,
     ) -> None:
+        """Seleciona uma opção em um elemento <select> nativo ou em dropdowns customizados de frameworks."""
         try:
             await self.page.wait_for_selector(selector, state="visible", timeout=timeout)
             await self._highlight_element(selector)
-            await self.page.select_option(selector, value, timeout=timeout)
+
+            # Detecta a tag do elemento para escolher a melhor estratégia
+            tag_name = await self.page.evaluate(
+                """(sel) => {
+                    const el = document.querySelector(sel);
+                    return el ? el.tagName.toLowerCase() : '';
+                }""",
+                selector,
+            )
+
+            if tag_name == "select":
+                # Tenta selecionar primeiro por label visível e depois por valor/value
+                try:
+                    await self.page.select_option(selector, label=value, timeout=timeout)
+                except Exception:
+                    await self.page.select_option(selector, value=value, timeout=timeout)
+            else:
+                # Dropdown customizado (Bootstrap, Material UI, Odoo OWL, React, Tailwind, Shadcn)
+                await self.page.click(selector, timeout=timeout)
+                await self.page.wait_for_timeout(250)
+
+                # Procura o item correspondente entre as opções abertas
+                option_locators = [
+                    f"[role='option']:has-text('{value}')",
+                    f".dropdown-item:has-text('{value}')",
+                    f".o_dropdown_item:has-text('{value}')",
+                    f".o-autocomplete--dropdown-item:has-text('{value}')",
+                    f"li:has-text('{value}')",
+                    f"text='{value}'",
+                ]
+                selected = False
+                for opt_sel in option_locators:
+                    loc = self.page.locator(opt_sel)
+                    if await loc.count() > 0 and await loc.first.is_visible():
+                        await loc.first.click(timeout=timeout)
+                        selected = True
+                        break
+
+                if not selected:
+                    # Se for um input de busca (autocomplete), preenche e pressiona Enter
+                    if tag_name == "input":
+                        await self.page.fill(selector, value, timeout=timeout)
+                        await self.page.keyboard.press("Enter")
+                    else:
+                        raise ValueError(f"Opção '{value}' não encontrada no dropdown '{selector}'")
+
             await self.wait_until_ready()
         except Exception as exc:
             if self.healer and self.healer.enabled:
@@ -172,6 +284,93 @@ class BaseDriver(ABC):
                     await self.wait_until_ready()
                     return
             raise exc
+
+    async def check_field_required(self, selector: str, timeout: int = 5000) -> tuple[bool, str]:
+        """Avalia no DOM se o campo é identificado como obrigatório (HTML5, ARIA, classes ou label)."""
+        await self.page.wait_for_selector(selector, timeout=timeout)
+        result = await self.page.evaluate(
+            """(sel) => {
+                const el = document.querySelector(sel);
+                if (!el) return { required: false, reason: "Elemento não localizado" };
+
+                // 1. Atributo nativo HTML5
+                if (el.required) return { required: true, reason: "Atributo HTML5 'required' presente" };
+
+                // 2. Atributo de Acessibilidade W3C ARIA
+                if (el.getAttribute("aria-required") === "true") {
+                    return { required: true, reason: "Atributo 'aria-required=\"true\"' presente" };
+                }
+
+                // 3. Classes de frameworks (Bootstrap, Odoo, custom)
+                const classList = Array.from(el.classList || []);
+                const requiredClasses = ["required", "is-required", "o_required_modifier", "o_required"];
+                const matchedClass = requiredClasses.find(c => classList.includes(c));
+                if (matchedClass) {
+                    return { required: true, reason: `Classe CSS de obrigatoriedade '.${matchedClass}' presente` };
+                }
+
+                // 4. Label associado com indicador de asterisco (*)
+                const id = el.id;
+                let label = null;
+                if (id) {
+                    label = document.querySelector(`label[for="${id}"]`);
+                }
+                if (!label) {
+                    label = el.closest("label") || el.closest(".form-group, .o_field_widget, .mb-3")?.querySelector("label");
+                }
+                if (label) {
+                    const labelText = label.innerText || "";
+                    if (labelText.includes("*") || label.classList.contains("required") || label.querySelector(".text-danger, .required")) {
+                        return { required: true, reason: "Rótulo (<label>) associado possui indicador visual de asterisco (*)" };
+                    }
+                }
+
+                return { required: false, reason: "Nenhum indicativo de campo obrigatório encontrado (sem 'required', 'aria-required' ou asterisco)" };
+            }""",
+            selector,
+        )
+        return bool(result.get("required")), str(result.get("reason"))
+
+    async def check_field_invalid(self, selector: str, timeout: int = 5000) -> tuple[bool, str]:
+        """Verifica se o campo está visualmente ou funcionalmente em estado de validação inválida/erro."""
+        await self.page.wait_for_selector(selector, timeout=timeout)
+        result = await self.page.evaluate(
+            """(sel) => {
+                const el = document.querySelector(sel);
+                if (!el) return { invalid: false, reason: "Elemento não localizado" };
+
+                // 1. Validação nativa HTML5
+                if (el.validity && !el.validity.valid) {
+                    return { invalid: true, reason: `Validação HTML5 inválida: ${el.validationMessage || 'campo inválido'}` };
+                }
+
+                // 2. ARIA invalid
+                if (el.getAttribute("aria-invalid") === "true") {
+                    return { invalid: true, reason: "Atributo 'aria-invalid=\"true\"' ativo" };
+                }
+
+                // 3. Classes de erro
+                const classList = Array.from(el.classList || []);
+                const invalidClasses = ["is-invalid", "has-error", "border-danger", "o_field_invalid"];
+                const matched = invalidClasses.find(c => classList.includes(c));
+                if (matched) {
+                    return { invalid: true, reason: `Classe CSS de erro '.${matched}' detectada` };
+                }
+
+                // 4. Mensagem de erro adjacente
+                const parent = el.closest(".form-group, .mb-3, .o_field_widget, div");
+                if (parent) {
+                    const errorEl = parent.querySelector(".invalid-feedback, .error-message, .text-danger, .o_field_invalid");
+                    if (errorEl && errorEl.innerText.trim()) {
+                        return { invalid: true, reason: `Mensagem de erro visível: '${errorEl.innerText.trim()}'` };
+                    }
+                }
+
+                return { invalid: false, reason: "Campo não apresenta estado de erro visível" };
+            }""",
+            selector,
+        )
+        return bool(result.get("invalid")), str(result.get("reason"))
 
     async def press(self, key: str) -> None:
         await self.page.keyboard.press(key)

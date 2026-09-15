@@ -5,7 +5,13 @@ import re
 from pathlib import Path
 
 from uxsentinel.core.config import GlobalConfig
-from uxsentinel.core.models import CheckpointResult, Issue, IssueCategory, IssueSeverity
+from uxsentinel.core.models import (
+    CheckpointResult,
+    Issue,
+    IssueCategory,
+    IssueSeverity,
+    ScenarioExceptions,
+)
 from uxsentinel.vision.arbiter import DevilsAdvocateArbiter
 from uxsentinel.vision.client import UnifiedVisionClient
 from uxsentinel.vision.evaluators.base import EvaluatorContext
@@ -48,6 +54,7 @@ class ScreenInspector:
         description: str | None = None,
         viewport: str | None = None,
         extra_issues: list[Issue] | None = None,
+        exceptions: ScenarioExceptions | None = None,
     ) -> CheckpointResult:
         file_path = Path(screenshot_path)
         if not file_path.is_file():
@@ -82,6 +89,7 @@ class ScreenInspector:
                     image_b64=image_b64,
                     viewport=viewport,
                     extra_issues=extra_issues,
+                    exceptions=exceptions,
                 )
             except Exception as exc:
                 logger.warning(
@@ -101,6 +109,7 @@ class ScreenInspector:
             image_b64=image_b64,
             viewport=viewport,
             extra_issues=extra_issues,
+            exceptions=exceptions,
         )
 
     async def _inspect_mixture(
@@ -113,6 +122,7 @@ class ScreenInspector:
         image_b64: str,
         viewport: str | None = None,
         extra_issues: list[Issue] | None = None,
+        exceptions: ScenarioExceptions | None = None,
     ) -> CheckpointResult:
         """Executa a auditoria através da arquitetura paralela especializada Mixture of Evaluators."""
         context = EvaluatorContext(
@@ -122,12 +132,16 @@ class ScreenInspector:
             dom_text=dom_text,
             description=description,
             viewport=viewport,
+            exceptions=exceptions,
         )
 
         issues = await self.mixture.evaluate(context)
 
         if extra_issues:
-            issues = self.mixture.consolidate_and_deduplicate(extra_issues + issues)
+            issues = self.mixture.consolidate_and_deduplicate(
+                extra_issues + issues,
+                exceptions=exceptions,
+            )
 
         if getattr(self.config.vision, "enable_devils_advocate", True) and self.arbiter:
             issues = await self.arbiter.arbitrate(
@@ -138,6 +152,9 @@ class ScreenInspector:
                 dom_text=dom_text,
                 viewport=viewport,
             )
+
+        if exceptions and not exceptions.is_empty():
+            issues = [i for i in issues if not exceptions.matches_issue(i)]
 
         status = "ok" if not issues else "problemas_encontrados"
 
@@ -162,6 +179,7 @@ class ScreenInspector:
         image_b64: str,
         viewport: str | None = None,
         extra_issues: list[Issue] | None = None,
+        exceptions: ScenarioExceptions | None = None,
     ) -> CheckpointResult:
         """Modo clássico/legado monólito que utiliza um único prompt abrangente para todas as heurísticas."""
         user_prompt = build_user_prompt(
@@ -241,6 +259,9 @@ class ScreenInspector:
                     dom_text=dom_text,
                     viewport=viewport,
                 )
+
+            if exceptions and not exceptions.is_empty():
+                issues_list = [i for i in issues_list if not exceptions.matches_issue(i)]
 
             status = "ok" if not issues_list else "problemas_encontrados"
 

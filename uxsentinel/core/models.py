@@ -253,6 +253,62 @@ class SemanticStepResult(BaseModel):
     timestamp: datetime = Field(default_factory=datetime.now)
 
 
+class ScenarioExceptions(BaseModel):
+    """Cláusula declarativa de exceções e tolerâncias para auditoria visual e de regras de negócio."""
+
+    allowed_texts: list[str] = Field(default_factory=list)
+    ignored_selectors: list[str] = Field(default_factory=list)
+    ignored_elements: list[str] = Field(default_factory=list)
+    ignored_categories: list[str] = Field(default_factory=list)
+    custom_rules: list[str] = Field(default_factory=list)
+
+    def is_empty(self) -> bool:
+        return not (
+            self.allowed_texts
+            or self.ignored_selectors
+            or self.ignored_elements
+            or self.ignored_categories
+            or self.custom_rules
+        )
+
+    def merge(self, other: "ScenarioExceptions | None") -> "ScenarioExceptions":
+        if not other or other.is_empty():
+            return self
+        return ScenarioExceptions(
+            allowed_texts=list(dict.fromkeys(self.allowed_texts + other.allowed_texts)),
+            ignored_selectors=list(dict.fromkeys(self.ignored_selectors + other.ignored_selectors)),
+            ignored_elements=list(dict.fromkeys(self.ignored_elements + other.ignored_elements)),
+            ignored_categories=list(dict.fromkeys(self.ignored_categories + other.ignored_categories)),
+            custom_rules=list(dict.fromkeys(self.custom_rules + other.custom_rules)),
+        )
+
+    def matches_issue(self, issue: Issue) -> bool:
+        """Verifica se uma inconsistência detectada deve ser desconsiderada com base nas exceções."""
+        cat_val = issue.categoria.value if hasattr(issue.categoria, "value") else str(issue.categoria)
+        if cat_val in self.ignored_categories:
+            return True
+
+        desc_lower = issue.descricao.lower()
+        target_lower = (issue.elemento_alvo or "").lower()
+
+        for text in self.allowed_texts:
+            t_low = text.strip().lower()
+            if t_low and (t_low in desc_lower or t_low in target_lower):
+                return True
+
+        for sel in self.ignored_selectors:
+            s_low = sel.strip().lower()
+            if s_low and (s_low in target_lower or s_low in desc_lower):
+                return True
+
+        for elem in self.ignored_elements:
+            e_low = elem.strip().lower()
+            if e_low and (e_low in target_lower or e_low in desc_lower):
+                return True
+
+        return False
+
+
 class StepAction(BaseModel):
     action: str
     selector: str | None = None
@@ -268,6 +324,8 @@ class StepAction(BaseModel):
     ai_assert: str | None = None
     ai_action: str | None = None
     target: str | None = None
+    skip: bool = False
+    exceptions: ScenarioExceptions | None = None
 
 
 # Alias para conformidade e expressividade
@@ -290,7 +348,10 @@ class Scenario(BaseModel):
     update_baseline: bool | None = None
     baseline_dir: str | None = None
     diff_threshold: float | None = None
+    archive: bool | None = None
+    archive_dir: str | None = None
     viewports: list[str] | list[ViewportConfig] | None = None
+    exceptions: ScenarioExceptions | None = None
     steps: list[StepAction] = Field(default_factory=list)
 
 
@@ -311,6 +372,7 @@ class TestReport(BaseModel):
     video_path: str | None = None
     gif_path: str | None = None
     markdown_path: str | None = None
+    archived_report_path: str | None = None
     viewports_tested: list[str] = Field(default_factory=list)
     total_issues: int = 0
     total_bloqueantes: int = 0

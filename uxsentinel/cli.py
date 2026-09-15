@@ -11,6 +11,8 @@ from uxsentinel import __version__
 from uxsentinel.core.agent import UXSentinelAgent
 from uxsentinel.core.config import (
     load_config,
+    resolve_archive_dir,
+    resolve_archive_mode,
     resolve_axe_mode,
     resolve_baseline_mode,
     resolve_devtools_mode,
@@ -383,6 +385,27 @@ Documentação completa: https://github.com/Defendi/UXSentinel""",
         default=None,
         help="Desativa a geração do relatório de auditoria em Markdown.",
     )
+    archive_group = parser.add_mutually_exclusive_group()
+    archive_group.add_argument(
+        "--archive",
+        dest="archive",
+        action="store_true",
+        default=None,
+        help="Compacta os relatórios e artefatos da análise anterior em arquivo ZIP antes da nova execução.",
+    )
+    archive_group.add_argument(
+        "--no-archive",
+        dest="archive",
+        action="store_false",
+        default=None,
+        help="Desativa o arquivamento automático dos relatórios da análise anterior.",
+    )
+    parser.add_argument(
+        "--archive-dir",
+        type=str,
+        default=None,
+        help="Diretório onde os arquivos ZIP arquivados serão salvos (padrão: output_dir / 'archive').",
+    )
     parser.add_argument(
         "--jira",
         "--create-jira-cards",
@@ -692,6 +715,22 @@ Documentação completa: https://github.com/Defendi/UXSentinel""",
         # DevTools requer modo com janela visível
         cfg.browser.headless = False
 
+    # Hierarquia de resolução do Arquivamento da Análise Anterior:
+    # 1. CLI flag (--archive vs --no-archive, --archive-dir)
+    # 2. Cenário YAML (campos 'archive', 'archive_dir')
+    # 3. Config global (ReportingSettings.archive_previous_reports, ReportingSettings.archive_dir)
+    # 4. Fallback padrão: True
+    cfg.reporting.archive_previous_reports = resolve_archive_mode(
+        cli_archive=args.archive,
+        scenario_archive=scenario.archive,
+        config_archive=cfg.reporting.archive_previous_reports,
+    )
+    cfg.reporting.archive_dir = resolve_archive_dir(
+        cli_archive_dir=args.archive_dir,
+        scenario_archive_dir=scenario.archive_dir,
+        config_archive_dir=cfg.reporting.archive_dir,
+    )
+
     agent = UXSentinelAgent(
         cfg,
         headless_override=args.headless,
@@ -703,6 +742,8 @@ Documentação completa: https://github.com/Defendi/UXSentinel""",
         diff_threshold_override=args.diff_threshold,
         markdown_override=args.markdown,
         devtools_override=args.devtools,
+        archive_override=args.archive,
+        archive_dir_override=args.archive_dir,
     )
     report = await agent.run_scenario(
         scenario,
@@ -711,6 +752,8 @@ Documentação completa: https://github.com/Defendi/UXSentinel""",
         diff_threshold_override=args.diff_threshold,
         markdown_override=args.markdown,
         devtools_override=args.devtools,
+        archive_override=args.archive,
+        archive_dir_override=args.archive_dir,
     )
 
     await asyncio.sleep(0.05)

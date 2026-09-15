@@ -5,7 +5,7 @@ from abc import ABC, abstractmethod
 
 from pydantic import BaseModel
 
-from uxsentinel.core.models import Issue, IssueCategory, IssueSeverity
+from uxsentinel.core.models import Issue, IssueCategory, IssueSeverity, ScenarioExceptions
 from uxsentinel.vision.client import UnifiedVisionClient
 
 logger = logging.getLogger("uxsentinel.vision.evaluators")
@@ -20,6 +20,7 @@ class EvaluatorContext(BaseModel):
     dom_text: str = ""
     description: str | None = None
     viewport: str | None = None
+    exceptions: ScenarioExceptions | None = None
 
 
 class BaseEvaluator(ABC):
@@ -47,14 +48,41 @@ class BaseEvaluator(ABC):
         ...
 
     def build_user_prompt(self, context: EvaluatorContext) -> str:
-        """Constrói o prompt de usuário focado no contexto do checkpoint."""
+        """Constrói o prompt de usuário focado no contexto do checkpoint com cláusula de exceções."""
         dom_snippet = context.dom_text[:3500] if context.dom_text else "(Nenhum texto relevante extraído)"
         vp_info = f"\nResolução / Viewport: {context.viewport}" if context.viewport else ""
+
+        exceptions_block = ""
+        if context.exceptions and not context.exceptions.is_empty():
+            lines: list[str] = []
+            if context.exceptions.allowed_texts:
+                lines.append(
+                    f"- TEXTOS/FRASES PERMITIDAS (NÃO REPORTAR COMO ERRO): {', '.join(repr(t) for t in context.exceptions.allowed_texts)}"
+                )
+            if context.exceptions.ignored_selectors:
+                lines.append(
+                    f"- SELETORES IGNORADOS (NÃO AUDITAR): {', '.join(context.exceptions.ignored_selectors)}"
+                )
+            if context.exceptions.ignored_elements:
+                lines.append(
+                    f"- ELEMENTOS IGNORADOS (NÃO AUDITAR): {', '.join(context.exceptions.ignored_elements)}"
+                )
+            if context.exceptions.custom_rules:
+                lines.append(
+                    "- DIRETRIZES E REGRAS DE EXCEÇÃO:\n  "
+                    + "\n  ".join(f"* {r}" for r in context.exceptions.custom_rules)
+                )
+            exceptions_block = (
+                "\n\nCLÁUSULA DE EXCEÇÕES E TOLERÂNCIAS HOMOLOGADAS (OBRIGATÓRIO RESPEITAR):\n"
+                + "\n".join(lines)
+            )
+
         return f"""
 Checkpoint de Auditoria: {context.checkpoint_name}{vp_info}
 
 COMPORTAMENTO ESPERADO (Regra de Negócio):
 {context.expected_behavior}
+{exceptions_block}
 
 TEXTO EXTRAÍDO DO DOM DA TELA (Auxiliar para conferência de grafia, seletores e termos):
 ---
@@ -123,6 +151,9 @@ Analise rigorosamente a imagem em anexo sob sua ótica especializada e retorne o
                     evaluator=self.name,
                 )
             )
+
+        if context.exceptions and not context.exceptions.is_empty():
+            issues = [i for i in issues if not context.exceptions.matches_issue(i)]
 
         return issues
 

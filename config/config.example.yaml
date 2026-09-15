@@ -24,6 +24,8 @@ reporting:
   generate_html: true
   generate_json: true
   save_screenshots: true
+  archive_previous_reports: true     # Compacta relatórios anteriores em .zip antes de nova execução
+  archive_dir: "scenarios/report/archive" # Diretório para armazenar os zips históricos (opcional)
 
 # Catálogo de Provedores de LLM / Visão
 providers:
