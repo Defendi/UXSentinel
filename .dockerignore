@@ -1,0 +1,28 @@
+# Segredos e credenciais (nunca devem entrar no contexto de build)
+.env
+.env.*
+.pypi
+.pypirc
+
+# Ambientes e artefatos locais
+.venv/
+ambiente/
+dist/
+build/
+*.egg-info/
+__pycache__/
+*.py[cod]
+
+# Caches de ferramentas
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Relatorios e saidas locais
+report/
+scenarios/report/
+
+# Controle de versao e contexto local de agentes
+.git/
+.gemini/
+.claude/

@@ -247,6 +247,7 @@ async def test_agent_multi_viewport_execution(tmp_path: Path):
     mock_driver = AsyncMock()
     mock_driver.healing_events = []
     mock_driver.get_clean_dom_text = AsyncMock(return_value="Conteúdo da página")
+    mock_driver.validate_dom = AsyncMock(return_value=[])
     mock_driver.set_viewport = AsyncMock()
     mock_driver.page = AsyncMock()
 

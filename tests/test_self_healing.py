@@ -11,6 +11,7 @@ import tempfile
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from markupsafe import escape
 
 from uxsentinel.browser.drivers.generic_driver import GenericDriver
 from uxsentinel.browser.healing import SelectorHealer
@@ -378,4 +379,5 @@ def test_reports_with_healing_events():
         html_content = html_file.read_text(encoding="utf-8")
         assert "Auto-Curados (Self-Healing)" in html_content
         assert "button#velho" in html_content
-        assert 'role=button[name="Novo"]' in html_content
+        # O relatório escapa conteúdo dinâmico (autoescape), então as aspas viram entidades HTML
+        assert str(escape('role=button[name="Novo"]')) in html_content

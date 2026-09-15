@@ -94,15 +94,22 @@ def parse_scenario_exceptions(raw_data: object) -> ScenarioExceptions | None:
     return res if not res.is_empty() else None
 
 
-def _resolve_env_str(val: str, env_source: dict[str, str] | None = None) -> str:
+def _resolve_env_str(
+    val: str, env_source: dict[str, str] | None = None, allow_os_environ: bool = True
+) -> str:
     """Resolve uma string que contém ${VAR} ou ${VAR:-default}."""
 
     def _replacer(match: re.Match) -> str:
         var_name = match.group(1)
-        default_val = match.group(2) if match.group(2) is not None else ""
+        has_default = match.group(2) is not None
+        default_val = match.group(2) if has_default else ""
         if env_source and var_name in env_source:
             return env_source[var_name]
-        return os.environ.get(var_name, default_val)
+        if allow_os_environ:
+            return os.environ.get(var_name, default_val)
+        # Fora do bloco `env:` o corpo do cenário não enxerga o ambiente do processo,
+        # senão um cenário de terceiros exfiltraria segredos (ex.: chaves de API).
+        return default_val if has_default else match.group(0)
 
     # Executa até 3 passes para resolver referências em cascata
     current = val
@@ -131,15 +138,24 @@ def load_scenario(file_path: str) -> Scenario:
         else:
             resolved_env[k] = str(v)
 
-    # 2. Agora interpola o texto inteiro do YAML usando resolved_env + os.environ
-    interpolated_text = _resolve_env_str(raw_text, env_source=resolved_env)
+    # 2. Interpola o corpo do YAML apenas com as variáveis declaradas no bloco 'env'
+    interpolated_text = _resolve_env_str(raw_text, env_source=resolved_env, allow_os_environ=False)
     parsed_dict = yaml.safe_load(interpolated_text) or {}
 
     steps_raw = parsed_dict.get("steps", [])
+    if not isinstance(steps_raw, list):
+        raise ValueError(
+            f"Cenário inválido em '{file_path}': o campo 'steps' deve ser uma lista de passos, "
+            f"mas veio como {type(steps_raw).__name__}."
+        )
+
     steps: list[StepAction] = []
-    for s in steps_raw:
+    for pos, s in enumerate(steps_raw, start=1):
         if not isinstance(s, dict):
-            continue
+            raise ValueError(
+                f"Cenário inválido em '{file_path}': o passo {pos} deve ser um mapeamento "
+                f"com 'action', mas veio como {type(s).__name__} ({s!r})."
+            )
 
         action = s.get("action", "")
         ai_click_val = s.get("ai_click")

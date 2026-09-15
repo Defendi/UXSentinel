@@ -1,7 +1,7 @@
 import base64
 from pathlib import Path
 
-from jinja2 import Template
+from jinja2 import Environment
 
 from uxsentinel.core.models import TestReport
 
@@ -1014,7 +1014,7 @@ def build_html_report(
         return str(p)
 
     logo_data = get_logo_base64()
-    template = Template(HTML_TEMPLATE)
+    template = Environment(autoescape=True).from_string(HTML_TEMPLATE)
     return template.render(
         report=report,
         logo_base64=logo_data,

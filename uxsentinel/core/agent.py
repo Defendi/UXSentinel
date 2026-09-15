@@ -380,7 +380,7 @@ class UXSentinelAgent:
                                     task_id,
                                     description=f"[cyan]Passo {idx:02d}/{len(scenario.steps):02d}{vp_tag}: [white]{action_desc[:35]}",
                                 )
-                                await self._execute_step(
+                                await self._execute_step_guarded(
                                     idx,
                                     step,
                                     driver,
@@ -409,7 +409,7 @@ class UXSentinelAgent:
                             await driver.page.set_viewport_size({"width": vp.width, "height": vp.height})
 
                         for idx, step in enumerate(scenario.steps, start=1):
-                            await self._execute_step(
+                            await self._execute_step_guarded(
                                 idx,
                                 step,
                                 driver,
@@ -536,6 +536,48 @@ class UXSentinelAgent:
             self._print_summary(report)
 
         return report
+
+    async def _execute_step_guarded(
+        self,
+        index: int,
+        step: StepAction,
+        driver: BaseDriver,
+        scenario: Scenario,
+        report: TestReport,
+        out_dir: Path,
+        **kwargs,
+    ) -> None:
+        """Executa um passo isolando a falha, para que os checkpoints e viewports seguintes continuem."""
+        try:
+            await self._execute_step(index, step, driver, scenario, report, out_dir, **kwargs)
+        except Exception as exc:
+            progress: Progress | None = kwargs.get("progress")
+            current_viewport: ViewportConfig | None = kwargs.get("current_viewport")
+            p_console = progress.console if progress is not None else console
+            desc = step.description or f"{step.action} {step.selector or step.url or step.target or ''}"
+            vp_label = current_viewport.label if current_viewport else None
+
+            p_console.print(f"    [bold red]❌ FALHA NA EXECUÇÃO DO PASSO {index:02d}:[/bold red] {exc}")
+
+            issue = Issue(
+                categoria=IssueCategory.OUTRO,
+                severidade=IssueSeverity.BLOQUEANTE,
+                descricao=f"Falha ao executar o passo {index:02d} ('{step.action}'): {exc}",
+                sugestao_correcao="Verifique se o seletor, a URL e o estado da aplicação auditada continuam válidos para este passo.",
+                elemento_alvo=step.selector or step.target,
+                viewport=vp_label,
+                evaluator="step_executor",
+            )
+            report.checkpoints.append(
+                CheckpointResult(
+                    name=f"passo_{index:02d}_falha",
+                    description=desc,
+                    expected_behavior=f"O passo '{step.action}' deveria ser executado com sucesso.",
+                    status="erro_execucao",
+                    issues=[issue],
+                    viewport=vp_label,
+                )
+            )
 
     async def _execute_step(
         self,
@@ -777,7 +819,11 @@ class UXSentinelAgent:
                 p_console.print("    [yellow]⚠️ Modal não detectado após timeout.[/yellow]")
 
         elif action == "wait_modal_close":
-            await driver.wait_modal_close(timeout=step.timeout or 10000)
+            modal_closed = await driver.wait_modal_close(timeout=step.timeout or 10000)
+            if not modal_closed:
+                p_console.print(
+                    "    [yellow]⚠️ Modal não foi fechado (ou backdrop permaneceu) após timeout.[/yellow]"
+                )
 
         elif action == "pause":
             duration = int(step.value or 2) if step.value and step.value.isdigit() else 2

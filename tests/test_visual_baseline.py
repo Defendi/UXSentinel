@@ -246,6 +246,7 @@ async def test_agent_update_baseline_mode(tmp_path: Path):
     mock_driver.set_viewport = AsyncMock()
     mock_driver.healing_events = []
     mock_driver.get_clean_dom_text = AsyncMock(return_value="Conteúdo do DOM")
+    mock_driver.validate_dom = AsyncMock(return_value=[])
 
     async def fake_screenshot(path: str, full_page: bool = True):
         create_test_image(Path(path), width=100, height=100, color=(200, 220, 240))
@@ -325,6 +326,7 @@ async def test_agent_visual_regression_detection(tmp_path: Path):
     mock_driver.set_viewport = AsyncMock()
     mock_driver.healing_events = []
     mock_driver.get_clean_dom_text = AsyncMock(return_value="DOM")
+    mock_driver.validate_dom = AsyncMock(return_value=[])
 
     # O screenshot atual possui uma quebra visual vermelha expressiva (50x50 = ~17% de divergência)
     async def fake_screenshot(path: str, full_page: bool = True):
@@ -602,6 +604,7 @@ async def test_agent_visual_baseline_approved_within_threshold(tmp_path: Path):
     mock_driver.set_viewport = AsyncMock()
     mock_driver.healing_events = []
     mock_driver.get_clean_dom_text = AsyncMock(return_value="DOM")
+    mock_driver.validate_dom = AsyncMock(return_value=[])
 
     async def fake_screenshot(path: str, full_page: bool = True):
         create_test_image(Path(path), width=100, height=100, color=(255, 255, 255))
@@ -665,6 +668,7 @@ async def test_agent_multi_viewport_baselines(tmp_path: Path):
     mock_driver.set_viewport = AsyncMock()
     mock_driver.healing_events = []
     mock_driver.get_clean_dom_text = AsyncMock(return_value="DOM")
+    mock_driver.validate_dom = AsyncMock(return_value=[])
 
     async def fake_screenshot(path: str, full_page: bool = True):
         create_test_image(Path(path), width=100, height=100, color=(240, 240, 240))

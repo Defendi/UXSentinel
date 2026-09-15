@@ -3,5 +3,7 @@ include LICENSE
 include pyproject.toml
 include images/*.png
 recursive-include uxsentinel/assets *.png
+recursive-include uxsentinel/assets *.js
+recursive-include uxsentinel/assets *.json
 recursive-include uxsentinel/config *.yaml
 recursive-include uxsentinel/scenarios/library *.yaml

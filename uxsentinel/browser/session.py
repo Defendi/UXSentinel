@@ -21,6 +21,10 @@ if TYPE_CHECKING:
     from uxsentinel.browser.healing import SelectorHealer
 
 
+# Limite para cada etapa de encerramento: um Chromium travado não pode pendurar a execução.
+CLOSE_TIMEOUT_SECONDS = 10.0
+
+
 class BrowserSession:
     """Gerencia o ciclo de vida do navegador Playwright e do driver selecionado."""
 
@@ -132,32 +136,34 @@ class BrowserSession:
         self.settings.viewport_width = width
         self.settings.viewport_height = height
 
+    @staticmethod
+    async def _close_step(coro) -> None:
+        """Aguarda uma etapa de encerramento, desistindo se o navegador não responder."""
+        with contextlib.suppress(Exception):
+            await asyncio.wait_for(coro, timeout=CLOSE_TIMEOUT_SECONDS)
+
     async def close(self) -> None:
         video_ref = self.page.video if self.page else None
 
         if self.page:
-            with contextlib.suppress(Exception):
-                await self.page.close()
+            await self._close_step(self.page.close())
 
         if self.context:
-            with contextlib.suppress(Exception):
-                await self.context.close()
+            await self._close_step(self.context.close())
 
         if video_ref:
             with contextlib.suppress(Exception):
-                raw_path = await video_ref.path()
+                raw_path = await asyncio.wait_for(video_ref.path(), timeout=CLOSE_TIMEOUT_SECONDS)
                 if raw_path:
                     self.video_path = str(raw_path)
                     if self.driver:
                         self.driver.video_path = self.video_path
 
         if self.browser:
-            with contextlib.suppress(Exception):
-                await self.browser.close()
+            await self._close_step(self.browser.close())
 
         if self.playwright:
-            with contextlib.suppress(Exception):
-                await self.playwright.stop()
+            await self._close_step(self.playwright.stop())
             self.playwright = None
             with contextlib.suppress(Exception):
                 await asyncio.sleep(0.05)

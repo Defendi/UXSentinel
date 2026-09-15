@@ -543,6 +543,9 @@ def ensure_user_config() -> Path:
                 config_file.write_text(pkg_config.read_text(encoding="utf-8"), encoding="utf-8")
             else:
                 config_file.write_text(DEFAULT_CONFIG_TEMPLATE, encoding="utf-8")
+            # O arquivo pode receber tokens do Jira e chaves de API em texto plano
+            with contextlib.suppress(Exception):
+                config_file.chmod(0o600)
         except OSError:
             # Caso não seja possível gravar (ex: ambiente efêmero ou somente-leitura)
             pass

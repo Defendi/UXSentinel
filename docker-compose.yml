@@ -5,10 +5,12 @@ services:
       dockerfile: Dockerfile
     container_name: uxsentinel_desktop
     ports:
-      # noVNC: Acesse a tela gráfica diretamente pelo navegador web!
-      - "6080:6080"
-      # Porta VNC nativa (caso utilize Remmina, TigerVNC ou similar):
-      - "5901:5901"
+      # Publicadas apenas em 127.0.0.1: o desktop do container nao fica exposto na rede.
+      # Para acesso remoto, defina VNC_PASSWORD e troque o bind para 0.0.0.0 conscientemente.
+      # noVNC: acesse a tela grafica diretamente pelo navegador web
+      - "127.0.0.1:6080:6080"
+      # Porta VNC nativa (caso utilize Remmina, TigerVNC ou similar)
+      - "127.0.0.1:5901:5901"
     volumes:
       # Persistência dos relatórios gerados
       - ./report:/workspace/report
@@ -19,5 +21,7 @@ services:
       - DISPLAY=:1
       - VNC_RESOLUTION=1440x900
       - APP_BASE_URL=https://news.ycombinator.com
+      # Defina para exigir senha no VNC (obrigatorio se publicar as portas fora de 127.0.0.1)
+      - VNC_PASSWORD=${VNC_PASSWORD:-}
     # Mantém o container aberto com o Desktop ativo
     command: []

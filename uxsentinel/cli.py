@@ -4,6 +4,7 @@ import contextlib
 import sys
 from pathlib import Path
 
+import yaml
 from rich.console import Console
 from rich.table import Table
 
@@ -24,6 +25,11 @@ from uxsentinel.core.config import (
 from uxsentinel.scenarios.parser import load_scenario
 
 console = Console()
+
+# Códigos de saída para esteiras de CI/CD
+EXIT_SUCESSO = 0
+EXIT_INCONFORMIDADES = 1
+EXIT_ERRO_EXECUCAO = 2
 
 
 def find_project_scenarios() -> list[Path]:
@@ -615,9 +621,16 @@ Documentação completa: https://github.com/Defendi/UXSentinel""",
         console.print(
             "[yellow]Dica:[/yellow] Especifique o cenário usando [bold]-s caminho/do/cenario.yaml[/bold] ou liste os cenários com [bold]--list-scenarios[/bold]."
         )
-        return 1
+        return EXIT_ERRO_EXECUCAO
 
-    scenario = load_scenario(str(scenario_path))
+    try:
+        scenario = load_scenario(str(scenario_path))
+    except (yaml.YAMLError, ValueError, OSError) as err:
+        console.print(f"[bold red]Erro ao ler o cenário:[/bold red] {err}")
+        console.print(
+            "[yellow]Dica:[/yellow] Verifique a indentação do YAML e consulte a especificação em [bold]docs/04_especificacao_cenarios_yaml.md[/bold]."
+        )
+        return EXIT_ERRO_EXECUCAO
     if args.profile:
         scenario.profile = args.profile
     if args.provider:
@@ -757,7 +770,7 @@ Documentação completa: https://github.com/Defendi/UXSentinel""",
     )
 
     await asyncio.sleep(0.05)
-    return 0 if report.success else 1
+    return EXIT_SUCESSO if report.success else EXIT_INCONFORMIDADES
 
 
 def _graceful_shutdown(loop: asyncio.AbstractEventLoop) -> None:
@@ -789,6 +802,9 @@ def main() -> None:
     except KeyboardInterrupt:
         console.print("\n[yellow]Execução cancelada pelo usuário.[/yellow]")
         sys.exit(130)
+    except Exception as exc:
+        console.print(f"\n[bold red]Erro inesperado na execução:[/bold red] {exc}")
+        sys.exit(EXIT_ERRO_EXECUCAO)
     else:
         sys.exit(exit_code)
 

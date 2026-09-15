@@ -14,7 +14,8 @@ ENV DEBIAN_FRONTEND=noninteractive \
     DISPLAY=:1 \
     VNC_PORT=5901 \
     NOVNC_PORT=6080 \
-    VNC_RESOLUTION=1440x900
+    VNC_RESOLUTION=1440x900 \
+    PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
 
 # Instalação do XFCE4, Xvfb, x11vnc, noVNC, Python 3.12 e dependências base
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -51,8 +52,20 @@ RUN pip install --upgrade pip setuptools wheel && \
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
+# O agente roda como usuario sem privilegios; o UID 1000 do usuario 'ubuntu' ja existe
+# na imagem base e casa com o UID tipico do host, preservando escrita nos volumes montados.
+RUN mkdir -p /workspace /tmp/.X11-unix \
+    && chmod 1777 /tmp/.X11-unix \
+    && chown -R ubuntu:ubuntu /workspace /opt/venv \
+    && chmod -R a+rX /opt/ms-playwright
+
 WORKDIR /workspace
 
 EXPOSE 6080 5901
+
+USER ubuntu
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \
+    CMD curl -fsS "http://localhost:${NOVNC_PORT}/" >/dev/null || exit 1
 
 ENTRYPOINT ["/entrypoint.sh"]
