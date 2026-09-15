@@ -68,12 +68,16 @@ class BrowserSession:
 
     async def start(self) -> BaseDriver:
         self.playwright = await async_playwright().start()
+        launch_args: list[str] = []
+        if self.settings.devtools:
+            launch_args.append("--auto-open-devtools-for-tabs")
+
         launch_kwargs: dict[str, object] = {
             "headless": False if self.settings.devtools else self.settings.headless,
             "slow_mo": self.settings.slow_mo_ms,
         }
-        if self.settings.devtools:
-            launch_kwargs["devtools"] = True
+        if launch_args:
+            launch_kwargs["args"] = launch_args
 
         self.browser = await self.playwright.chromium.launch(**launch_kwargs)
 
@@ -186,8 +190,8 @@ async def open_browser_session(
         devtools=devtools,
         capture_console=capture_console,
     )
-    driver = await session.start()
     try:
+        driver = await session.start()
         yield driver
     finally:
         await session.close()

@@ -292,3 +292,46 @@ def test_html_report_includes_telemetry():
     assert "Mensagens e Logs Capturados do Console (Chromium DevTools)" in html_output
     assert "Falha crítica de script" in html_output
     assert "Erros Console (JS)" in html_output
+
+
+@pytest.mark.asyncio
+async def test_browser_session_devtools_args(monkeypatch):
+    """Garante que a flag --auto-open-devtools-for-tabs é passada via args para o Chromium."""
+    from uxsentinel.browser.session import BrowserSession
+    from uxsentinel.core.config import BrowserSettings
+
+    mock_playwright = MagicMock()
+    mock_chromium = MagicMock()
+    mock_browser = MagicMock()
+    mock_context = MagicMock()
+    mock_page = MagicMock()
+
+    mock_playwright.chromium = mock_chromium
+    mock_playwright.stop = AsyncMock()
+    mock_chromium.launch = AsyncMock(return_value=mock_browser)
+    mock_browser.new_context = AsyncMock(return_value=mock_context)
+    mock_browser.close = AsyncMock()
+    mock_context.new_page = AsyncMock(return_value=mock_page)
+    mock_context.close = AsyncMock()
+    mock_page.add_init_script = AsyncMock()
+    mock_page.close = AsyncMock()
+    mock_page.video = None
+
+    mock_async_playwright = MagicMock()
+    mock_async_playwright.start = AsyncMock(return_value=mock_playwright)
+
+    monkeypatch.setattr("uxsentinel.browser.session.async_playwright", lambda: mock_async_playwright)
+
+    settings = BrowserSettings(devtools=True, headless=True)
+    session = BrowserSession(settings=settings, devtools=True)
+
+    driver = await session.start()
+    assert driver is not None
+
+    mock_chromium.launch.assert_called_once()
+    kwargs = mock_chromium.launch.call_args[1]
+    assert kwargs.get("headless") is False
+    assert "--auto-open-devtools-for-tabs" in kwargs.get("args", [])
+    assert "devtools" not in kwargs
+
+    await session.close()
