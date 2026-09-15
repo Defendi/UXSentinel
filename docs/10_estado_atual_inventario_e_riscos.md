@@ -1,10 +1,10 @@
 # 10. Estado Atual do Desenvolvimento, Inventário e Registro de Riscos
 
-> **Data de Atualização:** 14 de Setembro de 2026  
-> **Status do Repositório:** Estável / Produção v1.1.2  
-> **Ambiente de Testes:** 100% verde (`uv run pytest` — 139 testes aprovados)
+> **Data de Atualização:** 15 de Setembro de 2026  
+> **Status do Repositório:** Estável / Produção v1.1.6  
+> **Ambiente de Testes:** 100% verde (`uv run pytest` — 200 testes aprovados)
 
-Este documento foi concebido em atendimento às recomendações levantadas na [Análise da Memória Compactada (Doc 09)](09_analise_memoria_compactada.md). Seu objetivo é estabelecer um **retrato fiel, auditável e sem ambiguidades** do estado de engenharia do UXSentinel, distinguindo rigorosamente o que já está compilado e testado no código do que reside como planejamento nas Fases do Roadmap.
+Este documento estabelece um **retrato fiel, auditável e sem ambiguidades** do estado de engenharia do UXSentinel, distinguindo rigorosamente o que já está compilado e testado no código do que reside como planejamento nas Fases do Roadmap.
 
 ---
 
@@ -63,7 +63,7 @@ Para eliminar qualquer divergência entre o "estado desejado" e o "estado real",
 | **Geração de Prompt de Correção** | `uxsentinel.reporter.prompt_builder` | **Concluído** | `UXS-22` | Flag `--fix-prompt` gera Markdown detalhado para agentes (Cursor, Claude Code). |
 | **Abertura Automática de Cards no Jira** | `uxsentinel.integrations.jira` | **Concluído** | `UXS-23` | Flag `--jira` cria issues com severidade, steps e screenshots anexados. |
 | **Configurador Interativo Jira CLI e XDG** | `uxsentinel.cli` / `core.config` | **Concluído** | `UXS-24` | Padrão XDG em `~/.config/uxsentinel/config.yaml` e `--set-jira-token` protegido. |
-| **Suíte de Testes Hermética** | `tests/test_engine.py` | **Concluído** | `UXS-25` | 12/12 testes passando sem mocks frágeis ou dependências externas (`uv run pytest`). |
+| **Suíte de Testes Hermética** | `tests/` | **Concluído** | `UXS-25` | 200 testes passando sem mocks frágeis ou dependências externas (`uv run pytest`). |
 | **Self-Healing de Seletores** | `uxsentinel.browser.healing` | **Pronto Para Testar** | `UXS-1` | Autocura via acessibilidade e visão multimodal implementada (tests/test_self_healing.py). |
 | **Gravação de Vídeo e GIF de Sessão** | `uxsentinel.reporter.video_helper` | **Pronto Para Testar** | `UXS-2` | Gravação Playwright, utilitário ffmpeg/Pillow, player HTML e anexo Jira (tests/test_video_recording.py). |
 | **Auditoria Multi-Viewport** | `uxsentinel.core.agent` / `models` | **Pronto Para Testar** | `UXS-3` | Presets desktop/tablet/mobile, flags CLI, filtros HTML e anexo Jira (tests/test_multi_viewport.py). |
