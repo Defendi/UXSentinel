@@ -36,10 +36,7 @@ Os documentos abaixo fornecem o embasamento teórico, técnico e operacional do 
 8. **[08. Roadmap de Melhorias e Evolução Técnica](08_roadmap_melhorias_e_evolucao.md)**  
    Plano diretor de evolução inspirado nas melhores ferramentas de QA com IA do mercado (Midscene, ZeroStep, Applitools, Playwright Agents e Octomind): *Self-Healing* de seletores, gravação de vídeos/GIFs, auditoria multi-viewport, controle flexível de visualização do Chromium, **arquitetura de subagentes especialistas com árbitro reverso para assertividade acima de 95%**, baseline visual com slider antes/depois, motor Axe-Core WCAG 2.2, modo crawler exploratório, abertura de Pull Requests e **Frontend Opcional (UXSentinel Studio & Live Mission Control)** com assistente IA para criação de cenários YAML.
 
-9. **[09. Análise da Memória Compactada do Projeto](09_analise_memoria_compactada.md)**  
-   Revisão crítica do arquivo de memória do projeto, com foco em identidade, arquitetura, roadmap, pontos fortes, observações e recomendações para manter a documentação alinhada com a implementação.
-
-10. **[10. Estado Atual do Desenvolvimento, Inventário e Registro de Riscos](10_estado_atual_inventario_e_riscos.md)**  
+9. **[10. Estado Atual do Desenvolvimento, Inventário e Registro de Riscos](10_estado_atual_inventario_e_riscos.md)**  
     Retrato fiel e operacional do código: mapeamento exato dos pacotes Python, inventário de funcionalidades concluídas vs. pendentes vinculado aos cards do Jira (`UXS-1` a `UXS-14`), matriz de riscos técnicos/produto e registro de decisões de arquitetura (ADRs) implementadas e descartadas.
 
 ---

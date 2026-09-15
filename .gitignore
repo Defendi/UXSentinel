@@ -56,5 +56,12 @@ Thumbs.db
 report/
 scenarios/report/
 
-# AIs e Skills locais (Antigravity / Gemini)
+# Contexto, instrucoes e artefatos locais de agentes de IA (nao versionados)
 .gemini/
+.claude/
+CLAUDE.md
+AGENTS.md
+GEMINI.md
+memory.md
+docs/00_contexto_do_projeto.md
+docs/09_analise_memoria_compactada.md
