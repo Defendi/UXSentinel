@@ -32,10 +32,13 @@ Este documento estabelece as regras mandatórias que TODOS os agentes de IA, sub
 
 ---
 
-## 🛡️ 3. Autonomia e Neutralidade do UXSentinel
+## 🛡️ 3. Escopo Exclusivo e Projetos Circunstanciais
 
-- O **UXSentinel** é um agente autônomo e universal de Visual QA, neutro em relação a frameworks (React, Vue, Angular, Odoo, Django, etc.).
-- Não introduza dependências de negócio nem acople o projeto a regras de outros sistemas sem solicitação expressa do usuário.
+> [!IMPORTANT]
+> - **Foco Estrito no UXSentinel**: Neste espaço de trabalho, a atuação do agente trata **exclusivamente** do produto **UXSentinel** (sua arquitetura, funcionalidades, código, testes e evolução).
+> - **Outros Projetos são Circunstanciais**: Quaisquer outros repositórios, sistemas ou aplicações externas (como Gotryx, módulos Odoo, APIs ou frontends de clientes) são **estritamente circunstanciais**. Eles atuam unicamente como alvos de teste, casos de uso externos ou cenários temporários de auditoria.
+> - **Isolamento de Operações de Repositório**: Verificações de repositório (`git status`, `git diff`, commits, branches, releases, auditoria de arquivos) devem se concentrar primariamente no **UXSentinel**. Não desvie o escopo do projeto para gerenciar outros repositórios, exceto sob solicitação expressa do usuário.
+> - **Neutralidade e Desacoplamento**: O UXSentinel é um agente autônomo e universal de Visual QA, neutro em relação a frameworks (React, Vue, Angular, Odoo, Django, etc.). Não introduza dependências de negócio nem acople o projeto a regras de outros sistemas sem solicitação expressa do usuário.
 
 ---
 
