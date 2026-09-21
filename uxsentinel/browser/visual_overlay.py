@@ -35,7 +35,14 @@ OVERLAY_INJECTION_SCRIPT = """
             }
         }
     `;
-    document.head.appendChild(style);
+    const target = document.head || document.documentElement;
+    if (target) {
+        target.appendChild(style);
+    } else {
+        document.addEventListener('DOMContentLoaded', () => {
+            (document.head || document.documentElement).appendChild(style);
+        });
+    }
 
     window.__uxsentinel_show_click = function(x, y) {
         const ripple = document.createElement('div');
