@@ -345,6 +345,7 @@ class Scenario(BaseModel):
     video: bool | None = None
     axe: bool | None = None
     markdown: bool | None = None
+    fail_fast: bool | None = None
     update_baseline: bool | None = None
     baseline_dir: str | None = None
     diff_threshold: float | None = None

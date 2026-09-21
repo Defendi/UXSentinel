@@ -43,6 +43,7 @@ async def test_failed_step_does_not_abort_remaining_checkpoints(tmp_path: Path):
     scenario = Scenario(
         id="cenario_com_falha",
         title="Cenario com passo quebrado",
+        fail_fast=False,
         steps=[
             StepAction(action="click", selector="#nao-existe"),
             StepAction(action="checkpoint", name="depois_da_falha"),

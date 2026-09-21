@@ -49,6 +49,7 @@ class BrowserSettings(BaseModel):
     record_video_dir: str | None = None
     record_video_size: dict[str, int] | None = None
     enable_axe: bool = True
+    fail_fast: bool = True
     axe_tags: list[str] = Field(
         default_factory=lambda: [
             "wcag2a",
@@ -58,6 +59,26 @@ class BrowserSettings(BaseModel):
             "wcag22aa",
         ]
     )
+
+
+def resolve_fail_fast_mode(
+    cli_fail_fast: bool | None = None,
+    scenario_fail_fast: bool | None = None,
+    config_fail_fast: bool | None = None,
+) -> bool:
+    """Resolve se a execução deve ser abortada imediatamente na primeira falha grave:
+    1. CLI flag (--fail-fast vs --no-fail-fast)
+    2. Cenário YAML (campo 'fail_fast' ou 'abort_on_error')
+    3. Config global (BrowserSettings.fail_fast)
+    4. Fallback padrão: True
+    """
+    if cli_fail_fast is not None:
+        return cli_fail_fast
+    if scenario_fail_fast is not None:
+        return scenario_fail_fast
+    if config_fail_fast is not None:
+        return config_fail_fast
+    return True
 
 
 def resolve_devtools_mode(
@@ -609,6 +630,7 @@ def load_config(config_path: str | None = None) -> GlobalConfig:
         record_video_dir=browser_dict.get("record_video_dir"),
         record_video_size=video_size_dict,
         enable_axe=browser_dict.get("enable_axe", True),
+        fail_fast=browser_dict.get("fail_fast", True),
         axe_tags=browser_dict.get("axe_tags")
         or [
             "wcag2a",
@@ -737,6 +759,7 @@ __all__ = [
     "resolve_axe_mode",
     "resolve_devtools_mode",
     "resolve_display_mode",
+    "resolve_fail_fast_mode",
     "resolve_markdown_mode",
     "resolve_video_mode",
     "resolve_viewports",

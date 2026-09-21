@@ -9,19 +9,11 @@ from rich.console import Console
 from rich.table import Table
 
 from uxsentinel import __version__
-from uxsentinel.core.agent import UXSentinelAgent
 from uxsentinel.core.config import (
+    GlobalConfig,
     load_config,
-    resolve_archive_dir,
-    resolve_archive_mode,
-    resolve_axe_mode,
-    resolve_baseline_mode,
-    resolve_devtools_mode,
-    resolve_display_mode,
-    resolve_markdown_mode,
-    resolve_video_mode,
-    resolve_viewports,
 )
+from uxsentinel.core.runner import ScenarioRunnerService, ScenarioRunOptions
 from uxsentinel.scenarios.parser import load_scenario
 
 console = Console()
@@ -177,7 +169,8 @@ def resolve_scenario_path(scenario_arg: str | None = None) -> Path:
     return found_scenarios[0]
 
 
-async def async_main() -> int:
+def build_arg_parser() -> argparse.ArgumentParser:
+    """Constrói o parser de argumentos de linha de comando."""
     parser = argparse.ArgumentParser(
         description="""UXSentinel 🛡️👁️ - Agente Universal de QA Visual, UX e Proteção de Regras de Negócio
 
@@ -406,6 +399,21 @@ Documentação completa: https://github.com/Defendi/UXSentinel""",
         default=None,
         help="Desativa o arquivamento automático dos relatórios da análise anterior.",
     )
+    fail_fast_group = parser.add_mutually_exclusive_group()
+    fail_fast_group.add_argument(
+        "--fail-fast",
+        dest="fail_fast",
+        action="store_true",
+        default=None,
+        help="Interrompe a execução imediatamente ao encontrar uma falha grave de elemento ou validação (padrão).",
+    )
+    fail_fast_group.add_argument(
+        "--no-fail-fast",
+        dest="fail_fast",
+        action="store_false",
+        default=None,
+        help="Permite que a execução continue mesmo após falhas em passos ou asserções.",
+    )
     parser.add_argument(
         "--archive-dir",
         type=str,
@@ -456,21 +464,155 @@ Documentação completa: https://github.com/Defendi/UXSentinel""",
         help="Remove as credenciais SSO em cache do provedor e encerra.",
     )
 
+    return parser
+
+
+def handle_init_config() -> int:
+    """Manipula a flag --init-config criando o template de configuração do usuário."""
+    from uxsentinel.core.config import ensure_user_config, get_user_config_dir
+
+    cfg_file = ensure_user_config()
+    cfg_dir = get_user_config_dir()
+    console.print(f"[bold green]✓[/bold green] Diretório de configuração: [cyan]{cfg_dir}[/cyan]")
+    console.print(
+        f"[bold green]✓[/bold green] Arquivo de configuração criado/pronto: [cyan]{cfg_file}[/cyan]"
+    )
+    console.print(
+        "[dim]Você pode editar este arquivo livremente sem privilégios de administrador (sudo).[/dim]"
+    )
+    return 0
+
+
+async def handle_set_jira_token(cfg: GlobalConfig) -> int:
+    """Manipula a configuração interativa de credenciais Jira."""
+    from uxsentinel.core.config import JiraSettings, get_user_config_path, save_jira_config
+    from uxsentinel.integrations.jira import JiraClient
+
+    cfg_path = get_user_config_path()
+    console.print("\n[bold cyan]🔧 Configuração Global do Atlassian Jira[/bold cyan]")
+    console.print(f"[dim]Arquivo: {cfg_path}[/dim]\n")
+
+    current_jira = cfg.jira
+    default_url = current_jira.url or "https://sua-empresa.atlassian.net"
+    jira_url = console.input(f"URL do Jira [{default_url}]: ").strip() or default_url
+
+    default_email = (
+        current_jira.email if current_jira.email and not current_jira.email.startswith("${") else ""
+    )
+    email_prompt = f"E-mail Atlassian [{default_email}]: " if default_email else "E-mail Atlassian: "
+    jira_email = console.input(email_prompt).strip() or default_email
+
+    token_prompt = "API Token / PAT (Personal Access Token)"
+    has_existing_token = bool(current_jira.api_token and not current_jira.api_token.startswith("${"))
+    if has_existing_token:
+        token_prompt += " [pressione Enter para manter atual]"
+    token_prompt += ": "
+
+    jira_token = console.input(token_prompt, password=True).strip()
+    if not jira_token and has_existing_token:
+        jira_token = current_jira.api_token
+
+    if not jira_token:
+        console.print("[bold red]❌ Erro:[/bold red] O API Token do Jira é obrigatório.")
+        return 1
+
+    default_proj = (
+        current_jira.project_key
+        if current_jira.project_key and not current_jira.project_key.startswith("${")
+        else ""
+    )
+    proj_prompt = f"Chave do Projeto [{default_proj}]: " if default_proj else "Chave do Projeto (ex: PROJ): "
+    jira_proj = console.input(proj_prompt).strip() or default_proj
+
+    saved_file = save_jira_config(
+        url=jira_url,
+        email=jira_email,
+        api_token=jira_token,
+        project_key=jira_proj,
+        enabled=True,
+    )
+    console.print(
+        f"\n[bold green]✓ Configurações do Jira salvas com sucesso em:[/bold green] [cyan]{saved_file}[/cyan]"
+    )
+    console.print(
+        "[dim]Permissões do arquivo restritas a 0600 (somente leitura/escrita pelo seu usuário).[/dim]\n"
+    )
+
+    console.print("🔍 Testando conectividade com o Jira...")
+    test_settings = JiraSettings(
+        enabled=True,
+        url=jira_url,
+        email=jira_email,
+        api_token=jira_token,
+        project_key=jira_proj,
+    )
+    test_client = JiraClient(test_settings)
+    ok, msg = await test_client.test_connection()
+    if ok:
+        console.print(f"[bold green]✓ Conexão com o Jira estabelecida com sucesso:[/bold green] {msg}\n")
+    else:
+        console.print(f"[yellow]⚠️ Aviso de conectividade:[/yellow] {msg}\n")
+    return 0
+
+
+def handle_logout_sso(cfg: GlobalConfig, provider_override: str | None) -> int:
+    """Remove credenciais SSO salvas em cache."""
+    from uxsentinel.core.sso import clear_cached_token
+
+    target = provider_override or cfg.active_provider
+    cleared = clear_cached_token(target)
+    if cleared:
+        console.print(
+            f"[bold green]✓[/bold green] Credenciais SSO do provedor [bold yellow]{target}[/bold yellow] removidas com sucesso."
+        )
+    else:
+        console.print(f"[dim]Nenhuma credencial SSO em cache encontrada para '{target}'.[/dim]")
+    return 0
+
+
+def handle_login_sso(cfg: GlobalConfig, provider_override: str | None) -> int:
+    """Abre navegador para autenticação SSO interativa."""
+    from uxsentinel.core.sso import login_via_browser
+
+    target_provider_name = provider_override or cfg.active_provider
+    if target_provider_name not in cfg.providers:
+        console.print(
+            f"[bold red]Erro:[/bold red] Provedor '{target_provider_name}' não encontrado no arquivo de configuração."
+        )
+        return 1
+    provider = cfg.providers[target_provider_name]
+    try:
+        login_via_browser(target_provider_name, provider)
+        return 0
+    except Exception as exc:
+        console.print(f"[bold red]❌ Falha no login SSO:[/bold red] {exc}")
+        return 1
+
+
+async def handle_check_ai(cfg: GlobalConfig, provider_override: str | None) -> int:
+    """Testa conectividade com a API de IA configurada."""
+    from uxsentinel.vision.client import UnifiedVisionClient
+
+    client = UnifiedVisionClient(cfg)
+    console.print(
+        f"🔍 Testando conexão com o provedor de IA: [bold yellow]{cfg.active_provider}[/bold yellow]..."
+    )
+    ok, msg = await client.test_connection(check_fallback=(provider_override is None))
+    if ok:
+        console.print(f"[bold green]✓ Conexão bem-sucedida:[/bold green] {msg}")
+        return 0
+    else:
+        console.print(f"[bold red]❌ Falha na conexão com a IA:[/bold red] {msg}")
+        return 1
+
+
+async def async_main() -> int:
+    """Ponto de entrada assíncrono principal da CLI do UXSentinel."""
+    parser = build_arg_parser()
     args = parser.parse_args()
 
     if args.init_config:
-        from uxsentinel.core.config import ensure_user_config, get_user_config_dir
-
-        cfg_file = ensure_user_config()
-        cfg_dir = get_user_config_dir()
-        console.print(f"[bold green]✓[/bold green] Diretório de configuração: [cyan]{cfg_dir}[/cyan]")
-        console.print(
-            f"[bold green]✓[/bold green] Arquivo de configuração criado/pronto: [cyan]{cfg_file}[/cyan]"
-        )
-        console.print(
-            "[dim]Você pode editar este arquivo livremente sem privilégios de administrador (sudo).[/dim]"
-        )
-        return 0
+        return handle_init_config()
 
     if args.list_scenarios:
         list_available_scenarios()
@@ -479,139 +621,19 @@ Documentação completa: https://github.com/Defendi/UXSentinel""",
     cfg = load_config(args.config)
 
     if args.set_jira_token:
-        from uxsentinel.core.config import JiraSettings, get_user_config_path, save_jira_config
-        from uxsentinel.integrations.jira import JiraClient
-
-        cfg_path = get_user_config_path()
-        console.print("\n[bold cyan]🔧 Configuração Global do Atlassian Jira[/bold cyan]")
-        console.print(f"[dim]Arquivo: {cfg_path}[/dim]\n")
-
-        current_jira = cfg.jira
-        default_url = current_jira.url or "https://sua-empresa.atlassian.net"
-        jira_url = console.input(f"URL do Jira [{default_url}]: ").strip() or default_url
-
-        default_email = (
-            current_jira.email if current_jira.email and not current_jira.email.startswith("${") else ""
-        )
-        email_prompt = f"E-mail Atlassian [{default_email}]: " if default_email else "E-mail Atlassian: "
-        jira_email = console.input(email_prompt).strip() or default_email
-
-        token_prompt = "API Token / PAT (Personal Access Token)"
-        has_existing_token = bool(current_jira.api_token and not current_jira.api_token.startswith("${"))
-        if has_existing_token:
-            token_prompt += " [pressione Enter para manter atual]"
-        token_prompt += ": "
-
-        jira_token = console.input(token_prompt, password=True).strip()
-        if not jira_token and has_existing_token:
-            jira_token = current_jira.api_token
-
-        if not jira_token:
-            console.print("[bold red]❌ Erro:[/bold red] O API Token do Jira é obrigatório.")
-            return 1
-
-        default_proj = (
-            current_jira.project_key
-            if current_jira.project_key and not current_jira.project_key.startswith("${")
-            else ""
-        )
-        proj_prompt = (
-            f"Chave do Projeto [{default_proj}]: " if default_proj else "Chave do Projeto (ex: PROJ): "
-        )
-        jira_proj = console.input(proj_prompt).strip() or default_proj
-
-        saved_file = save_jira_config(
-            url=jira_url,
-            email=jira_email,
-            api_token=jira_token,
-            project_key=jira_proj,
-            enabled=True,
-        )
-        console.print(
-            f"\n[bold green]✓ Configurações do Jira salvas com sucesso em:[/bold green] [cyan]{saved_file}[/cyan]"
-        )
-        console.print(
-            "[dim]Permissões do arquivo restritas a 0600 (somente leitura/escrita pelo seu usuário).[/dim]\n"
-        )
-
-        # Teste rápido de conectividade
-        console.print("🔍 Testando conectividade com o Jira...")
-        test_settings = JiraSettings(
-            enabled=True,
-            url=jira_url,
-            email=jira_email,
-            api_token=jira_token,
-            project_key=jira_proj,
-        )
-        test_client = JiraClient(test_settings)
-        ok, msg = await test_client.test_connection()
-        if ok:
-            console.print(f"[bold green]✓ Conexão com o Jira estabelecida com sucesso:[/bold green] {msg}\n")
-        else:
-            console.print(f"[yellow]⚠️ Aviso de conectividade:[/yellow] {msg}\n")
-        return 0
+        return await handle_set_jira_token(cfg)
 
     if args.provider:
         cfg.active_provider = args.provider
 
     if args.logout_sso:
-        from uxsentinel.core.sso import clear_cached_token
-
-        target = args.provider or cfg.active_provider
-        cleared = clear_cached_token(target)
-        if cleared:
-            console.print(
-                f"[bold green]✓[/bold green] Credenciais SSO do provedor [bold yellow]{target}[/bold yellow] removidas com sucesso."
-            )
-        else:
-            console.print(f"[dim]Nenhuma credencial SSO em cache encontrada para '{target}'.[/dim]")
-        return 0
+        return handle_logout_sso(cfg, args.provider)
 
     if args.login_sso:
-        from uxsentinel.core.sso import login_via_browser
-
-        target_provider_name = args.provider or cfg.active_provider
-        if target_provider_name not in cfg.providers:
-            console.print(
-                f"[bold red]Erro:[/bold red] Provedor '{target_provider_name}' não encontrado no arquivo de configuração."
-            )
-            return 1
-        provider = cfg.providers[target_provider_name]
-        try:
-            login_via_browser(target_provider_name, provider)
-            return 0
-        except Exception as exc:
-            console.print(f"[bold red]❌ Falha no login SSO:[/bold red] {exc}")
-            return 1
+        return handle_login_sso(cfg, args.provider)
 
     if args.check_ai:
-        from uxsentinel.vision.client import UnifiedVisionClient
-
-        client = UnifiedVisionClient(cfg)
-        console.print(
-            f"🔍 Testando conexão com o provedor de IA: [bold yellow]{cfg.active_provider}[/bold yellow]..."
-        )
-        ok, msg = await client.test_connection(check_fallback=(args.provider is None))
-        if ok:
-            console.print(f"[bold green]✓ Conexão bem-sucedida:[/bold green] {msg}")
-            return 0
-        else:
-            console.print(f"[bold red]❌ Falha na conexão com a IA:[/bold red] {msg}")
-            return 1
-
-    if args.fix_prompt:
-        cfg.reporting.generate_fix_prompt = True
-    if args.jira:
-        cfg.jira.enabled = True
-    if args.jira_project:
-        cfg.jira.project_key = args.jira_project
-
-    if args.slowmo is not None:
-        cfg.browser.slow_mo_ms = args.slowmo
-    if args.output_dir:
-        cfg.reporting.output_dir = args.output_dir
-    elif not cfg.reporting.output_dir or cfg.reporting.output_dir == "report":
-        cfg.reporting.output_dir = "scenarios/report"
+        return await handle_check_ai(cfg, args.provider)
 
     scenario_arg = args.scenario or args.scenario_pos
     try:
@@ -631,143 +653,31 @@ Documentação completa: https://github.com/Defendi/UXSentinel""",
             "[yellow]Dica:[/yellow] Verifique a indentação do YAML e consulte a especificação em [bold]docs/04_especificacao_cenarios_yaml.md[/bold]."
         )
         return EXIT_ERRO_EXECUCAO
-    if args.profile:
-        scenario.profile = args.profile
-    if args.provider:
-        cfg.active_provider = args.provider
-    elif scenario.provider:
-        cfg.active_provider = scenario.provider
 
-    # Hierarquia de resolução do modo de visualização (Headless vs Headed):
-    # 1. CLI flag (--headless/--no-gui/--silent vs --headed/--gui/--visible)
-    # 2. Cenário YAML (campo 'headless' no arquivo do cenário)
-    # 3. Config global config.yaml (BrowserSettings.headless)
-    # 4. Fallback padrão: False (visível com ritmo humano)
-    cfg.browser.headless = resolve_display_mode(
-        cli_headless=args.headless,
-        scenario_headless=scenario.headless,
-        config_headless=cfg.browser.headless,
+    options = ScenarioRunOptions(
+        provider=args.provider,
+        profile=args.profile,
+        headless=args.headless,
+        devtools=args.devtools,
+        record_video=args.record_video,
+        viewports=args.viewports or args.viewport,
+        enable_axe=args.enable_axe,
+        update_baseline=args.update_baseline,
+        baseline_dir=args.baseline_dir,
+        diff_threshold=args.diff_threshold,
+        slowmo=args.slowmo,
+        output_dir=args.output_dir,
+        markdown=args.markdown,
+        fail_fast=args.fail_fast,
+        archive=args.archive,
+        archive_dir=args.archive_dir,
+        jira=args.jira,
+        jira_project=args.jira_project,
+        fix_prompt=args.fix_prompt,
     )
 
-    # Hierarquia de resolução da gravação de vídeo:
-    # 1. CLI flag (--record-video/--video vs --no-video)
-    # 2. Cenário YAML (campo 'video' no arquivo do cenário)
-    # 3. Config global config.yaml (BrowserSettings.record_video)
-    # 4. Fallback padrão: False
-    cfg.browser.record_video = resolve_video_mode(
-        cli_video=args.record_video,
-        scenario_video=scenario.video,
-        config_video=cfg.browser.record_video,
-    )
-
-    # Hierarquia de resolução de viewports:
-    # 1. CLI flag (--viewports / --viewport)
-    # 2. Cenário YAML (campo 'viewports' no arquivo do cenário)
-    # 3. Config global config.yaml (BrowserSettings.viewports)
-    # 4. Fallback padrão: desktop padrão 1280x800
-    cli_viewport_arg = args.viewports or args.viewport
-    cfg.browser.viewports = resolve_viewports(
-        cli_viewports=cli_viewport_arg,
-        scenario_viewports=scenario.viewports,
-        config_viewports=cfg.browser.viewports,
-    )
-
-    # Hierarquia de resolução do modo Axe-Core:
-    # 1. CLI flag (--axe / --no-axe)
-    # 2. Cenário YAML (campo 'axe')
-    # 3. Config global (BrowserSettings.enable_axe)
-    # 4. Fallback padrão: True
-    cfg.browser.enable_axe = resolve_axe_mode(
-        cli_axe=args.enable_axe,
-        scenario_axe=scenario.axe,
-        config_axe=cfg.browser.enable_axe,
-    )
-
-    # Hierarquia de resolução do Baseline Visual:
-    # 1. CLI flag (--update-baseline, --baseline-dir, --diff-threshold)
-    # 2. Cenário YAML (campos 'update_baseline', 'baseline_dir', 'diff_threshold')
-    # 3. Config global (cfg.baseline)
-    if args.baseline_dir:
-        cfg.baseline.baseline_dir = args.baseline_dir
-    elif scenario.baseline_dir:
-        cfg.baseline.baseline_dir = scenario.baseline_dir
-
-    if args.diff_threshold is not None:
-        cfg.baseline.diff_threshold = args.diff_threshold
-    elif scenario.diff_threshold is not None:
-        cfg.baseline.diff_threshold = scenario.diff_threshold
-
-    cfg.baseline.update_baseline = resolve_baseline_mode(
-        cli_update_baseline=args.update_baseline,
-        scenario_update_baseline=scenario.update_baseline,
-        config_update_baseline=cfg.baseline.update_baseline,
-    )
-
-    # Hierarquia de resolução do Relatório Markdown (MarkText/Obsidian):
-    # 1. CLI flag (--markdown / --md / --report-md vs --no-markdown / --no-md)
-    # 2. Cenário YAML (campo 'markdown')
-    # 3. Config global (ReportingSettings.generate_markdown)
-    # 4. Fallback padrão: False
-    cfg.reporting.generate_markdown = resolve_markdown_mode(
-        cli_markdown=args.markdown,
-        scenario_markdown=scenario.markdown,
-        config_markdown=cfg.reporting.generate_markdown,
-    )
-
-    # Hierarquia de resolução do DevTools / Console do Chromium:
-    # 1. CLI flag (--devtools / --console / --inspect vs --no-devtools)
-    # 2. Cenário YAML (campo 'devtools')
-    # 3. Config global (BrowserSettings.devtools)
-    # 4. Fallback padrão: False
-    cfg.browser.devtools = resolve_devtools_mode(
-        cli_devtools=args.devtools,
-        scenario_devtools=scenario.devtools,
-        config_devtools=cfg.browser.devtools,
-    )
-    if cfg.browser.devtools:
-        # DevTools requer modo com janela visível
-        cfg.browser.headless = False
-
-    # Hierarquia de resolução do Arquivamento da Análise Anterior:
-    # 1. CLI flag (--archive vs --no-archive, --archive-dir)
-    # 2. Cenário YAML (campos 'archive', 'archive_dir')
-    # 3. Config global (ReportingSettings.archive_previous_reports, ReportingSettings.archive_dir)
-    # 4. Fallback padrão: True
-    cfg.reporting.archive_previous_reports = resolve_archive_mode(
-        cli_archive=args.archive,
-        scenario_archive=scenario.archive,
-        config_archive=cfg.reporting.archive_previous_reports,
-    )
-    cfg.reporting.archive_dir = resolve_archive_dir(
-        cli_archive_dir=args.archive_dir,
-        scenario_archive_dir=scenario.archive_dir,
-        config_archive_dir=cfg.reporting.archive_dir,
-    )
-
-    agent = UXSentinelAgent(
-        cfg,
-        headless_override=args.headless,
-        record_video_override=args.record_video,
-        viewports_override=cli_viewport_arg,
-        enable_axe_override=args.enable_axe,
-        update_baseline_override=args.update_baseline,
-        baseline_dir_override=args.baseline_dir,
-        diff_threshold_override=args.diff_threshold,
-        markdown_override=args.markdown,
-        devtools_override=args.devtools,
-        archive_override=args.archive,
-        archive_dir_override=args.archive_dir,
-    )
-    report = await agent.run_scenario(
-        scenario,
-        update_baseline_override=args.update_baseline,
-        baseline_dir_override=args.baseline_dir,
-        diff_threshold_override=args.diff_threshold,
-        markdown_override=args.markdown,
-        devtools_override=args.devtools,
-        archive_override=args.archive,
-        archive_dir_override=args.archive_dir,
-    )
+    runner = ScenarioRunnerService(cfg)
+    report = await runner.run_scenario(scenario, options)
 
     await asyncio.sleep(0.05)
     return EXIT_SUCESSO if report.success else EXIT_INCONFORMIDADES

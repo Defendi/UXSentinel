@@ -72,7 +72,12 @@ class UnifiedVisionClient:
                 return name
         return self.config.active_provider
 
-    def _ensure_provider_auth(self, provider: ProviderSettings, interactive: bool = True) -> str | None:
+    def _ensure_provider_auth(
+        self,
+        provider: ProviderSettings,
+        interactive: bool = True,
+        force_refresh: bool = False,
+    ) -> str | None:
         """Garante que provedores do tipo SSO possuam token Bearer válido, abrindo o navegador se necessário."""
         p_name = self._find_provider_name(provider)
         is_sso = provider.type == "sso" or "_sso" in p_name
@@ -80,21 +85,58 @@ class UnifiedVisionClient:
         if not is_sso:
             return provider.api_key
 
-        from uxsentinel.core.sso import get_cached_token, login_via_browser
+        from uxsentinel.core.sso import (
+            get_cached_token,
+            get_sso_cache_file,
+            login_via_browser,
+            refresh_claude_oauth_token,
+        )
 
         auth_header = provider.headers.get("Authorization", "").strip()
         if auth_header in ("Bearer", "Bearer "):
             auth_header = ""
 
         token = ""
-        if auth_header.startswith("Bearer "):
-            token = auth_header[7:].strip()
-        elif auth_header:
-            token = auth_header
-        elif provider.api_key and provider.api_key.startswith("Bearer "):
-            token = provider.api_key[7:].strip()
-        elif provider.api_key and not provider.api_key.startswith("${"):
-            token = provider.api_key.strip()
+        if not force_refresh:
+            if auth_header.startswith("Bearer "):
+                token = auth_header[7:].strip()
+            elif auth_header:
+                token = auth_header
+            elif provider.api_key and provider.api_key.startswith("Bearer "):
+                token = provider.api_key[7:].strip()
+            elif provider.api_key and not provider.api_key.startswith("${"):
+                token = provider.api_key.strip()
+
+        # Quando force_refresh=True for solicitado, não reutilizar o token em cache atual se houver refresh_token
+        if force_refresh:
+            ref_tok: str | None = None
+            cache_file = get_sso_cache_file()
+            if cache_file.is_file():
+                try:
+                    import json
+
+                    cdata = json.loads(cache_file.read_text(encoding="utf-8"))
+                    ref_tok = cdata.get(p_name, {}).get("refresh_token")
+                except Exception:
+                    ref_tok = None
+
+            if not ref_tok:
+                from pathlib import Path
+
+                claude_creds = Path.home() / ".claude" / ".credentials.json"
+                if claude_creds.is_file():
+                    try:
+                        import json
+
+                        ccdata = json.loads(claude_creds.read_text(encoding="utf-8"))
+                        ref_tok = ccdata.get("claudeAiOauth", {}).get("refreshToken")
+                    except Exception:
+                        ref_tok = None
+
+            if ref_tok:
+                new_tok = refresh_claude_oauth_token(ref_tok)
+                if new_tok:
+                    token = new_tok
 
         # Se não houver token no config ou variável de ambiente, busca no cache local seguro
         if not token:
@@ -111,8 +153,7 @@ class UnifiedVisionClient:
 
         if token:
             provider.headers["Authorization"] = f"Bearer {token}"
-            if not provider.api_key or provider.api_key.startswith("${"):
-                provider.api_key = token
+            provider.api_key = token
             return token
 
         return None
@@ -410,8 +451,62 @@ class UnifiedVisionClient:
         }
 
         async with httpx.AsyncClient(timeout=p.timeout, verify=p.verify_ssl) as client:
-            response = await client.post(url, json=payload, headers=headers)
-            response.raise_for_status()
+            try:
+                response = await client.post(url, json=payload, headers=headers)
+                response.raise_for_status()
+            except httpx.HTTPStatusError as exc:
+                is_sso = (
+                    p.type == "sso"
+                    or "claude_sso" in p_name
+                    or str(p.api_key or "").startswith("sk-ant-oat")
+                    or "sk-ant-oat" in str(headers.get("Authorization", ""))
+                )
+                if exc.response.status_code == 401 and is_sso:
+                    # Tenta renovar o token e retentar a requisição uma vez de forma transparente
+                    from pathlib import Path
+
+                    from uxsentinel.core.sso import get_sso_cache_file, refresh_claude_oauth_token
+
+                    ref_tok: str | None = None
+                    cache_file = get_sso_cache_file()
+                    if cache_file.is_file():
+                        try:
+                            import json
+
+                            cdata = json.loads(cache_file.read_text(encoding="utf-8"))
+                            ref_tok = cdata.get(p_name, {}).get("refresh_token")
+                        except Exception:
+                            ref_tok = None
+
+                    if not ref_tok:
+                        claude_creds = Path.home() / ".claude" / ".credentials.json"
+                        if claude_creds.is_file():
+                            try:
+                                import json
+
+                                ccdata = json.loads(claude_creds.read_text(encoding="utf-8"))
+                                ref_tok = ccdata.get("claudeAiOauth", {}).get("refreshToken")
+                            except Exception:
+                                ref_tok = None
+
+                    if ref_tok:
+                        new_tok = refresh_claude_oauth_token(ref_tok)
+                        if new_tok:
+                            p.api_key = new_tok
+                            p.headers["Authorization"] = f"Bearer {new_tok}"
+                            headers["Authorization"] = f"Bearer {new_tok}"
+                            if "x-api-key" in headers:
+                                headers["x-api-key"] = new_tok
+                            # Retenta a chamada HTTP de forma transparente
+                            response = await client.post(url, json=payload, headers=headers)
+                            response.raise_for_status()
+                        else:
+                            raise exc
+                    else:
+                        raise exc
+                else:
+                    raise exc
+
             data = response.json()
             for block in data.get("content", []):
                 if block.get("type") == "text":

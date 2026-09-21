@@ -1,5 +1,3 @@
-import asyncio
-import contextlib
 import shutil
 import time
 from datetime import datetime
@@ -17,6 +15,7 @@ from rich.progress import (
 )
 from rich.table import Table
 
+from uxsentinel.browser.actions import ActionContext, default_action_registry
 from uxsentinel.browser.axe_runner import (
     AxeRunner,
     calculate_a11y_score,
@@ -35,6 +34,7 @@ from uxsentinel.core.config import (
     resolve_axe_mode,
     resolve_baseline_mode,
     resolve_display_mode,
+    resolve_fail_fast_mode,
     resolve_markdown_mode,
     resolve_video_mode,
 )
@@ -46,13 +46,10 @@ from uxsentinel.core.models import (
     IssueSeverity,
     Scenario,
     ScenarioExceptions,
-    SemanticStepResult,
-    SemanticStrategy,
     StepAction,
     TestReport,
     ViewportConfig,
     VisualDiffResult,
-    parse_viewport_spec,
     resolve_viewports,
 )
 from uxsentinel.reporter.archiver import archive_previous_reports
@@ -83,6 +80,7 @@ class UXSentinelAgent:
         devtools_override: bool | None = None,
         archive_override: bool | None = None,
         archive_dir_override: str | Path | None = None,
+        fail_fast_override: bool | None = None,
     ):
         self.config = config
         self.headless_override = headless_override
@@ -96,13 +94,23 @@ class UXSentinelAgent:
         self.devtools_override = devtools_override
         self.archive_override = archive_override
         self.archive_dir_override = archive_dir_override
+        self.fail_fast_override = fail_fast_override
         self.inspector = ScreenInspector(config)
         self.healer = SelectorHealer(
             vision_client=self.inspector.client,
             enabled=self.config.browser.self_healing,
         )
         self.axe_runner = AxeRunner(tags=self.config.browser.axe_tags)
-        self.last_execution_result: ExecutionResult | None = None
+        self._last_execution_result: ExecutionResult | None = None
+
+    @property
+    def last_execution_result(self) -> ExecutionResult | None:
+        """Propriedade para manter retrocompatibilidade com inspeções externas."""
+        return self._last_execution_result
+
+    @last_execution_result.setter
+    def last_execution_result(self, value: ExecutionResult | None) -> None:
+        self._last_execution_result = value
 
     async def run_scenario(
         self,
@@ -118,9 +126,21 @@ class UXSentinelAgent:
         devtools_override: bool | None = None,
         archive_override: bool | None = None,
         archive_dir_override: str | Path | None = None,
+        fail_fast_override: bool | None = None,
     ) -> TestReport:
         profile = scenario.profile or "generic"
         start_time = time.time()
+
+        # Determina o modo fail_fast respeitando a hierarquia:
+        # CLI Flag > Cenário YAML > Config global > Fallback True
+        effective_cli_fail_fast = (
+            fail_fast_override if fail_fast_override is not None else self.fail_fast_override
+        )
+        effective_fail_fast = resolve_fail_fast_mode(
+            cli_fail_fast=effective_cli_fail_fast,
+            scenario_fail_fast=scenario.fail_fast,
+            config_fail_fast=self.config.browser.fail_fast,
+        )
 
         # Determina o modo markdown respeitando a hierarquia:
         # CLI Flag > Cenário YAML > Config global > Fallback False
@@ -353,6 +373,7 @@ class UXSentinelAgent:
                 )
                 multi_vp = len(effective_viewports) > 1
                 total_work = len(scenario.steps) * len(effective_viewports)
+                interrupted = False
 
                 if effective_headless and total_work > 0:
                     with Progress(
@@ -366,6 +387,8 @@ class UXSentinelAgent:
                     ) as progress:
                         task_id = progress.add_task(f"[cyan]Executando {scenario.title}...", total=total_work)
                         for vp in effective_viewports:
+                            if interrupted:
+                                break
                             if hasattr(driver, "set_viewport"):
                                 await driver.set_viewport(vp.width, vp.height)
                             elif hasattr(driver, "page") and hasattr(driver.page, "set_viewport_size"):
@@ -380,13 +403,14 @@ class UXSentinelAgent:
                                     task_id,
                                     description=f"[cyan]Passo {idx:02d}/{len(scenario.steps):02d}{vp_tag}: [white]{action_desc[:35]}",
                                 )
-                                await self._execute_step_guarded(
+                                should_continue = await self._execute_step_guarded(
                                     idx,
                                     step,
                                     driver,
                                     scenario,
                                     report,
                                     out_dir,
+                                    effective_fail_fast=effective_fail_fast,
                                     progress=progress,
                                     task_id=task_id,
                                     current_viewport=vp,
@@ -397,8 +421,13 @@ class UXSentinelAgent:
                                     effective_diff_threshold=effective_diff_threshold,
                                 )
                                 progress.advance(task_id)
+                                if not should_continue:
+                                    interrupted = True
+                                    break
                 else:
                     for vp in effective_viewports:
+                        if interrupted:
+                            break
                         if multi_vp:
                             console.print(
                                 f"\n[bold cyan]📱 Alternando Viewport:[/bold cyan] [bold]{vp.label}[/bold]"
@@ -409,13 +438,14 @@ class UXSentinelAgent:
                             await driver.page.set_viewport_size({"width": vp.width, "height": vp.height})
 
                         for idx, step in enumerate(scenario.steps, start=1):
-                            await self._execute_step_guarded(
+                            should_continue = await self._execute_step_guarded(
                                 idx,
                                 step,
                                 driver,
                                 scenario,
                                 report,
                                 out_dir,
+                                effective_fail_fast=effective_fail_fast,
                                 current_viewport=vp,
                                 multi_viewport=multi_vp,
                                 effective_axe=effective_axe,
@@ -423,6 +453,9 @@ class UXSentinelAgent:
                                 effective_update_baseline=effective_update_baseline,
                                 effective_diff_threshold=effective_diff_threshold,
                             )
+                            if not should_continue:
+                                interrupted = True
+                                break
 
         except Exception as exc:
             console.print(f"[bold red]❌ Erro fatal na execução do cenário:[/bold red] {exc}")
@@ -545,19 +578,49 @@ class UXSentinelAgent:
         scenario: Scenario,
         report: TestReport,
         out_dir: Path,
+        effective_fail_fast: bool = True,
         **kwargs,
-    ) -> None:
-        """Executa um passo isolando a falha, para que os checkpoints e viewports seguintes continuem."""
+    ) -> bool:
+        """Executa um passo. Em caso de falha de execução ou asserção/checkpoint grave:
+        - Captura screenshot imediatamente no driver (passo_XX_falha.png) se houve exceção;
+        - Se fail-fast estiver ativo, interrompe imediatamente a execução retornando False.
+        Retorna True se deve continuar, ou False se a execução deve ser interrompida.
+        """
+        initial_cp_count = len(report.checkpoints)
         try:
             await self._execute_step(index, step, driver, scenario, report, out_dir, **kwargs)
         except Exception as exc:
             progress: Progress | None = kwargs.get("progress")
             current_viewport: ViewportConfig | None = kwargs.get("current_viewport")
+            multi_viewport: bool = kwargs.get("multi_viewport", False)
             p_console = progress.console if progress is not None else console
             desc = step.description or f"{step.action} {step.selector or step.url or step.target or ''}"
             vp_label = current_viewport.label if current_viewport else None
 
             p_console.print(f"    [bold red]❌ FALHA NA EXECUÇÃO DO PASSO {index:02d}:[/bold red] {exc}")
+
+            # Captura screenshot do erro imediatamente no driver
+            clean_vp = (
+                current_viewport.name.replace(":", "_").replace(" ", "_")
+                if (multi_viewport and current_viewport)
+                else None
+            )
+            screenshot_name = (
+                f"{report.scenario_id}_{clean_vp}_passo_{index:02d}_falha.png"
+                if clean_vp
+                else f"{report.scenario_id}_passo_{index:02d}_falha.png"
+            )
+            screenshot_file = out_dir / screenshot_name
+            screenshot_saved: str | None = None
+
+            try:
+                page_obj = getattr(driver, "page", None)
+                if page_obj and hasattr(page_obj, "screenshot"):
+                    await page_obj.screenshot(path=str(screenshot_file), full_page=True)
+                    if screenshot_file.is_file():
+                        screenshot_saved = str(screenshot_file)
+            except Exception as ss_exc:
+                p_console.print(f"    [dim]⚠️ Não foi possível capturar screenshot de falha: {ss_exc}[/dim]")
 
             issue = Issue(
                 categoria=IssueCategory.OUTRO,
@@ -573,11 +636,42 @@ class UXSentinelAgent:
                     name=f"passo_{index:02d}_falha",
                     description=desc,
                     expected_behavior=f"O passo '{step.action}' deveria ser executado com sucesso.",
+                    screenshot_path=screenshot_saved,
                     status="erro_execucao",
                     issues=[issue],
                     viewport=vp_label,
                 )
             )
+
+            if effective_fail_fast:
+                p_console.print(
+                    "\n[bold red]⛔ FALHA GRAVE DETECTADA: Interrompendo execução imediatamente (--fail-fast ativo).[/bold red]\n"
+                )
+                return False
+            return True
+
+        # Verifica se o passo executado (ex: assert_*, ai_assert ou checkpoint) gerou falha grave
+        new_cps = report.checkpoints[initial_cp_count:]
+        if effective_fail_fast and new_cps:
+            has_severe_failure = False
+            for cp in new_cps:
+                if cp.status in ("problemas_encontrados", "erro_execucao"):
+                    for iss in cp.issues:
+                        if iss.severidade in (IssueSeverity.BLOQUEANTE, IssueSeverity.ALTA):
+                            has_severe_failure = True
+                            break
+                if has_severe_failure:
+                    break
+
+            if has_severe_failure:
+                progress = kwargs.get("progress")
+                p_console = progress.console if progress is not None else console
+                p_console.print(
+                    "\n[bold red]⛔ FALHA GRAVE DETECTADA: Interrompendo execução imediatamente (--fail-fast ativo).[/bold red]\n"
+                )
+                return False
+
+        return True
 
     async def _execute_step(
         self,
@@ -639,334 +733,26 @@ class UXSentinelAgent:
 
         initial_healing_count = len(driver.healing_events)
 
-        if action == "goto":
-            if not step.url:
-                raise ValueError(f"Passo {index}: 'goto' requer 'url'")
-            await driver.goto(step.url, timeout=step.timeout or self.config.browser.timeout_ms)
+        ctx = ActionContext(
+            driver=driver,
+            scenario=scenario,
+            report=report,
+            out_dir=out_dir,
+            step_index=index,
+            step=step,
+            progress=progress,
+            task_id=task_id,
+            current_viewport=current_viewport,
+            multi_viewport=multi_viewport,
+            effective_axe=effective_axe,
+            effective_baseline_dir=effective_baseline_dir,
+            effective_update_baseline=effective_update_baseline,
+            effective_diff_threshold=effective_diff_threshold,
+            scenario_exceptions=scenario.exceptions,
+            agent=self,
+        )
 
-        elif action == "set_viewport":
-            val = step.value or "desktop"
-            vp_custom = parse_viewport_spec(val)
-            if hasattr(driver, "set_viewport"):
-                await driver.set_viewport(vp_custom.width, vp_custom.height)
-            elif hasattr(driver, "page") and hasattr(driver.page, "set_viewport_size"):
-                await driver.page.set_viewport_size({"width": vp_custom.width, "height": vp_custom.height})
-            p_console.print(f"    [dim]Viewport alterada para {vp_custom.label}[/dim]")
-
-        elif action == "click":
-            if not step.selector:
-                raise ValueError(f"Passo {index}: 'click' requer 'selector'")
-            await driver.click(
-                step.selector,
-                timeout=step.timeout or 10000,
-                description=desc,
-                step_index=index,
-            )
-
-        elif action == "fill":
-            if not step.selector:
-                raise ValueError(f"Passo {index}: 'fill' requer 'selector'")
-            await driver.fill(
-                step.selector,
-                step.value or "",
-                timeout=step.timeout or 10000,
-                description=desc,
-                step_index=index,
-            )
-
-        elif action in ("type", "digitar"):
-            if not step.selector:
-                raise ValueError(f"Passo {index}: 'type' requer 'selector'")
-            await driver.type_text(
-                step.selector,
-                step.value or "",
-                delay_ms=40,
-                timeout=step.timeout or 10000,
-                description=desc,
-                step_index=index,
-            )
-
-        elif action in ("clear", "limpar"):
-            if not step.selector:
-                raise ValueError(f"Passo {index}: 'clear' requer 'selector'")
-            await driver.clear(
-                step.selector,
-                timeout=step.timeout or 10000,
-                description=desc,
-                step_index=index,
-            )
-
-        elif action in ("select", "dropdown", "choose", "selecionar"):
-            if not step.selector:
-                raise ValueError(f"Passo {index}: '{action}' requer 'selector'")
-            await driver.select_option(
-                step.selector,
-                step.value or "",
-                timeout=step.timeout or 10000,
-                description=desc,
-                step_index=index,
-            )
-
-        elif action in ("assert_required", "check_required", "validar_obrigatorio"):
-            targets = [step.selector] if step.selector else (step.criteria or [])
-            if not targets:
-                raise ValueError(f"Passo {index}: '{action}' requer 'selector' ou lista em 'criteria'")
-            for tgt in targets:
-                is_req, reason = await driver.check_field_required(tgt, timeout=step.timeout or 5000)
-                if not is_req:
-                    p_console.print(
-                        f"    [bold red]❌ FALHA EM CAMPO OBRIGATÓRIO:[/bold red] [{tgt}] {reason}"
-                    )
-                    issue = Issue(
-                        categoria=IssueCategory.REGRA_NEGOCIO,
-                        severidade=IssueSeverity.ALTA,
-                        descricao=f"Campo obrigatório não sinalizado adequadamente no seletor '{tgt}'. Motivo: {reason}",
-                        sugestao_correcao=f"Adicionar atributo 'required', 'aria-required=\"true\"' ou asterisco (*) no label do campo '{tgt}'.",
-                        elemento_alvo=tgt,
-                        viewport=current_viewport.label if current_viewport else None,
-                        evaluator="assert_required",
-                    )
-                    if report.checkpoints:
-                        target_cp = report.checkpoints[-1]
-                        target_cp.issues.append(issue)
-                        target_cp.status = "problemas_encontrados"
-                    else:
-                        screenshot_file = out_dir / f"{report.scenario_id}_required_step_{index}.png"
-                        if hasattr(driver, "page") and hasattr(driver.page, "screenshot"):
-                            with contextlib.suppress(Exception):
-                                await driver.page.screenshot(path=str(screenshot_file), full_page=True)
-                        cp = CheckpointResult(
-                            name=f"required_step_{index}",
-                            description=f"Validação de obrigatoriedade do campo: {tgt}",
-                            expected_behavior=f"O campo '{tgt}' deve ser obrigatório",
-                            screenshot_path=str(screenshot_file) if screenshot_file.is_file() else None,
-                            status="problemas_encontrados",
-                            issues=[issue],
-                            viewport=current_viewport.label if current_viewport else None,
-                        )
-                        report.checkpoints.append(cp)
-                else:
-                    p_console.print(
-                        f"    [bold green]✅ Campo obrigatório validado:[/bold green] [{tgt}] [dim]{reason}[/dim]"
-                    )
-
-        elif action in ("assert_invalid", "check_invalid", "validar_erro", "validar_invalido"):
-            if not step.selector:
-                raise ValueError(f"Passo {index}: '{action}' requer 'selector'")
-            is_inv, reason = await driver.check_field_invalid(step.selector, timeout=step.timeout or 5000)
-            if not is_inv:
-                p_console.print(
-                    f"    [bold red]❌ CAMPO DEVERIA ESTAR EM ESTADO DE ERRO:[/bold red] [{step.selector}] {reason}"
-                )
-                issue = Issue(
-                    categoria=IssueCategory.REGRA_NEGOCIO,
-                    severidade=IssueSeverity.ALTA,
-                    descricao=f"Campo deveria exibir validação de erro após submissão: seletor '{step.selector}'. Motivo: {reason}",
-                    sugestao_correcao=f"Garantir que a tentativa de submissão sem preenchimento ative ':invalid' ou exiba alerta em '{step.selector}'.",
-                    elemento_alvo=step.selector,
-                    viewport=current_viewport.label if current_viewport else None,
-                    evaluator="assert_invalid",
-                )
-                if report.checkpoints:
-                    target_cp = report.checkpoints[-1]
-                    target_cp.issues.append(issue)
-                    target_cp.status = "problemas_encontrados"
-                else:
-                    screenshot_file = out_dir / f"{report.scenario_id}_invalid_step_{index}.png"
-                    if hasattr(driver, "page") and hasattr(driver.page, "screenshot"):
-                        with contextlib.suppress(Exception):
-                            await driver.page.screenshot(path=str(screenshot_file), full_page=True)
-                    cp = CheckpointResult(
-                        name=f"invalid_step_{index}",
-                        description=f"Validação de estado de erro do campo: {step.selector}",
-                        expected_behavior=f"O campo '{step.selector}' deve acusar erro",
-                        screenshot_path=str(screenshot_file) if screenshot_file.is_file() else None,
-                        status="problemas_encontrados",
-                        issues=[issue],
-                        viewport=current_viewport.label if current_viewport else None,
-                    )
-                    report.checkpoints.append(cp)
-            else:
-                p_console.print(
-                    f"    [bold green]✅ Validação de erro confirmada no campo:[/bold green] [{step.selector}] [dim]{reason}[/dim]"
-                )
-
-        elif action == "press":
-            if not step.value:
-                raise ValueError(f"Passo {index}: 'press' requer 'value' com o nome da tecla")
-            await driver.press(step.value)
-
-        elif action == "hover":
-            if not step.selector:
-                raise ValueError(f"Passo {index}: 'hover' requer 'selector'")
-            await driver.hover(
-                step.selector,
-                timeout=step.timeout or 10000,
-                description=desc,
-                step_index=index,
-            )
-
-        elif action == "scroll":
-            direction = step.value or "down"
-            await driver.scroll(direction=direction)
-
-        elif action == "wait_until_ready" or action == "wait_odoo_ready" or action == "wait_navigation":
-            await driver.wait_until_ready(timeout=step.timeout or 15000)
-
-        elif action == "wait_modal" or action == "wait_for_modal":
-            modal_opened = await driver.wait_for_modal(timeout=step.timeout or 10000)
-            if not modal_opened:
-                p_console.print("    [yellow]⚠️ Modal não detectado após timeout.[/yellow]")
-
-        elif action == "wait_modal_close":
-            modal_closed = await driver.wait_modal_close(timeout=step.timeout or 10000)
-            if not modal_closed:
-                p_console.print(
-                    "    [yellow]⚠️ Modal não foi fechado (ou backdrop permaneceu) após timeout.[/yellow]"
-                )
-
-        elif action == "pause":
-            duration = int(step.value or 2) if step.value and step.value.isdigit() else 2
-            await asyncio.sleep(duration)
-
-        elif action == "checkpoint":
-            await self._handle_checkpoint(
-                step,
-                driver,
-                report,
-                out_dir,
-                progress=progress,
-                task_id=task_id,
-                step_index=index,
-                total_steps=len(scenario.steps),
-                current_viewport=current_viewport,
-                multi_viewport=multi_viewport,
-                effective_axe=effective_axe,
-                effective_baseline_dir=effective_baseline_dir,
-                effective_update_baseline=effective_update_baseline,
-                effective_diff_threshold=effective_diff_threshold,
-                scenario_exceptions=scenario.exceptions,
-            )
-
-        elif action == "ai_click":
-            target = step.ai_click or step.target or step.selector or ""
-            if not target:
-                raise ValueError(f"Passo {index}: 'ai_click' requer alvo descritivo em linguagem natural")
-            sem_res = await driver.ai_click(
-                target=target,
-                timeout=step.timeout or 10000,
-                description=desc,
-                step_index=index,
-            )
-            report.semantic_steps.append(sem_res)
-            strat_label = (
-                "Acessibilidade" if sem_res.strategy == SemanticStrategy.ACCESSIBILITY else "Visão LMM"
-            )
-            loc_label = sem_res.resolved_selector or (
-                f"coords {sem_res.coordinates}" if sem_res.coordinates else "ok"
-            )
-            p_console.print(f"    [green]✔ Alvo clicado via {strat_label}:[/green] [dim]{loc_label}[/dim]")
-
-        elif action == "ai_fill":
-            target = step.ai_fill or step.target or step.selector or ""
-            if not target:
-                raise ValueError(f"Passo {index}: 'ai_fill' requer alvo descritivo em linguagem natural")
-            val = step.value or ""
-            sem_res = await driver.ai_fill(
-                target=target,
-                value=val,
-                timeout=step.timeout or 10000,
-                description=desc,
-                step_index=index,
-            )
-            report.semantic_steps.append(sem_res)
-            strat_label = (
-                "Acessibilidade" if sem_res.strategy == SemanticStrategy.ACCESSIBILITY else "Visão LMM"
-            )
-            loc_label = sem_res.resolved_selector or (
-                f"coords {sem_res.coordinates}" if sem_res.coordinates else "ok"
-            )
-            p_console.print(
-                f"    [green]✔ Campo preenchido via {strat_label}:[/green] [dim]{loc_label}[/dim]"
-            )
-
-        elif action == "ai_assert":
-            assertion = step.ai_assert or step.target or step.expected_behavior or ""
-            if not assertion:
-                raise ValueError(f"Passo {index}: 'ai_assert' requer texto da asserção declarativa")
-            assert_res = await driver.ai_assert(
-                assertion=assertion,
-                timeout=step.timeout or 10000,
-                description=desc,
-                step_index=index,
-            )
-            sem_step = SemanticStepResult(
-                step_index=index,
-                action="ai_assert",
-                target=assertion,
-                strategy=SemanticStrategy.LMM_ASSERTION,
-                confidence=assert_res.confidence,
-                passed=assert_res.passed,
-                reasoning=assert_res.reasoning,
-            )
-            report.semantic_steps.append(sem_step)
-
-            if assert_res.passed:
-                p_console.print(
-                    f"    [bold green]✅ Asserção Cognitiva Aprovada:[/bold green] [dim]{assert_res.reasoning}[/dim]"
-                )
-            else:
-                p_console.print(
-                    f"    [bold red]❌ FALHA NA ASSERÇÃO COGNITIVA:[/bold red] {assert_res.reasoning}"
-                )
-                issue = Issue(
-                    categoria=IssueCategory.REGRA_NEGOCIO,
-                    severidade=assert_res.severity,
-                    descricao=f"Falha na asserção cognitiva: '{assertion}'. Avaliação LMM: {assert_res.reasoning}",
-                    sugestao_correcao=assert_res.suggestion
-                    or "Verificar se o estado visual da tela corresponde ao esperado pela asserção declarativa.",
-                    viewport=current_viewport.label if current_viewport else None,
-                    evaluator="ai_assert",
-                )
-                # Registra como Issue e marca falha no checkpoint
-                if report.checkpoints:
-                    target_cp = report.checkpoints[-1]
-                    target_cp.issues.append(issue)
-                    target_cp.status = "problemas_encontrados"
-                else:
-                    screenshot_file = out_dir / f"{report.scenario_id}_ai_assert_step_{index}.png"
-                    if hasattr(driver, "page") and hasattr(driver.page, "screenshot"):
-                        with contextlib.suppress(Exception):
-                            await driver.page.screenshot(path=str(screenshot_file), full_page=True)
-                    cp = CheckpointResult(
-                        name=f"ai_assert_step_{index}",
-                        description=f"Validação cognitiva da asserção: {assertion}",
-                        expected_behavior=assertion,
-                        screenshot_path=str(screenshot_file) if screenshot_file.is_file() else None,
-                        status="problemas_encontrados",
-                        issues=[issue],
-                        viewport=current_viewport.label if current_viewport else None,
-                    )
-                    report.checkpoints.append(cp)
-
-        elif action == "ai_action":
-            instruction = step.ai_action or step.target or step.description or ""
-            if not instruction:
-                raise ValueError(f"Passo {index}: 'ai_action' requer instrução em linguagem natural")
-            sem_res = await driver.ai_action(
-                instruction=instruction,
-                value=step.value,
-                timeout=step.timeout or 10000,
-                description=desc,
-                step_index=index,
-            )
-            report.semantic_steps.append(sem_res)
-            p_console.print(
-                f"    [green]✔ Ação semântica executada:[/green] [dim]{sem_res.reasoning or 'sucesso'}[/dim]"
-            )
-
-        else:
-            raise ValueError(f"Ação desconhecida: '{action}'")
+        await default_action_registry.execute(ctx)
 
         # Verifica se ocorreram eventos de self-healing neste passo
         if len(driver.healing_events) > initial_healing_count:

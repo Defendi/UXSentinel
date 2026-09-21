@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "skills": {
+    "brainstorming": {
+      "source": "obra/superpowers",
+      "sourceType": "github",
+      "skillPath": "skills/brainstorming/SKILL.md",
+      "computedHash": "b95dc657c5dd79caf7340ee6dead6faf2ce2d1cc613352a027fa8993966b41b7"
+    },
+    "python-backend-reviewer": {
+      "source": "modelscope.cn",
+      "sourceUrl": "https://www.modelscope.cn/skills/@majiayu000/python-backend-reviewer",
+      "sourceType": "well-known",
+      "computedHash": "639dbe680b74acec41617c84757d3463903046cc69573d8d48232c8d73ad2ce1",
+      "wellKnownDigest": "sha256:7b99637b1506066738101f3eb18bfa5a55cc2620f03c243e169f1aedf9ef32ea"
+    }
+  }
+}

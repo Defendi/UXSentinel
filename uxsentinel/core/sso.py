@@ -33,6 +33,7 @@ DEFAULT_SSO_PORT_START = 8085
 DEFAULT_SSO_PORT_END = 8095
 
 # Constantes OAuth 2.0 PKCE para Claude.ai / Anthropic Platform (Contas Pro / Team)
+TOKEN_EXPIRY_BUFFER_SECONDS = 300
 CLAUDE_OAUTH_CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
 CLAUDE_OAUTH_AUTHORIZE_URL = "https://platform.claude.com/oauth/authorize"
 CLAUDE_OAUTH_TOKEN_URL = "https://platform.claude.com/v1/oauth/token"
@@ -169,51 +170,106 @@ def refresh_claude_oauth_token(refresh_token: str) -> str | None:
 def get_cached_token(provider_name: str) -> str | None:
     """Recupera o token SSO armazenado em cache para o provedor, se válido."""
     cache_file = get_sso_cache_file()
+    item: dict | None = None
     if cache_file.is_file():
         try:
             data = json.loads(cache_file.read_text(encoding="utf-8"))
             item = data.get(provider_name)
-            if item:
-                # Verifica expiração se houver
-                expires_at = item.get("expires_at")
-                if not expires_at or time.time() <= float(expires_at):
-                    token = item.get("token")
-                    if token and str(token).strip():
-                        return str(token).strip()
+        except Exception:
+            item = None
 
-                # Se o token expirou e temos refresh_token registrado, tenta renovar
-                ref_tok = item.get("refresh_token")
-                if ref_tok and "claude" in provider_name.lower():
-                    refreshed = refresh_claude_oauth_token(ref_tok)
+    if item:
+        token = item.get("token")
+        tok_str = str(token).strip() if token else ""
+        expires_at = item.get("expires_at")
+        ref_tok = item.get("refresh_token")
+
+        now = time.time()
+        is_claude_provider = "claude" in provider_name.lower() or tok_str.startswith("sk-ant-oat")
+
+        if expires_at is not None:
+            exp_time = float(expires_at)
+            # Verifica se faltam menos de TOKEN_EXPIRY_BUFFER_SECONDS para expirar
+            if now + TOKEN_EXPIRY_BUFFER_SECONDS >= exp_time:
+                # Tenta obter refresh token local ou do Claude CLI
+                cli_refresh: str | None = None
+                if not ref_tok and is_claude_provider:
+                    claude_creds = Path.home() / ".claude" / ".credentials.json"
+                    if claude_creds.is_file():
+                        try:
+                            cdata = json.loads(claude_creds.read_text(encoding="utf-8"))
+                            cli_refresh = cdata.get("claudeAiOauth", {}).get("refreshToken")
+                        except Exception:
+                            cli_refresh = None
+
+                active_ref = ref_tok or cli_refresh
+                if active_ref and is_claude_provider:
+                    refreshed = refresh_claude_oauth_token(active_ref)
                     if refreshed:
                         return refreshed
-        except Exception:
-            pass
 
-    # Fallback inteligente para sessão do Claude Pro existente na máquina (~/.claude/.credentials.json)
+                # Se ainda não expirou totalmente, usa o token atual como fallback de melhor esforço
+                if now < exp_time and tok_str:
+                    return tok_str
+            else:
+                # Ainda não atingiu a margem de expiração
+                if tok_str:
+                    return tok_str
+        else:
+            # Sem expires_at registrado
+            if tok_str.startswith("sk-ant-oat"):
+                updated_at = float(item.get("updated_at", 0))
+                # Se tiver mais de 1h desde updated_at, tratar como expirado
+                if now - updated_at > 3600.0:
+                    if ref_tok and is_claude_provider:
+                        refreshed = refresh_claude_oauth_token(ref_tok)
+                        if refreshed:
+                            return refreshed
+                else:
+                    if tok_str:
+                        return tok_str
+            elif tok_str:
+                return tok_str
+
+    # Sincronização inteligente com ~/.claude/.credentials.json se claude_sso
     if provider_name == "claude_sso":
         claude_creds = Path.home() / ".claude" / ".credentials.json"
         if claude_creds.is_file():
             try:
                 cdata = json.loads(claude_creds.read_text(encoding="utf-8"))
                 oauth = cdata.get("claudeAiOauth", {})
-                token = oauth.get("accessToken")
-                expires_at = oauth.get("expiresAt")
-                if token:
-                    if expires_at:
-                        # Se expiresAt estiver em ms, converte para segundos
-                        exp_sec = (
-                            float(expires_at) / 1000.0 if float(expires_at) > 1e11 else float(expires_at)
-                        )
-                        if time.time() < exp_sec:
-                            return str(token).strip()
-                    else:
-                        return str(token).strip()
+                cli_token = oauth.get("accessToken")
+                cli_expires_at = oauth.get("expiresAt")
+                cli_refresh = oauth.get("refreshToken")
 
-                # Se o token expirou, tenta renovar via refresh_token
-                ref_tok = oauth.get("refreshToken")
-                if ref_tok:
-                    refreshed = refresh_claude_oauth_token(ref_tok)
+                if cli_token:
+                    cli_token_str = str(cli_token).strip()
+                    if cli_expires_at:
+                        val = float(cli_expires_at)
+                        # Timestamps Unix em ms têm magnitude >= 1e11 (ex: ano 2026 é ~1.7e12), ou > 1e10
+                        # Se for fornecido em ms ou valor muito maior que time.time(), converte para segundos
+                        exp_sec = val / 1000.0 if val > 1e10 or val > time.time() * 10.0 else val
+                        # Se ainda for válido (respeitando o buffer), sincroniza e retorna
+                        if time.time() + TOKEN_EXPIRY_BUFFER_SECONDS < exp_sec:
+                            rem_sec = max(0, int(exp_sec - time.time()))
+                            save_cached_token(
+                                "claude_sso",
+                                cli_token_str,
+                                expires_in=rem_sec,
+                                refresh_token=cli_refresh,
+                            )
+                            return cli_token_str
+                    elif not cli_refresh:
+                        save_cached_token(
+                            "claude_sso",
+                            cli_token_str,
+                            refresh_token=cli_refresh,
+                        )
+                        return cli_token_str
+
+                # Se o token estiver vencido (ou sem token), mas houver refreshToken:
+                if cli_refresh:
+                    refreshed = refresh_claude_oauth_token(cli_refresh)
                     if refreshed:
                         return refreshed
             except Exception:
@@ -225,7 +281,7 @@ def get_cached_token(provider_name: str) -> str | None:
 def save_cached_token(
     provider_name: str,
     token: str,
-    expires_in: int | None = None,
+    expires_in: int | float | None = None,
     refresh_token: str | None = None,
 ) -> None:
     """Armazena o token de autenticação SSO no cache seguro local."""
@@ -237,11 +293,20 @@ def save_cached_token(
         except Exception:
             data = {}
 
-    item: dict = {"token": token.strip(), "updated_at": time.time()}
-    if expires_in:
-        item["expires_at"] = time.time() + expires_in
+    prev_item = data.get(provider_name, {}) if isinstance(data, dict) else {}
+    cleaned_token = token.strip()
+
+    item: dict = {"token": cleaned_token, "updated_at": time.time()}
+
+    if expires_in is not None:
+        item["expires_at"] = time.time() + float(expires_in)
+    elif cleaned_token.startswith("sk-ant-oat"):
+        item["expires_at"] = time.time() + 3500.0
+
     if refresh_token:
         item["refresh_token"] = refresh_token.strip()
+    elif prev_item.get("refresh_token"):
+        item["refresh_token"] = prev_item["refresh_token"]
 
     data[provider_name] = item
 
@@ -589,8 +654,25 @@ class LoopbackAuthHandler(http.server.BaseHTTPRequestHandler):
                 token = code
 
             if token:
-                self.server_instance.captured_token = token.strip()
-                save_cached_token(self.server_instance.provider_name, token.strip())
+                entered_tok = token.strip()
+                self.server_instance.captured_token = entered_tok
+                if entered_tok.startswith("sk-ant-oat"):
+                    ref_from_cli: str | None = None
+                    claude_creds = Path.home() / ".claude" / ".credentials.json"
+                    if claude_creds.is_file():
+                        try:
+                            cdata = json.loads(claude_creds.read_text(encoding="utf-8"))
+                            ref_from_cli = cdata.get("claudeAiOauth", {}).get("refreshToken")
+                        except Exception:
+                            ref_from_cli = None
+                    save_cached_token(
+                        self.server_instance.provider_name,
+                        entered_tok,
+                        expires_in=3500,
+                        refresh_token=ref_from_cli,
+                    )
+                else:
+                    save_cached_token(self.server_instance.provider_name, entered_tok)
                 self._send_success_response()
                 return
 
@@ -636,6 +718,25 @@ class LoopbackAuthHandler(http.server.BaseHTTPRequestHandler):
                         )
                         self._send_success_response()
                         return
+
+                if entered.startswith("sk-ant-oat"):
+                    ref_from_cli: str | None = None
+                    claude_creds = Path.home() / ".claude" / ".credentials.json"
+                    if claude_creds.is_file():
+                        try:
+                            cdata = json.loads(claude_creds.read_text(encoding="utf-8"))
+                            ref_from_cli = cdata.get("claudeAiOauth", {}).get("refreshToken")
+                        except Exception:
+                            ref_from_cli = None
+                    self.server_instance.captured_token = entered
+                    save_cached_token(
+                        self.server_instance.provider_name,
+                        entered,
+                        expires_in=3500,
+                        refresh_token=ref_from_cli,
+                    )
+                    self._send_success_response()
+                    return
 
                 self.server_instance.captured_token = entered
                 save_cached_token(self.server_instance.provider_name, entered)
@@ -825,6 +926,23 @@ def login_via_browser(
                             server.captured_token = tok
                             save_cached_token(provider_name, tok, expires_in=exp, refresh_token=ref)
                             return
+                    if entered.startswith("sk-ant-oat"):
+                        ref_from_cli: str | None = None
+                        claude_creds = Path.home() / ".claude" / ".credentials.json"
+                        if claude_creds.is_file():
+                            try:
+                                cdata = json.loads(claude_creds.read_text(encoding="utf-8"))
+                                ref_from_cli = cdata.get("claudeAiOauth", {}).get("refreshToken")
+                            except Exception:
+                                ref_from_cli = None
+                        server.captured_token = entered
+                        save_cached_token(
+                            provider_name,
+                            entered,
+                            expires_in=3500,
+                            refresh_token=ref_from_cli,
+                        )
+                        return
                     server.captured_token = entered
                     save_cached_token(provider_name, entered)
         except Exception:

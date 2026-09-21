@@ -243,6 +243,21 @@ def load_scenario(file_path: str) -> Scenario:
         elif normalized in ("false", "0", "no", "nao", "não", "n"):
             video_val = False
 
+    fail_fast_raw = (
+        parsed_dict.get("fail_fast")
+        if parsed_dict.get("fail_fast") is not None
+        else parsed_dict.get("abort_on_error")
+    )
+    fail_fast_val: bool | None = None
+    if isinstance(fail_fast_raw, bool):
+        fail_fast_val = fail_fast_raw
+    elif fail_fast_raw is not None:
+        normalized = str(fail_fast_raw).strip().lower()
+        if normalized in ("true", "1", "yes", "sim", "y"):
+            fail_fast_val = True
+        elif normalized in ("false", "0", "no", "nao", "não", "n"):
+            fail_fast_val = False
+
     viewports_raw = parsed_dict.get("viewports")
     viewports_val: list[str] | None = None
     if isinstance(viewports_raw, list):
@@ -265,6 +280,7 @@ def load_scenario(file_path: str) -> Scenario:
         env=resolved_env,
         headless=headless_val,
         video=video_val,
+        fail_fast=fail_fast_val,
         viewports=viewports_val,
         exceptions=scenario_exceptions,
         steps=steps,
