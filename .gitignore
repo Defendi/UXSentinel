@@ -59,6 +59,7 @@ scenarios/report/
 # Contexto, instrucoes e artefatos locais de agentes de IA (nao versionados)
 .gemini/
 .claude/
+.agents/
 CLAUDE.md
 AGENTS.md
 GEMINI.md
