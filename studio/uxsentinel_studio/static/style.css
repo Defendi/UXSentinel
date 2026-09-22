@@ -209,6 +209,12 @@ body {
     color: var(--text-muted);
 }
 
+.project-actions {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
 .btn-icon-add {
     background: transparent;
     border: 1px solid var(--border-subtle);
@@ -224,6 +230,25 @@ body {
     background-color: var(--bg-card);
     border-color: var(--accent-purple);
     box-shadow: 0 0 6px var(--accent-purple-glow);
+}
+
+.btn-icon-delete {
+    background: transparent;
+    border: 1px solid var(--border-subtle);
+    border-radius: 4px;
+    color: var(--accent-red);
+    font-size: 0.75rem;
+    cursor: pointer;
+    padding: 0.15rem 0.4rem;
+    transition: all 0.15s ease;
+    align-items: center;
+    justify-content: center;
+}
+
+.btn-icon-delete:hover {
+    background-color: rgba(239, 68, 68, 0.15);
+    border-color: var(--accent-red);
+    box-shadow: 0 0 6px rgba(239, 68, 68, 0.3);
 }
 
 .project-select-wrapper {

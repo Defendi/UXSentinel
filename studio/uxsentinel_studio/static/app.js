@@ -159,6 +159,18 @@
         if (!foundActive && state.activeProjectId) {
             selectEl.value = state.activeProjectId;
         }
+
+        updateDeleteProjectButtonVisibility();
+    }
+
+    function updateDeleteProjectButtonVisibility() {
+        const btnDelete = document.getElementById("btn-open-delete-project-modal");
+        if (!btnDelete) return;
+        if (state.activeProjectId) {
+            btnDelete.style.display = "inline-flex";
+        } else {
+            btnDelete.style.display = "none";
+        }
     }
 
     async function loadScenarios() {
@@ -1223,6 +1235,7 @@ steps:
         document.getElementById("select-active-project")?.addEventListener("change", async (e) => {
             const selectedId = e.target.value;
             state.activeProjectId = selectedId;
+            updateDeleteProjectButtonVisibility();
             if (selectedId) {
                 try {
                     const res = await apiFetch("/api/projects/select", {
@@ -1275,6 +1288,44 @@ steps:
                 if (pathInput) pathInput.value = "";
                 showToast(`Projeto '${data.project_name}' cadastrado com sucesso!`, "success");
 
+                await loadProjects();
+                await loadScenarios();
+            } catch (err) {
+                showToast(`Falha de comunicação: ${err.message}`, "error");
+            }
+        });
+
+        // Modal: Excluir Projeto
+        document.getElementById("btn-open-delete-project-modal")?.addEventListener("click", () => {
+            if (!state.activeProjectId) return;
+            const currentProj = state.projects.find((p) => p.id === state.activeProjectId);
+            const nameEl = document.getElementById("delete-project-name");
+            if (nameEl) {
+                nameEl.textContent = currentProj ? currentProj.name : state.activeProjectId;
+            }
+            openModal("modal-delete-project");
+        });
+
+        document.getElementById("btn-confirm-delete-project")?.addEventListener("click", async () => {
+            if (!state.activeProjectId) return;
+            const projIdToDelete = state.activeProjectId;
+
+            try {
+                const res = await apiFetch(`/api/projects/${encodeURIComponent(projIdToDelete)}`, {
+                    method: "DELETE",
+                });
+
+                if (!res.ok) {
+                    const err = await res.json();
+                    showToast(err.detail || "Erro ao remover projeto do catálogo.", "error");
+                    return;
+                }
+
+                const data = await res.json();
+                closeModals();
+                showToast(data.message || "Projeto removido com sucesso!", "success");
+
+                state.activeProjectId = data.active_project_id || "";
                 await loadProjects();
                 await loadScenarios();
             } catch (err) {

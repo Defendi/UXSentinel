@@ -19,6 +19,7 @@ from uxsentinel.core.config import (
     ensure_user_config,
     find_project_in_catalog,
     list_registered_projects,
+    remove_project_from_catalog,
 )
 from uxsentinel.scenarios.parser import load_scenario
 from uxsentinel.service import (
@@ -426,6 +427,51 @@ async def create_project(
         "project_id": slug,
         "project_name": clean_name,
         "project_dir": str(proj_path),
+    }
+
+
+@router.delete("/projects/{project_id}")
+async def delete_project(
+    project_id: str,
+    request: Request,
+    _: str = Depends(verify_studio_token),
+) -> dict[str, Any]:
+    """Remove um projeto do catálogo global sem deletar arquivos físicos no disco."""
+    match = find_project_in_catalog(project_id)
+    if not match:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Projeto '{project_id}' não encontrado no catálogo.",
+        )
+
+    p_id, entry = match
+    remove_project_from_catalog(p_id)
+
+    was_active = Path(entry.root_path).resolve() == get_project_dir(request).resolve()
+    remaining_catalog = list_registered_projects()
+
+    active_id: str | None = None
+    if was_active:
+        if remaining_catalog:
+            next_id, next_entry = next(iter(remaining_catalog.items()))
+            request.app.state.project_dir = Path(next_entry.root_path).resolve()
+            active_id = next_id
+        else:
+            request.app.state.project_dir = Path.cwd()
+            active_id = None
+    else:
+        current_dir = get_project_dir(request).resolve()
+        for r_id, r_entry in remaining_catalog.items():
+            if Path(r_entry.root_path).resolve() == current_dir:
+                active_id = r_id
+                break
+
+    return {
+        "success": True,
+        "message": f"Projeto '{entry.name}' removido do catálogo com sucesso.",
+        "project_id": p_id,
+        "active_project_id": active_id,
+        "active_project_dir": str(get_project_dir(request)),
     }
 
 

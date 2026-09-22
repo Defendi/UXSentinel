@@ -1073,6 +1073,51 @@ def find_scenario_in_project(
     return None
 
 
+def remove_project_from_catalog(
+    project_id: str,
+    config_path: Path | None = None,
+) -> bool:
+    """Remove um projeto do catálogo de projetos no config.yaml."""
+    clean_id = project_id.strip()
+    if not clean_id:
+        return False
+
+    cfg_file = config_path if config_path is not None else get_user_config_path()
+    if not cfg_file.is_file():
+        return False
+
+    try:
+        content = cfg_file.read_text(encoding="utf-8")
+        data = yaml.safe_load(content)
+    except Exception:
+        return False
+
+    if not isinstance(data, dict) or "projects" not in data or not isinstance(data["projects"], dict):
+        return False
+
+    target_key: str | None = None
+    if clean_id in data["projects"]:
+        target_key = clean_id
+    else:
+        match = find_project_in_catalog(clean_id, cfg_file)
+        if match and match[0] in data["projects"]:
+            target_key = match[0]
+
+    if target_key is None:
+        return False
+
+    del data["projects"][target_key]
+
+    try:
+        cfg_file.parent.mkdir(parents=True, exist_ok=True)
+        cfg_file.write_text(yaml.safe_dump(data, sort_keys=False, allow_unicode=True), encoding="utf-8")
+        with contextlib.suppress(Exception):
+            cfg_file.chmod(0o600)
+        return True
+    except Exception:
+        return False
+
+
 __all__ = [
     "BUILTIN_PROVIDERS",
     "CANONICAL_VIEWPORTS",
@@ -1099,6 +1144,7 @@ __all__ = [
     "parse_viewport_spec",
     "parse_viewports",
     "register_project_scenario",
+    "remove_project_from_catalog",
     "resolve_axe_mode",
     "resolve_devtools_mode",
     "resolve_display_mode",

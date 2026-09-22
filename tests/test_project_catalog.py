@@ -11,6 +11,7 @@ from uxsentinel.core.config import (
     infer_project_metadata,
     list_registered_projects,
     register_project_scenario,
+    remove_project_from_catalog,
 )
 from uxsentinel.scenarios.parser import load_scenario
 
@@ -302,3 +303,69 @@ async def test_cli_project_name_override(monkeypatch, tmp_path: Path):
     catalog = list_registered_projects(cfg_file)
     assert "meu-projeto-cli" in catalog
     assert catalog["meu-projeto-cli"].name == "Meu Projeto CLI"
+
+
+def test_remove_project_from_catalog_success(tmp_path: Path):
+    cfg_file = tmp_path / "config.yaml"
+    cfg_file.write_text(
+        """projects:
+  projeto-alpha:
+    name: "Projeto Alpha"
+    root_path: "/opt/alpha"
+    scenarios: {}
+  projeto-beta:
+    name: "Projeto Beta"
+    root_path: "/opt/beta"
+    scenarios: {}
+""",
+        encoding="utf-8",
+    )
+
+    # Remove projeto-alpha
+    removed = remove_project_from_catalog("projeto-alpha", cfg_file)
+    assert removed is True
+
+    catalog = list_registered_projects(cfg_file)
+    assert "projeto-alpha" not in catalog
+    assert "projeto-beta" in catalog
+    assert catalog["projeto-beta"].name == "Projeto Beta"
+
+    # Remove projeto-beta pelo nome legível
+    removed_beta = remove_project_from_catalog("Projeto Beta", cfg_file)
+    assert removed_beta is True
+    catalog_final = list_registered_projects(cfg_file)
+    assert "projeto-beta" not in catalog_final
+    assert len(catalog_final) == 0
+
+
+def test_remove_project_from_catalog_nonexistent(tmp_path: Path):
+    cfg_file = tmp_path / "config.yaml"
+    cfg_file.write_text(
+        """projects:
+  projeto-existente:
+    name: "Projeto Existente"
+    root_path: "/opt/existente"
+    scenarios: {}
+""",
+        encoding="utf-8",
+    )
+
+    removed = remove_project_from_catalog("projeto-fantasma", cfg_file)
+    assert removed is False
+
+    catalog = list_registered_projects(cfg_file)
+    assert "projeto-existente" in catalog
+
+
+def test_remove_project_from_catalog_no_config_file(tmp_path: Path):
+    non_existent = tmp_path / "nao_existe" / "config.yaml"
+    removed = remove_project_from_catalog("projeto-qualquer", non_existent)
+    assert removed is False
+
+
+def test_remove_project_from_catalog_empty_or_invalid_id(tmp_path: Path):
+    cfg_file = tmp_path / "config.yaml"
+    cfg_file.write_text("projects: {}\n", encoding="utf-8")
+
+    assert remove_project_from_catalog("", cfg_file) is False
+    assert remove_project_from_catalog("   ", cfg_file) is False

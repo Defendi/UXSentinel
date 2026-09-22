@@ -735,3 +735,88 @@ def test_list_scenarios_includes_project_fields(
     assert "project_id" in sc
     assert "project_name" in sc
     assert sc["project_name"] is not None
+
+
+def test_delete_project_unauthorized(client: TestClient) -> None:
+    """Garante que DELETE /api/projects/{project_id} rejeita requisição sem token (401)."""
+    resp = client.delete("/api/projects/qualquer-projeto")
+    assert resp.status_code == 401
+
+
+def test_delete_project_not_found(
+    client: TestClient, auth_headers: dict[str, str], tmp_path: Path, monkeypatch
+) -> None:
+    """Garante 404 ao tentar excluir projeto inexistente do catálogo."""
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    resp = client.delete("/api/projects/projeto-fantasma-xyz", headers=auth_headers)
+    assert resp.status_code == 404
+    assert "não encontrado no catálogo" in resp.json()["detail"]
+
+
+def test_delete_project_success(
+    client: TestClient, auth_headers: dict[str, str], tmp_path: Path, monkeypatch
+) -> None:
+    """Valida exclusão com sucesso de projeto não-ativo preservando o ativo atual."""
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+
+    # Cria duas pastas de projeto
+    p1_dir = tmp_path / "projeto_um"
+    p1_dir.mkdir(parents=True)
+    p2_dir = tmp_path / "projeto_dois"
+    p2_dir.mkdir(parents=True)
+
+    client.post("/api/projects", json={"name": "Projeto Um", "path": str(p1_dir)}, headers=auth_headers)
+    client.post("/api/projects", json={"name": "Projeto Dois", "path": str(p2_dir)}, headers=auth_headers)
+
+    # Torna o Projeto Um ativo
+    client.post("/api/projects/select", json={"project_id": "projeto-um"}, headers=auth_headers)
+
+    # Deleta Projeto Dois
+    del_resp = client.delete("/api/projects/projeto-dois", headers=auth_headers)
+    assert del_resp.status_code == 200
+    data = del_resp.json()
+    assert data["success"] is True
+    assert data["project_id"] == "projeto-dois"
+    assert data["active_project_id"] == "projeto-um"
+    assert str(p1_dir.resolve()) in data["active_project_dir"]
+
+    # Verifica que Projeto Dois sumiu de /api/projects
+    list_resp = client.get("/api/projects", headers=auth_headers)
+    projects = list_resp.json()
+    assert not any(p["id"] == "projeto-dois" for p in projects)
+    assert any(p["id"] == "projeto-um" for p in projects)
+
+
+def test_delete_project_active_fallback(
+    client: TestClient, auth_headers: dict[str, str], tmp_path: Path, monkeypatch
+) -> None:
+    """Valida fallback do projeto ativo quando o projeto excluído é o ativo."""
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+
+    p_a_dir = tmp_path / "proj_alpha"
+    p_a_dir.mkdir(parents=True)
+    p_b_dir = tmp_path / "proj_beta"
+    p_b_dir.mkdir(parents=True)
+
+    client.post("/api/projects", json={"name": "Proj Alpha", "path": str(p_a_dir)}, headers=auth_headers)
+    client.post("/api/projects", json={"name": "Proj Beta", "path": str(p_b_dir)}, headers=auth_headers)
+
+    # Ativa Proj Alpha
+    client.post("/api/projects/select", json={"project_id": "proj-alpha"}, headers=auth_headers)
+
+    # Exclui o projeto ativo (Alpha) -> fallback para Beta
+    del_a = client.delete("/api/projects/proj-alpha", headers=auth_headers)
+    assert del_a.status_code == 200
+    data_a = del_a.json()
+    assert data_a["success"] is True
+    assert data_a["project_id"] == "proj-alpha"
+    assert data_a["active_project_id"] == "proj-beta"
+    assert str(p_b_dir.resolve()) in data_a["active_project_dir"]
+
+    # Exclui o último projeto restante (Beta) -> fallback para None / cwd
+    del_b = client.delete("/api/projects/proj-beta", headers=auth_headers)
+    assert del_b.status_code == 200
+    data_b = del_b.json()
+    assert data_b["success"] is True
+    assert data_b["project_id"] == "proj-beta"
+    assert data_b["active_project_id"] is None

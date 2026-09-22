@@ -14,7 +14,7 @@
             <div class="topbar-brand">
                 <span class="brand-icon">🛡️</span>
                 <span class="brand-name">UXSentinel <span class="brand-badge">Studio</span></span>
-                <span class="version-badge" id="version-display">v0.1.0</span>
+                <span class="version-badge" id="version-display">v0.1.1</span>
             </div>
 
             <!-- Navegação Superior / Abas Globais -->
@@ -47,7 +47,10 @@
                     <div class="project-selector-container">
                         <div class="project-selector-header">
                             <span class="project-label">PROJETO</span>
-                            <button class="btn-icon-add" id="btn-open-add-project-modal" title="Adicionar Pasta de Projeto">➕</button>
+                            <div class="project-actions">
+                                <button class="btn-icon-add" id="btn-open-add-project-modal" title="Adicionar Pasta de Projeto">➕</button>
+                                <button class="btn-icon-delete" id="btn-open-delete-project-modal" title="Excluir Projeto Selecionado" style="display: none;">🗑️</button>
+                            </div>
                         </div>
                         <div class="project-select-wrapper">
                             <select id="select-active-project" class="select-project-dropdown">
@@ -509,6 +512,26 @@
                 <div class="modal-footer">
                     <button class="btn btn-secondary" data-close-modal>Cancelar</button>
                     <button class="btn btn-primary" id="btn-confirm-add-project">Adicionar Projeto</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Modal: Excluir Projeto do Catálogo -->
+        <div class="modal-overlay" id="modal-delete-project">
+            <div class="modal-card">
+                <div class="modal-header">
+                    <h3>Excluir Projeto do Catálogo</h3>
+                    <button class="btn-close-modal modal-close" data-close-modal>✕</button>
+                </div>
+                <div class="modal-body">
+                    <p>Tem certeza que deseja remover o projeto <strong id="delete-project-name"></strong> do catálogo do UXSentinel Studio?</p>
+                    <div class="alert-box warning-box" style="margin-top: 12px; font-size: 13px; color: var(--color-warning);">
+                        ⚠️ Esta ação remove apenas a referência do projeto no painel do Studio e no arquivo de configurações. Os arquivos físicos no disco <strong>não serão apagados</strong>.
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" data-close-modal>Cancelar</button>
+                    <button class="btn btn-danger" id="btn-confirm-delete-project">Sim, Excluir Projeto</button>
                 </div>
             </div>
         </div>
