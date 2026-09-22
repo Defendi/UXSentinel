@@ -49,6 +49,7 @@ class BrowserSettings(BaseModel):
     record_video_dir: str | None = None
     record_video_size: dict[str, int] | None = None
     enable_axe: bool = True
+    enable_css_audit: bool = True
     fail_fast: bool = True
     axe_tags: list[str] = Field(
         default_factory=lambda: [
@@ -158,6 +159,26 @@ def resolve_axe_mode(
         return scenario_axe
     if config_axe is not None:
         return config_axe
+    return True
+
+
+def resolve_css_mode(
+    cli_css: bool | None = None,
+    scenario_css: bool | None = None,
+    config_css: bool | None = None,
+) -> bool:
+    """Resolve se a auditoria híbrida de CSS deve ser executada:
+    1. CLI flag (--css vs --no-css)
+    2. Cenário YAML (campo 'css')
+    3. Config global (BrowserSettings.enable_css_audit)
+    4. Fallback padrão: True
+    """
+    if cli_css is not None:
+        return cli_css
+    if scenario_css is not None:
+        return scenario_css
+    if config_css is not None:
+        return config_css
     return True
 
 
@@ -630,6 +651,7 @@ def load_config(config_path: str | None = None) -> GlobalConfig:
         record_video_dir=browser_dict.get("record_video_dir"),
         record_video_size=video_size_dict,
         enable_axe=browser_dict.get("enable_axe", True),
+        enable_css_audit=browser_dict.get("enable_css_audit", browser_dict.get("enable_css", True)),
         fail_fast=browser_dict.get("fail_fast", True),
         axe_tags=browser_dict.get("axe_tags")
         or [

@@ -60,6 +60,7 @@ scenarios/report/
 .gemini/
 .claude/
 .agents/
+.superpowers/
 CLAUDE.md
 AGENTS.md
 GEMINI.md

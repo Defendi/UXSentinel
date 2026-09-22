@@ -258,6 +258,28 @@ def load_scenario(file_path: str) -> Scenario:
         elif normalized in ("false", "0", "no", "nao", "não", "n"):
             fail_fast_val = False
 
+    axe_raw = parsed_dict.get("axe")
+    axe_val: bool | None = None
+    if isinstance(axe_raw, bool):
+        axe_val = axe_raw
+    elif axe_raw is not None:
+        normalized = str(axe_raw).strip().lower()
+        if normalized in ("true", "1", "yes", "sim", "y"):
+            axe_val = True
+        elif normalized in ("false", "0", "no", "nao", "não", "n"):
+            axe_val = False
+
+    css_raw = parsed_dict.get("css") if parsed_dict.get("css") is not None else parsed_dict.get("css_audit")
+    css_val: bool | None = None
+    if isinstance(css_raw, bool):
+        css_val = css_raw
+    elif css_raw is not None:
+        normalized = str(css_raw).strip().lower()
+        if normalized in ("true", "1", "yes", "sim", "y"):
+            css_val = True
+        elif normalized in ("false", "0", "no", "nao", "não", "n"):
+            css_val = False
+
     viewports_raw = parsed_dict.get("viewports")
     viewports_val: list[str] | None = None
     if isinstance(viewports_raw, list):
@@ -280,6 +302,8 @@ def load_scenario(file_path: str) -> Scenario:
         env=resolved_env,
         headless=headless_val,
         video=video_val,
+        axe=axe_val,
+        css=css_val,
         fail_fast=fail_fast_val,
         viewports=viewports_val,
         exceptions=scenario_exceptions,

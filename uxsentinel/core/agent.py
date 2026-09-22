@@ -33,6 +33,7 @@ from uxsentinel.core.config import (
     resolve_archive_mode,
     resolve_axe_mode,
     resolve_baseline_mode,
+    resolve_css_mode,
     resolve_display_mode,
     resolve_fail_fast_mode,
     resolve_markdown_mode,
@@ -73,6 +74,7 @@ class UXSentinelAgent:
         record_video_override: bool | None = None,
         viewports_override: str | list[str] | list[ViewportConfig] | None = None,
         enable_axe_override: bool | None = None,
+        enable_css_override: bool | None = None,
         update_baseline_override: bool | None = None,
         baseline_dir_override: str | Path | None = None,
         diff_threshold_override: float | None = None,
@@ -87,6 +89,7 @@ class UXSentinelAgent:
         self.record_video_override = record_video_override
         self.viewports_override = viewports_override
         self.enable_axe_override = enable_axe_override
+        self.enable_css_override = enable_css_override
         self.update_baseline_override = update_baseline_override
         self.baseline_dir_override = baseline_dir_override
         self.diff_threshold_override = diff_threshold_override
@@ -119,6 +122,7 @@ class UXSentinelAgent:
         record_video_override: bool | None = None,
         viewports_override: str | list[str] | list[ViewportConfig] | None = None,
         enable_axe_override: bool | None = None,
+        enable_css_override: bool | None = None,
         update_baseline_override: bool | None = None,
         baseline_dir_override: str | Path | None = None,
         diff_threshold_override: float | None = None,
@@ -201,6 +205,17 @@ class UXSentinelAgent:
             cli_axe=effective_cli_axe,
             scenario_axe=scenario.axe,
             config_axe=self.config.browser.enable_axe,
+        )
+
+        # Determina a auditoria de CSS híbrida:
+        # CLI Flag > Cenário YAML > Config global > Fallback True
+        effective_cli_css = (
+            enable_css_override if enable_css_override is not None else self.enable_css_override
+        )
+        effective_css = resolve_css_mode(
+            cli_css=effective_cli_css,
+            scenario_css=scenario.css,
+            config_css=self.config.browser.enable_css_audit,
         )
 
         # Determina a resolução do baseline visual:
@@ -286,6 +301,7 @@ class UXSentinelAgent:
                 "viewport_width": initial_vp.width,
                 "viewport_height": initial_vp.height,
                 "enable_axe": effective_axe,
+                "enable_css_audit": effective_css,
                 "devtools": effective_devtools,
             }
         )
@@ -296,6 +312,7 @@ class UXSentinelAgent:
         vp_summary_str = ", ".join(vp.label for vp in effective_viewports)
         moe_desc = "Ativo (4 agentes)" if self.config.vision.use_mixture_of_evaluators else "Desativado"
         axe_desc = "Ativo (WCAG 2.2)" if effective_axe else "Desativado"
+        css_desc = "Ativo (Híbrido)" if effective_css else "Desativado"
         devtools_desc = "Ativo (Console Aberto)" if effective_devtools else "Desativado"
         baseline_desc = (
             "Atualização (--update-baseline)"
@@ -303,7 +320,7 @@ class UXSentinelAgent:
             else f"Auditoria Ativa (limiar: {effective_diff_threshold}%)"
         )
         console.print(
-            f"   Perfil: [magenta]{profile}[/magenta] | Provedor IA: [yellow]{self.config.active_provider}[/yellow] | MoE: [cyan]{moe_desc}[/cyan] | Axe-Core: [cyan]{axe_desc}[/cyan] | DevTools: [cyan]{devtools_desc}[/cyan] | Baseline: [cyan]{baseline_desc}[/cyan] | Headless: [blue]{effective_headless}[/blue] | Viewports: [cyan]{vp_summary_str}[/cyan] | Self-Healing: [green]{browser_settings.self_healing}[/green]\n"
+            f"   Perfil: [magenta]{profile}[/magenta] | Provedor IA: [yellow]{self.config.active_provider}[/yellow] | MoE: [cyan]{moe_desc}[/cyan] | Axe-Core: [cyan]{axe_desc}[/cyan] | CSS: [cyan]{css_desc}[/cyan] | DevTools: [cyan]{devtools_desc}[/cyan] | Baseline: [cyan]{baseline_desc}[/cyan] | Headless: [blue]{effective_headless}[/blue] | Viewports: [cyan]{vp_summary_str}[/cyan] | Self-Healing: [green]{browser_settings.self_healing}[/green]\n"
         )
 
         if effective_headless:
@@ -416,6 +433,7 @@ class UXSentinelAgent:
                                     current_viewport=vp,
                                     multi_viewport=multi_vp,
                                     effective_axe=effective_axe,
+                                    effective_css=effective_css,
                                     effective_baseline_dir=effective_baseline_dir,
                                     effective_update_baseline=effective_update_baseline,
                                     effective_diff_threshold=effective_diff_threshold,
@@ -449,6 +467,7 @@ class UXSentinelAgent:
                                 current_viewport=vp,
                                 multi_viewport=multi_vp,
                                 effective_axe=effective_axe,
+                                effective_css=effective_css,
                                 effective_baseline_dir=effective_baseline_dir,
                                 effective_update_baseline=effective_update_baseline,
                                 effective_diff_threshold=effective_diff_threshold,
@@ -686,6 +705,7 @@ class UXSentinelAgent:
         current_viewport: ViewportConfig | None = None,
         multi_viewport: bool = False,
         effective_axe: bool = True,
+        effective_css: bool = True,
         effective_baseline_dir: str | Path = "scenarios/baselines",
         effective_update_baseline: bool = False,
         effective_diff_threshold: float = 0.1,
@@ -745,6 +765,7 @@ class UXSentinelAgent:
             current_viewport=current_viewport,
             multi_viewport=multi_viewport,
             effective_axe=effective_axe,
+            effective_css=effective_css,
             effective_baseline_dir=effective_baseline_dir,
             effective_update_baseline=effective_update_baseline,
             effective_diff_threshold=effective_diff_threshold,
@@ -785,6 +806,7 @@ class UXSentinelAgent:
         current_viewport: ViewportConfig | None = None,
         multi_viewport: bool = False,
         effective_axe: bool = True,
+        effective_css: bool = True,
         effective_baseline_dir: str | Path = "scenarios/baselines",
         effective_update_baseline: bool = False,
         effective_diff_threshold: float = 0.1,
@@ -960,6 +982,32 @@ class UXSentinelAgent:
                     f"    [yellow]⚠️ Falha na auditoria de acessibilidade Axe-Core: {a11y_exc}[/yellow]"
                 )
 
+        # Execução do motor CSSInspector para auditoria de layout, tipografia e código CSS (UXS-47)
+        cp_css_audit = None
+        if effective_css and hasattr(driver, "page") and driver.page:
+            p_console.print("    [dim]🎨 Executando auditoria híbrida de CSS...[/dim]")
+            try:
+                from uxsentinel.css.runner import CSSInspector
+
+                cp_css_audit = await CSSInspector.audit_page(driver.page, viewport=vp_label)
+                css_issues = cp_css_audit.to_issues(viewport=vp_label)
+                extra_dom_issues.extend(css_issues)
+
+                css_score_color = (
+                    "green" if cp_css_audit.score >= 90 else "yellow" if cp_css_audit.score >= 70 else "red"
+                )
+                if cp_css_audit.violations:
+                    p_console.print(
+                        f"    [bold {css_score_color}]🎨 CSS Score: {cp_css_audit.score:.1f}%[/bold {css_score_color}] "
+                        f"([red]{len(cp_css_audit.violations)} violação(ões) CSS detectada(s)[/red])"
+                    )
+                else:
+                    p_console.print(
+                        "    [bold green]🎨 CSS Score: 100.0% (Layout e folhas de estilo conformes)[/bold green]"
+                    )
+            except Exception as css_exc:
+                p_console.print(f"    [yellow]⚠️ Falha na auditoria de CSS: {css_exc}[/yellow]")
+
         # Se for Odoo, checa erros silenciosos
         if isinstance(driver, OdooDriver):
             odoo_errors = await driver.check_unhandled_odoo_errors()
@@ -989,6 +1037,7 @@ class UXSentinelAgent:
         cp_result.a11y_score = cp_a11y_score
         cp_result.a11y_violations = a11y_violations
         cp_result.visual_diff = diff_res
+        cp_result.css_audit = cp_css_audit
 
         # Anexa telemetria da sessão ao checkpoint
         if hasattr(driver, "telemetry") and isinstance(driver.telemetry, BrowserTelemetryCollector):

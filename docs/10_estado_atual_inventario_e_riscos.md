@@ -107,9 +107,11 @@ flowchart TD
         UXS12 --> UXS13["12. UXS-13: Abertura Automática de PRs"]
     end
 
-    subgraph Onda4["Onda 4: UXSentinel Studio (Frontend Web)"]
-        UXS14 -.-> UXS10["13. UXS-10: Live Mission Control"]
-        UXS10 --> UXS11["14. UXS-11: YAML Studio com IA"]
+    subgraph Onda4["Onda 4: UXSentinel Studio (Pacote Independente uxsentinel-studio)"]
+        UXS30["13. UXS-30: Guarda-Chuva UXSentinel Studio"]
+        UXS30 --> UXS31["14. UXS-31..34: Serviços Desacoplados no Core"]
+        UXS31 --> UXS35["15. UXS-35: ADR Pacotes e Segurança"]
+        UXS35 --> UXS11["16. UXS-11: YAML Studio com IA"]
     end
 ```
 
@@ -129,8 +131,10 @@ flowchart TD
 | **10º**| **`UXS-14`**| **Painel Histórico de Qualidade (UXSentinel Hub)** | Onda 3 | **Low** | Média | **Persistência de Dados**: Banco local SQLite para histórico temporal, base de dados para o Crawler e Studio. |
 | **11º**| **`UXS-12`**| **Modo Exploratório Autônomo (`--crawl`)** | Onda 3 | **Low** | Alta | **Autonomia Máxima**: Varrimento autônomo de sitemaps e links sem necessidade de roteiro YAML prévio. |
 | **12º**| **`UXS-13`**| **Criação Automática de Pull Requests (`--create-pr`)**| Onda 3 | **Low** | Média | **Ciclo Fechado**: Abertura automática de PRs no GitHub com patches de correção sugeridos. |
-| **13º**| **`UXS-10`**| **Frontend UXSentinel Studio (Live Mission Control)** | Onda 4 | **High** | Alta | **Interface Web em Tempo Real**: Dashboard FastAPI + Next.js com streaming WebSocket do navegador. |
-| **14º**| **`UXS-11`**| **Assistente IA de Criação de YAML (YAML Studio)** | Onda 4 | **Medium** | Alta | **Experiência Visual Interativa**: Assistente conversacional para prototipagem e validação de cenários com IA. |
+| **13º**| **`UXS-30`**| **Guarda-Chuva UXSentinel Studio (Pacote Independente)**| Onda 4 | **High** | Alta | **Dois Pacotes PyPI**: Separação do Studio (`uxsentinel-studio`) via UV Workspace, mantendo o core enxuto. |
+| **14º**| **`UXS-31..34`**| **Camada de Serviços Desacoplada da CLI** | Onda 4 | **High** | Média | **Biblioteca Python Pura**: `ExecutionService`, `ScenarioService`, `ConfigService` e `ResultsService`. |
+| **15º**| **`UXS-35`**| **ADR de Arquitetura da Web & Segurança Local** | Onda 4 | **High** | Baixa | **Decisão Formal**: Bind 127.0.0.1, token efêmero, SPA Vue 3 + Tailwind e empacotamento PyPI. |
+| **16º**| **`UXS-11`**| **Assistente IA de Criação de YAML (YAML Studio)** | Onda 4 | **Medium** | Alta | **Autoria Inteligente**: Assistente conversacional no Studio para criação e validação de cenários. |
 
 ---
 

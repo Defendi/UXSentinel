@@ -1,43 +1,28 @@
 """Servidor FastAPI e segurança do UXSentinel Studio (UXS-49 / STU-02)."""
 
-import secrets
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, Request, Security, status
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
-from fastapi.security import APIKeyHeader
 from fastapi.staticfiles import StaticFiles
 
 from uxsentinel import __version__ as core_version
 from uxsentinel_studio import __version__ as studio_version
+from uxsentinel_studio.api import router as api_router
+from uxsentinel_studio.security import (
+    get_session_token,
+    set_session_token,
+    verify_studio_token,
+)
 
-# Gerenciamento de token efêmero por sessão
-SESSION_TOKEN: str = secrets.token_hex(32)
-API_KEY_HEADER = APIKeyHeader(name="X-Studio-Token", auto_error=False)
-
-
-def get_session_token() -> str:
-    """Retorna o token efêmero ativo da sessão."""
-    return SESSION_TOKEN
-
-
-def set_session_token(new_token: str) -> None:
-    """Define um novo token efêmero de sessão (usado em testes)."""
-    global SESSION_TOKEN
-    SESSION_TOKEN = new_token
-
-
-async def verify_studio_token(token: str | None = Security(API_KEY_HEADER)) -> str:
-    """Valida o cabeçalho X-Studio-Token com comparação segura contra timing attacks."""
-    if not token or not secrets.compare_digest(token, SESSION_TOKEN):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Token de sessão inválido ou ausente. Acesso não autorizado.",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    return token
+__all__ = [
+    "create_app",
+    "get_session_token",
+    "set_session_token",
+    "verify_studio_token",
+]
 
 
 def create_app(project_dir: Path | str | None = None) -> FastAPI:
@@ -61,15 +46,8 @@ def create_app(project_dir: Path | str | None = None) -> FastAPI:
         allow_headers=["*"],
     )
 
-    @app.get("/api/status")
-    async def get_status() -> dict[str, str]:
-        """Endpoint público de liveness sem autenticação."""
-        return {
-            "status": "ok",
-            "studio_version": studio_version,
-            "core_version": core_version,
-            "project_dir": str(app.state.project_dir),
-        }
+    # Registra rotas REST da API sob o prefixo /api
+    app.include_router(api_router, prefix="/api")
 
     @app.get("/", response_class=HTMLResponse)
     async def serve_index(request: Request, token: str | None = None) -> Any:
@@ -138,7 +116,16 @@ def create_app(project_dir: Path | str | None = None) -> FastAPI:
     static_dir = Path(__file__).resolve().parent / "static"
     if static_dir.is_dir():
         app.mount(
-            "/assets", StaticFiles(directory=str(static_dir / "assets"), check_dir=False), name="assets"
+            "/static",
+            StaticFiles(directory=str(static_dir), check_dir=False),
+            name="static",
         )
+        assets_dir = static_dir / "assets"
+        if assets_dir.is_dir():
+            app.mount(
+                "/assets",
+                StaticFiles(directory=str(assets_dir), check_dir=False),
+                name="assets",
+            )
 
     return app

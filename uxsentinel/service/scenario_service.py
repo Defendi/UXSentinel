@@ -121,38 +121,52 @@ class ScenarioService:
 
         return sorted(scenarios, key=lambda s: s.title.lower())
 
-    def get_scenario(self, scenario_id: str, base_dir: Path | str) -> ScenarioDetailDTO:
-        """Obtém detalhes de um cenário específico preservando raw_yaml original."""
-        self._sanitize_path_component(scenario_id)
-        base_path = Path(base_dir).resolve()
+    def find_scenario_path(self, scenario_id: str, base_dir: Path | str) -> Path | None:
+        """Localiza o caminho físico de um cenário no projeto ou na biblioteca interna."""
+        try:
+            self._sanitize_path_component(scenario_id)
+        except PermissionError:
+            return None
 
-        # Busca no projeto e na biblioteca
-        target_file: Path | None = None
+        base_path = Path(base_dir).resolve()
         search_dirs = [
-            (base_path / "scenarios", "project"),
-            (base_path, "project"),
-            (self.get_library_dir(), "library"),
+            base_path / "scenarios",
+            base_path / ".uxsentinel" / "scenarios",
+            base_path / "tests" / "scenarios",
+            base_path,
+            self.get_library_dir(),
         ]
 
-        source_found = "project"
-        for sdir, source in search_dirs:
+        for sdir in search_dirs:
             if not sdir.is_dir():
                 continue
             for ext in ("*.yaml", "*.yml"):
                 for candidate in sdir.glob(ext):
+                    if candidate.name in (
+                        "config.yaml",
+                        "config.example.yaml",
+                        "uxsentinel.yaml",
+                        ".uxsentinel.yaml",
+                    ):
+                        continue
                     try:
                         sc = load_scenario(str(candidate))
                         if sc.id == scenario_id or candidate.stem == scenario_id:
-                            target_file = candidate
-                            source_found = source
-                            break
+                            return candidate
                     except Exception:
                         continue
-                if target_file:
-                    break
+        return None
+
+    def get_scenario(self, scenario_id: str, base_dir: Path | str) -> ScenarioDetailDTO:
+        """Obtém detalhes de um cenário específico preservando raw_yaml original."""
+        self._sanitize_path_component(scenario_id)
+        target_file = self.find_scenario_path(scenario_id, base_dir)
 
         if not target_file or not target_file.is_file():
             raise FileNotFoundError(f"Cenário com id '{scenario_id}' não encontrado em {base_dir}")
+
+        lib_dir = self.get_library_dir().resolve()
+        source_found = "library" if str(target_file.resolve()).startswith(str(lib_dir)) else "project"
 
         raw_yaml = target_file.read_text(encoding="utf-8")
         sc = load_scenario(str(target_file))

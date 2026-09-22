@@ -35,6 +35,8 @@ class ActionContext:
     current_viewport: ViewportConfig | None = None
     multi_viewport: bool = False
     effective_axe: bool = True
+    effective_css: bool = True
+    effective_fail_fast: bool = True
     effective_baseline_dir: str | Path = "scenarios/baselines"
     effective_update_baseline: bool = False
     effective_diff_threshold: float = 0.1

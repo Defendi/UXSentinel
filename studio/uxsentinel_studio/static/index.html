@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>UXSentinel Studio | Mission Control & Live QA</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🛡️</text></svg>">
+</head>
+<body>
+    <div id="app" class="app-layout">
+        <!-- Topbar Global -->
+        <header class="topbar">
+            <div class="topbar-brand">
+                <span class="brand-icon">🛡️</span>
+                <span class="brand-name">UXSentinel <span class="brand-badge">Studio</span></span>
+                <span class="version-badge" id="version-display">v1.0.0</span>
+            </div>
+
+            <!-- Navegação Superior / Abas Globais -->
+            <nav class="topbar-nav">
+                <button class="nav-tab active" data-tab="scenarios">
+                    <span class="tab-icon">📄</span> Cenários & Editor
+                </button>
+                <button class="nav-tab" data-tab="history">
+                    <span class="tab-icon">📊</span> Histórico & Hub
+                </button>
+                <button class="nav-tab" data-tab="settings">
+                    <span class="tab-icon">⚙️</span> Configurações
+                </button>
+            </nav>
+
+            <div class="topbar-status">
+                <div class="status-indicator connected" id="connection-status">
+                    <span class="status-dot"></span>
+                    <span class="status-text" id="status-text">Sessão Autenticada</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Workspace Grid -->
+        <main class="workspace">
+            <!-- COLUNA 1: Sidebar de Cenários e Navegação -->
+            <aside class="sidebar" id="sidebar-col">
+                <div class="sidebar-header">
+                    <div class="search-box">
+                        <span class="search-icon">🔍</span>
+                        <input type="text" id="scenario-search" placeholder="Buscar cenários por nome ou id...">
+                    </div>
+                    <div class="filter-tags" id="tag-filters">
+                        <button class="tag-pill active" data-filter="all">Todos</button>
+                        <button class="tag-pill" data-filter="project">📁 Projeto</button>
+                        <button class="tag-pill" data-filter="library">📚 Biblioteca</button>
+                    </div>
+                </div>
+
+                <div class="sidebar-content">
+                    <!-- Seção Projeto -->
+                    <div class="scenario-group">
+                        <div class="group-title">
+                            <span>📁 Cenários do Projeto</span>
+                            <span class="group-count" id="project-count">0</span>
+                        </div>
+                        <ul class="scenario-list" id="project-scenarios-list">
+                            <!-- Inserido dinamicamente via app.js -->
+                        </ul>
+                    </div>
+
+                    <!-- Seção Biblioteca Interna -->
+                    <div class="scenario-group">
+                        <div class="group-title">
+                            <span>📚 Biblioteca Embutida (Read-Only)</span>
+                            <span class="group-count" id="library-count">0</span>
+                        </div>
+                        <ul class="scenario-list" id="library-scenarios-list">
+                            <!-- Inserido dinamicamente via app.js -->
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="sidebar-actions">
+                    <button class="btn btn-secondary btn-block" id="btn-open-create-modal">
+                        <span>➕</span> Novo Cenário
+                    </button>
+                    <button class="btn btn-ai btn-block" id="btn-open-ai-modal">
+                        <span>✨</span> Criar com IA
+                    </button>
+                </div>
+            </aside>
+
+            <!-- COLUNA 2: Editor Central (YAML Studio) ou Visualizador de Hub / Config -->
+            <section class="main-column" id="main-content-col">
+                <!-- Visão 1: Editor de Cenários (Padrão) -->
+                <div class="view-panel active" id="view-editor">
+                    <div class="editor-toolbar">
+                        <div class="editor-file-info">
+                            <span class="file-icon">📝</span>
+                            <span class="file-name" id="current-filename">nenhum_cenario.yaml</span>
+                            <span class="file-source-badge" id="current-source-badge">Projeto</span>
+                            <span class="save-status" id="save-status-indicator">● Salvo</span>
+                        </div>
+
+                        <div class="editor-controls">
+                            <div class="profile-selector">
+                                <label for="editor-profile-select">Perfil:</label>
+                                <select id="editor-profile-select">
+                                    <option value="generic">generic (Universal)</option>
+                                    <option value="odoo">odoo (Enterprise ERP)</option>
+                                </select>
+                            </div>
+                            <button class="btn btn-primary" id="btn-run-scenario" title="Dispara a execução do cenário no background">
+                                <span>▶️</span> Executar Agora
+                            </button>
+                            <button class="btn btn-secondary" id="btn-save-scenario" title="Salva as alterações (Ctrl+S)">
+                                <span>💾</span> Salvar
+                            </button>
+                            <button class="btn btn-danger" id="btn-delete-scenario" title="Excluir este cenário do projeto">
+                                <span>🗑️</span> Excluir
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="editor-container">
+                        <div class="line-numbers" id="editor-line-numbers">1</div>
+                        <textarea id="yaml-code-editor" spellcheck="false" placeholder="# Carregando conteúdo YAML do cenário..."></textarea>
+                    </div>
+
+                    <!-- Barra de Diagnóstico e Validação em Linha -->
+                    <div class="validation-bar valid" id="validation-feedback-bar">
+                        <span class="val-icon" id="val-icon">✓</span>
+                        <span class="val-message" id="val-message">YAML Válido e em conformidade estrutural.</span>
+                    </div>
+                </div>
+
+                <!-- Visão 2: Hub de Resultados e Histórico (STU-08) -->
+                <div class="view-panel" id="view-history">
+                    <div class="panel-header">
+                        <h2>📊 Central de Resultados & Auditorias Salvas</h2>
+                        <button class="btn btn-secondary" id="btn-refresh-history">🔄 Atualizar Lista</button>
+                    </div>
+
+                    <div class="metrics-grid">
+                        <div class="metric-card">
+                            <span class="metric-label">Total de Auditorias</span>
+                            <span class="metric-value" id="metric-total-runs">0</span>
+                        </div>
+                        <div class="metric-card">
+                            <span class="metric-label">Taxa de Sucesso</span>
+                            <span class="metric-value text-success" id="metric-success-rate">0%</span>
+                        </div>
+                        <div class="metric-card">
+                            <span class="metric-label">Inconformidades Detectadas</span>
+                            <span class="metric-value text-warning" id="metric-total-issues">0</span>
+                        </div>
+                    </div>
+
+                    <div class="results-table-container">
+                        <table class="data-table" id="results-table">
+                            <thead>
+                                <tr>
+                                    <th>Status</th>
+                                    <th>Cenário</th>
+                                    <th>Data e Hora</th>
+                                    <th>Duração</th>
+                                    <th>Inconformidades</th>
+                                    <th>Ações</th>
+                                </tr>
+                            </thead>
+                            <tbody id="results-table-body">
+                                <tr>
+                                    <td colspan="6" class="text-center text-muted">Nenhuma execução registrada até o momento.</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Visão 3: Painel de Configurações Globais (STU-09) -->
+                <div class="view-panel" id="view-settings">
+                    <div class="panel-header">
+                        <h2>⚙️ Configurações Globais do UXSentinel</h2>
+                        <button class="btn btn-primary" id="btn-save-config">💾 Salvar Configurações</button>
+                    </div>
+
+                    <div class="settings-form">
+                        <!-- Seção Provedor de IA -->
+                        <div class="form-section">
+                            <h3>🧠 Provedores de IA Multimodal</h3>
+                            <p class="section-desc">Defina o modelo de visão computacional ativo e teste a conectividade com 1 clique.</p>
+
+                            <div class="form-row">
+                                <div class="form-group flex-2">
+                                    <label for="cfg-active-provider">Provedor Ativo:</label>
+                                    <select id="cfg-active-provider">
+                                        <option value="gemini_sso">gemini_sso (Google Cloud Multimodal SSO)</option>
+                                        <option value="gemini_api_key">gemini_api_key (Google Gemini API Direct)</option>
+                                        <option value="openai">openai (GPT-4o Vision API)</option>
+                                        <option value="ollama_local">ollama_local (Llama 3.2 Vision Local)</option>
+                                    </select>
+                                </div>
+                                <div class="form-group flex-1 form-actions-align">
+                                    <button class="btn btn-secondary btn-block" id="btn-test-ai">
+                                        <span>⚡</span> Testar Conexão IA
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div class="connection-feedback-box" id="ai-test-feedback" style="display: none;"></div>
+                        </div>
+
+                        <!-- Seção Atlassian Jira -->
+                        <div class="form-section">
+                            <h3>🎯 Integração Atlassian Jira Cloud</h3>
+                            <p class="section-desc">Criação automatizada de bugs e tickets com evidências visuais e steps to reproduce.</p>
+
+                            <div class="form-row">
+                                <div class="form-group flex-1">
+                                    <label class="checkbox-label">
+                                        <input type="checkbox" id="cfg-jira-enabled"> Ativar Integração com Jira
+                                    </label>
+                                </div>
+                            </div>
+
+                            <div class="form-row">
+                                <div class="form-group flex-2">
+                                    <label for="cfg-jira-url">URL da Instância Jira Cloud:</label>
+                                    <input type="url" id="cfg-jira-url" placeholder="https://sua-empresa.atlassian.net">
+                                </div>
+                                <div class="form-group flex-1">
+                                    <label for="cfg-jira-project">Chave do Projeto (Project Key):</label>
+                                    <input type="text" id="cfg-jira-project" placeholder="ex: QA, UX, ODOO">
+                                </div>
+                            </div>
+
+                            <div class="form-row">
+                                <div class="form-group flex-1">
+                                    <label for="cfg-jira-email">E-mail da Conta Atlassian:</label>
+                                    <input type="email" id="cfg-jira-email" placeholder="qa@empresa.com.br">
+                                </div>
+                                <div class="form-group flex-1">
+                                    <label for="cfg-jira-token">API Token (Opcional para atualização):</label>
+                                    <input type="password" id="cfg-jira-token" placeholder="••••••••••••••••">
+                                </div>
+                            </div>
+
+                            <div class="form-row">
+                                <div class="form-group flex-1">
+                                    <label for="cfg-jira-issuetype">Tipo de Item (Issue Type):</label>
+                                    <input type="text" id="cfg-jira-issuetype" value="Bug">
+                                </div>
+                                <div class="form-group flex-1 form-actions-align">
+                                    <button class="btn btn-secondary btn-block" id="btn-test-jira">
+                                        <span>🔗</span> Testar Conexão Jira
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div class="connection-feedback-box" id="jira-test-feedback" style="display: none;"></div>
+                        </div>
+
+                        <!-- Seção Navegador -->
+                        <div class="form-section">
+                            <h3>🌐 Parâmetros de Execução do Navegador</h3>
+                            <div class="form-row">
+                                <div class="form-group flex-1">
+                                    <label class="checkbox-label">
+                                        <input type="checkbox" id="cfg-browser-headless" checked> Modo Headless (Sem tela gráfica)
+                                    </label>
+                                </div>
+                                <div class="form-group flex-1">
+                                    <label class="checkbox-label">
+                                        <input type="checkbox" id="cfg-browser-axe" checked> Axe-Core Ativo (WCAG 2.2)
+                                    </label>
+                                </div>
+                                <div class="form-group flex-1">
+                                    <label class="checkbox-label">
+                                        <input type="checkbox" id="cfg-browser-failfast"> Fail-Fast (Interrompe no 1º erro)
+                                    </label>
+                                </div>
+                            </div>
+
+                            <div class="form-row">
+                                <div class="form-group flex-1">
+                                    <label for="cfg-browser-slowmo">SlowMo (ms de atraso entre ações):</label>
+                                    <input type="number" id="cfg-browser-slowmo" min="0" max="3000" step="50" value="0">
+                                </div>
+                                <div class="form-group flex-1">
+                                    <label for="cfg-browser-width">Largura Default da Janela (px):</label>
+                                    <input type="number" id="cfg-browser-width" value="1280">
+                                </div>
+                                <div class="form-group flex-1">
+                                    <label for="cfg-browser-height">Altura Default da Janela (px):</label>
+                                    <input type="number" id="cfg-browser-height" value="800">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- COLUNA 3: Inspetor & Live Mission Control à Direita (STU-07) -->
+            <aside class="inspector-col" id="inspector-col">
+                <div class="inspector-tabs">
+                    <button class="insp-tab active" data-insp-tab="preview">
+                        <span>📋</span> Passos do Cenário
+                    </button>
+                    <button class="insp-tab" data-insp-tab="live">
+                        <span>⚡</span> Live Mission Control
+                    </button>
+                </div>
+
+                <!-- Visão Passos do Cenário Decompostos -->
+                <div class="inspector-content active" id="insp-panel-preview">
+                    <div class="inspector-header">
+                        <span class="insp-title">Roteiro Decomposto</span>
+                        <span class="step-count-badge" id="preview-step-count">0 passos</span>
+                    </div>
+                    <div class="step-card-stream" id="preview-steps-list">
+                        <div class="empty-state">
+                            <span class="empty-icon">👈</span>
+                            <p>Selecione um cenário à esquerda para visualizar seus passos decompostos.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Visão Live Mission Control (Streaming SSE) -->
+                <div class="inspector-content" id="insp-panel-live">
+                    <div class="live-header">
+                        <div class="live-title-row">
+                            <span class="live-badge" id="live-badge">AGUARDANDO</span>
+                            <span class="live-run-id" id="live-run-id">ID: --</span>
+                        </div>
+                        <div class="progress-bar-container">
+                            <div class="progress-bar-fill" id="live-progress-fill" style="width: 0%;"></div>
+                        </div>
+                        <div class="progress-info-row">
+                            <span id="live-step-status">Pronto para iniciar auditoria</span>
+                            <span id="live-percentage">0%</span>
+                        </div>
+                    </div>
+
+                    <!-- Terminal Hacker / Console de Logs -->
+                    <div class="terminal-container">
+                        <div class="terminal-bar">
+                            <span class="term-dots"><i></i><i></i><i></i></span>
+                            <span class="term-title">Console de Auditoria em Tempo Real</span>
+                            <button class="term-btn" id="btn-clear-logs" title="Limpar logs">🗑️</button>
+                        </div>
+                        <div class="terminal-logs" id="terminal-logs-window">
+                            <div class="log-line system">[SISTEMA] Conexão pronta. Dispare um cenário com "Executar Agora" para iniciar o streaming.</div>
+                        </div>
+                    </div>
+
+                    <!-- Checkpoints Inspecionados ao Vivo -->
+                    <div class="live-checkpoints-section">
+                        <div class="section-title-sm">📸 Checkpoints Avaliados na Sessão</div>
+                        <div class="live-checkpoints-list" id="live-checkpoints-list">
+                            <div class="empty-checkpoints">Nenhum checkpoint processado ainda.</div>
+                        </div>
+                    </div>
+
+                    <div class="live-footer" id="live-footer" style="display: none;">
+                        <a href="#" target="_blank" class="btn btn-primary btn-block" id="btn-view-report-link">
+                            <span>📄</span> Abrir Relatório Completo de Auditoria
+                        </a>
+                    </div>
+                </div>
+            </aside>
+        </main>
+
+        <!-- Modal: Novo Cenário -->
+        <div class="modal-overlay" id="modal-create-scenario">
+            <div class="modal-card">
+                <div class="modal-header">
+                    <h3>➕ Criar Novo Cenário de Teste</h3>
+                    <button class="modal-close" data-close-modal>&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="form-group">
+                        <label for="new-scenario-filename">Nome do Arquivo (.yaml):</label>
+                        <input type="text" id="new-scenario-filename" placeholder="ex: fluxo_faturamento.yaml">
+                    </div>
+                    <div class="form-group">
+                        <label for="new-scenario-id">Identificador Único (ID):</label>
+                        <input type="text" id="new-scenario-id" placeholder="ex: fluxo_faturamento">
+                    </div>
+                    <div class="form-group">
+                        <label for="new-scenario-title">Título Descritivo:</label>
+                        <input type="text" id="new-scenario-title" placeholder="ex: Auditoria do Fluxo de Faturamento e Emissão">
+                    </div>
+                    <div class="form-group">
+                        <label for="new-scenario-url">URL Inicial da Auditoria:</label>
+                        <input type="url" id="new-scenario-url" value="https://exemplo.com.br">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" data-close-modal>Cancelar</button>
+                    <button class="btn btn-primary" id="btn-confirm-create-scenario">Criar Cenário</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Modal: Assistente de Autoria com IA -->
+        <div class="modal-overlay" id="modal-ai-assistant">
+            <div class="modal-card">
+                <div class="modal-header">
+                    <h3>✨ Assistente de Autoria de Cenários com IA</h3>
+                    <button class="modal-close" data-close-modal>&times;</button>
+                </div>
+                <div class="modal-body">
+                    <p class="modal-desc">
+                        Descreva em linguagem natural o objetivo do teste ou jornada do usuário. O modelo multimodal criará a estrutura YAML pronta com seletores e checkpoints.
+                    </p>
+                    <div class="form-group">
+                        <label for="ai-prompt-input">Objetivo da Auditoria:</label>
+                        <textarea id="ai-prompt-input" rows="4" placeholder="Ex: Auditar o fluxo de cadastro de novos clientes verificando validação de CPF inválido, responsividade do modal e acessibilidade dos botões."></textarea>
+                    </div>
+
+                    <div class="ai-preview-box" id="ai-preview-box" style="display: none;">
+                        <label>Pré-visualização do YAML Gerado:</label>
+                        <pre><code id="ai-generated-yaml"></code></pre>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" data-close-modal>Cancelar</button>
+                    <button class="btn btn-ai" id="btn-submit-ai-prompt">
+                        <span>✨</span> Gerar Cenário
+                    </button>
+                    <button class="btn btn-primary" id="btn-apply-ai-yaml" style="display: none;">
+                        <span>📥</span> Inserir no Editor
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Container de Notificações Toast -->
+        <div class="toast-container" id="toast-container"></div>
+    </div>
+
+    <!-- Script da SPA -->
+    <script src="/static/app.js"></script>
+</body>
+</html>

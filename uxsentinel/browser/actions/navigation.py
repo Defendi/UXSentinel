@@ -142,95 +142,187 @@ class GotoActionHandler(BaseActionHandler):
                 status_info = f" [HTTP {net.status}]" if net.status else ""
                 critical_reasons.append(f"Falha de rede{status_info} ao acessar {net.url}: {net.error_text}")
 
-        if not critical_reasons:
-            return
-
-        # Cláusula de exceções do cenário e do passo
-        combined_exceptions: ScenarioExceptions | None = ctx.scenario_exceptions or (
-            ctx.scenario.exceptions if ctx.scenario else None
-        )
-        if step.exceptions:
-            combined_exceptions = (
-                combined_exceptions.merge(step.exceptions) if combined_exceptions else step.exceptions
+        if critical_reasons:
+            # Cláusula de exceções do cenário e do passo
+            combined_exceptions: ScenarioExceptions | None = ctx.scenario_exceptions or (
+                ctx.scenario.exceptions if ctx.scenario else None
             )
+            if step.exceptions:
+                combined_exceptions = (
+                    combined_exceptions.merge(step.exceptions) if combined_exceptions else step.exceptions
+                )
 
-        # Filtra motivos permitidos por exceções
-        filtered_reasons: list[str] = []
-        for reason in critical_reasons:
-            candidate_issue = Issue(
-                categoria=IssueCategory.OUTRO,
-                severidade=IssueSeverity.BLOQUEANTE,
-                descricao=reason,
-                evaluator="console_checker",
-            )
-            if combined_exceptions and combined_exceptions.matches_issue(candidate_issue):
-                continue
-            filtered_reasons.append(reason)
-
-        if not filtered_reasons:
-            return
-
-        # Emissão de mensagem no terminal Rich
-        details_str = " | ".join(filtered_reasons)
-        ctx.console.print(
-            f"    [bold red]❌ ERRO CRÍTICO NO CONSOLE AO ABRIR A PÁGINA:[/bold red] {details_str}"
-        )
-
-        # Captura screenshot da página de erro
-        report = ctx.report
-        out_dir = ctx.out_dir
-        current_viewport = ctx.current_viewport
-        clean_vp = (
-            current_viewport.name.replace(":", "_").replace(" ", "_")
-            if (ctx.multi_viewport and current_viewport)
-            else (current_viewport.name if current_viewport else None)
-        )
-
-        screenshot_name = (
-            f"{report.scenario_id}_{clean_vp}_goto_console_error.png"
-            if clean_vp
-            else f"{report.scenario_id}_goto_console_error.png"
-        )
-        screenshot_file = out_dir / screenshot_name
-        screenshot_saved: str | None = None
-
-        try:
-            page_obj = getattr(driver, "page", None)
-            if page_obj and hasattr(page_obj, "screenshot"):
-                await page_obj.screenshot(path=str(screenshot_file), full_page=True)
-                if screenshot_file.is_file():
-                    screenshot_saved = str(screenshot_file)
-        except Exception as ss_exc:
-            ctx.console.print(
-                f"    [dim]⚠️ Não foi possível capturar screenshot de erro de console: {ss_exc}[/dim]"
-            )
-
-        # Cria issues e CheckpointResult de erro
-        vp_label = current_viewport.label if current_viewport else None
-        issues_list: list[Issue] = []
-        for r in filtered_reasons:
-            issues_list.append(
-                Issue(
+            # Filtra motivos permitidos por exceções
+            filtered_reasons: list[str] = []
+            for reason in critical_reasons:
+                candidate_issue = Issue(
                     categoria=IssueCategory.OUTRO,
                     severidade=IssueSeverity.BLOQUEANTE,
-                    descricao=f"Erro crítico no console ao abrir '{step.url}': {r}",
-                    sugestao_correcao="Inspecione os scripts front-end ou a integridade dos serviços HTTP no momento do carregamento inicial.",
-                    elemento_alvo=step.url,
-                    viewport=vp_label,
+                    descricao=reason,
                     evaluator="console_checker",
                 )
-            )
+                if combined_exceptions and combined_exceptions.matches_issue(candidate_issue):
+                    continue
+                filtered_reasons.append(reason)
 
-        cp = CheckpointResult(
-            name="goto_console_error",
-            description=f"Validação de integridade do console e rede ao abrir {step.url}",
-            expected_behavior="A página deve carregar sem exceções críticas de JavaScript ou falhas HTTP 5xx.",
-            screenshot_path=screenshot_saved,
-            status="erro_execucao",
-            issues=issues_list,
-            viewport=vp_label,
-        )
-        report.checkpoints.append(cp)
+            if filtered_reasons:
+                # Emissão de mensagem no terminal Rich
+                details_str = " | ".join(filtered_reasons)
+                ctx.console.print(
+                    f"    [bold red]❌ ERRO CRÍTICO NO CONSOLE AO ABRIR A PÁGINA:[/bold red] {details_str}"
+                )
+
+                # Captura screenshot da página de erro
+                report = ctx.report
+                out_dir = ctx.out_dir
+                current_viewport = ctx.current_viewport
+                clean_vp = (
+                    current_viewport.name.replace(":", "_").replace(" ", "_")
+                    if (ctx.multi_viewport and current_viewport)
+                    else (current_viewport.name if current_viewport else None)
+                )
+
+                screenshot_name = (
+                    f"{report.scenario_id}_{clean_vp}_goto_console_error.png"
+                    if clean_vp
+                    else f"{report.scenario_id}_goto_console_error.png"
+                )
+                screenshot_file = out_dir / screenshot_name
+                screenshot_saved: str | None = None
+
+                try:
+                    page_obj = getattr(driver, "page", None)
+                    if page_obj and hasattr(page_obj, "screenshot"):
+                        await page_obj.screenshot(path=str(screenshot_file), full_page=True)
+                        if screenshot_file.is_file():
+                            screenshot_saved = str(screenshot_file)
+                except Exception as ss_exc:
+                    ctx.console.print(
+                        f"    [dim]⚠️ Não foi possível capturar screenshot de erro de console: {ss_exc}[/dim]"
+                    )
+
+                # Cria issues e CheckpointResult de erro
+                vp_label = current_viewport.label if current_viewport else None
+                issues_list: list[Issue] = []
+                for r in filtered_reasons:
+                    issues_list.append(
+                        Issue(
+                            categoria=IssueCategory.OUTRO,
+                            severidade=IssueSeverity.BLOQUEANTE,
+                            descricao=f"Erro crítico no console ao abrir '{step.url}': {r}",
+                            sugestao_correcao="Inspecione os scripts front-end ou a integridade dos serviços HTTP no momento do carregamento inicial.",
+                            elemento_alvo=step.url,
+                            viewport=vp_label,
+                            evaluator="console_checker",
+                        )
+                    )
+
+                cp = CheckpointResult(
+                    name="goto_console_error",
+                    description=f"Validação de integridade do console e rede ao abrir {step.url}",
+                    expected_behavior="A página deve carregar sem exceções críticas de JavaScript ou falhas HTTP 5xx.",
+                    screenshot_path=screenshot_saved,
+                    status="erro_execucao",
+                    issues=issues_list,
+                    viewport=vp_label,
+                )
+                report.checkpoints.append(cp)
+
+        # 3. Auditoria de integridade de CSS na carga inicial (UXS-47)
+        page_obj = getattr(driver, "page", None)
+        if getattr(ctx, "effective_css", True) and page_obj:
+            from uxsentinel.css.models import CSSSeverity
+            from uxsentinel.css.runner import CSSInspector
+
+            current_viewport = ctx.current_viewport
+            vp_label = current_viewport.label if current_viewport else None
+            try:
+                css_report = await CSSInspector.audit_page(page_obj, viewport=vp_label)
+                bloqueantes = [v for v in css_report.violations if v.severity == CSSSeverity.BLOQUEANTE]
+                if bloqueantes:
+                    # Cláusula de exceções
+                    combined_exceptions: ScenarioExceptions | None = ctx.scenario_exceptions or (
+                        ctx.scenario.exceptions if ctx.scenario else None
+                    )
+                    if step.exceptions:
+                        combined_exceptions = (
+                            combined_exceptions.merge(step.exceptions)
+                            if combined_exceptions
+                            else step.exceptions
+                        )
+
+                    filtered_bloqueantes = []
+                    for b in bloqueantes:
+                        candidate_issue = Issue(
+                            categoria=IssueCategory.LAYOUT,
+                            severidade=IssueSeverity.BLOQUEANTE,
+                            descricao=b.description,
+                            elemento_alvo=b.selector,
+                            evaluator="css_inspector",
+                        )
+                        if combined_exceptions and combined_exceptions.matches_issue(candidate_issue):
+                            continue
+                        filtered_bloqueantes.append(b)
+
+                    if filtered_bloqueantes:
+                        detalhes = " | ".join(f"[{b.rule_id}] {b.description}" for b in filtered_bloqueantes)
+                        ctx.console.print(
+                            f"    [bold red]❌ ERRO CRÍTICO DE CSS AO ABRIR A PÁGINA:[/bold red] {detalhes}"
+                        )
+
+                        report = ctx.report
+                        out_dir = ctx.out_dir
+                        clean_vp = (
+                            current_viewport.name.replace(":", "_").replace(" ", "_")
+                            if (ctx.multi_viewport and current_viewport)
+                            else (current_viewport.name if current_viewport else None)
+                        )
+                        screenshot_name = (
+                            f"{report.scenario_id}_{clean_vp}_goto_css_error.png"
+                            if clean_vp
+                            else f"{report.scenario_id}_goto_css_error.png"
+                        )
+                        screenshot_file = out_dir / screenshot_name
+                        screenshot_saved: str | None = None
+                        try:
+                            if hasattr(page_obj, "screenshot"):
+                                await page_obj.screenshot(path=str(screenshot_file), full_page=True)
+                                if screenshot_file.is_file():
+                                    screenshot_saved = str(screenshot_file)
+                        except Exception as ss_exc:
+                            ctx.console.print(
+                                f"    [dim]⚠️ Não foi possível capturar screenshot de erro de CSS: {ss_exc}[/dim]"
+                            )
+
+                        css_issues: list[Issue] = []
+                        for b in filtered_bloqueantes:
+                            css_issues.append(
+                                Issue(
+                                    categoria=IssueCategory.LAYOUT,
+                                    severidade=IssueSeverity.BLOQUEANTE,
+                                    descricao=f"Erro crítico de CSS ao abrir '{step.url}': [{b.rule_id}] {b.description}",
+                                    sugestao_correcao=b.suggestion
+                                    or "Corrija os estilos CSS que rompem a viewport ou bloqueiam interações.",
+                                    elemento_alvo=b.selector,
+                                    trecho_codigo=b.snippet,
+                                    viewport=vp_label,
+                                    evaluator="css_inspector",
+                                )
+                            )
+
+                        cp_css = CheckpointResult(
+                            name="goto_css_error",
+                            description=f"Validação de integridade de layout e CSS ao abrir {step.url}",
+                            expected_behavior="A página deve ser renderizada sem quebras de layout horizontal ou overlays bloqueantes.",
+                            screenshot_path=screenshot_saved,
+                            status="erro_execucao",
+                            issues=css_issues,
+                            viewport=vp_label,
+                            css_audit=css_report,
+                        )
+                        report.checkpoints.append(cp_css)
+            except Exception as css_exc:
+                ctx.console.print(f"    [dim]⚠️ Falha na inspeção de CSS ao abrir página: {css_exc}[/dim]")
 
 
 class SetViewportActionHandler(BaseActionHandler):

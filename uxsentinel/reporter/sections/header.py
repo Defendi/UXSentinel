@@ -77,6 +77,12 @@ def render_executive_summary(report: TestReport) -> list[str]:
         )
         lines.append(f"| **Avisos de Console Chromium (JS)** | **{report.total_console_warnings}** | 🟡 |")
 
+    if report.css_audit:
+        css_icon = "🟢" if report.css_audit.score >= 90 else ("🟡" if report.css_audit.score >= 70 else "🔴")
+        lines.append(
+            f"| **Índice de Qualidade CSS (UXS-47)** | **{report.css_audit.score:.1f}/100** ({len(report.css_audit.violations)} violações) | {css_icon} |"
+        )
+
     if report.network_failures:
         lines.append(f"| **Falhas de Rede (HTTP 4xx/5xx/CORS)** | **{len(report.network_failures)}** | 🔴 |")
 

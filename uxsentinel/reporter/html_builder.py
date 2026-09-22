@@ -387,6 +387,15 @@ HTML_TEMPLATE = """
                 </div>
             </div>
             {% endif %}
+            {% if report.css_audit %}
+            <div class="metric-card" style="color: {% if report.css_audit.score >= 90 %}#34d399{% elif report.css_audit.score >= 70 %}#fbbf24{% else %}#f87171{% endif %}; border: 1px solid {% if report.css_audit.score >= 90 %}rgba(52, 211, 153, 0.3){% elif report.css_audit.score >= 70 %}rgba(251, 191, 36, 0.3){% else %}rgba(248, 113, 113, 0.3){% endif %};">
+                <div class="metric-val">{{ "%.1f"|format(report.css_audit.score) }}</div>
+                <div class="metric-label">CSS Score (UXS-47)</div>
+                <div style="background: rgba(255,255,255,0.1); border-radius: 999px; height: 6px; width: 80%; margin: 0.4rem auto 0; overflow: hidden;">
+                    <div style="width: {{ report.css_audit.score }}%; height: 100%; background: {% if report.css_audit.score >= 90 %}#10b981{% elif report.css_audit.score >= 70 %}#f59e0b{% else %}#ef4444{% endif %}; border-radius: 999px;"></div>
+                </div>
+            </div>
+            {% endif %}
             {% if report.healed_steps %}
             <div class="metric-card" style="color: #fbbf24;">
                 <div class="metric-val">{{ report.healed_steps|length }}</div>
@@ -641,6 +650,7 @@ HTML_TEMPLATE = """
                 </div>
             </div>
             {% endif %}
+
         </div>
         {% endif %}
 
@@ -909,6 +919,49 @@ HTML_TEMPLATE = """
                             {% if v.nodes[0].failure_summary %}
                             <div style="color: #fbbf24; font-size: 0.75rem; margin-top: 0.3rem;">💡 {{ v.nodes[0].failure_summary }}</div>
                             {% endif %}
+                        </div>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+
+            {% if cp.css_audit and cp.css_audit.violations %}
+            <div style="margin-top: 1.5rem; background: rgba(0,0,0,0.25); border: 1px solid var(--border); border-radius: 8px; padding: 1.25rem;">
+                <div style="font-size: 1rem; font-weight: 600; margin-bottom: 0.75rem; display: flex; align-items: center; justify-content: space-between;">
+                    <span>🎨 Auditoria Profunda de CSS (UXS-47) — Score: {{ "%.1f"|format(cp.css_audit.score) }}/100</span>
+                    <span class="badge badge-info">{{ cp.css_audit.violations|length }} violação(ões)</span>
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 0.75rem;">
+                    {% for cv in cp.css_audit.violations %}
+                    <div style="background: var(--surface); border: 1px solid var(--border); border-left: 4px solid {% if cv.severity.value == 'bloqueante' %}var(--danger){% elif cv.severity.value == 'alta' %}#f97316{% elif cv.severity.value == 'media' %}var(--warning){% else %}var(--info){% endif %}; border-radius: 6px; padding: 0.85rem;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.4rem; flex-wrap: wrap; gap: 0.5rem;">
+                            <div>
+                                <span class="badge badge-{% if cv.severity.value in ['bloqueante', 'alta'] %}danger{% elif cv.severity.value == 'media' %}warning{% else %}info{% endif %}" style="font-size: 0.75rem;">
+                                    {{ cv.severity.value|upper }}
+                                </span>
+                                <strong style="margin-left: 0.4rem; font-size: 0.9rem;">{{ cv.rule_id }}</strong>
+                                <span style="font-size: 0.75rem; color: var(--text-muted); margin-left: 0.3rem;">({{ cv.category.value }})</span>
+                            </div>
+                            <span style="font-size: 0.75rem; color: var(--text-muted);">Origem: <code>{{ cv.source }}</code></span>
+                        </div>
+                        <div style="font-size: 0.85rem; color: #cbd5e1; margin-bottom: 0.4rem;">
+                            {{ cv.description }}
+                        </div>
+                        {% if cv.selector or cv.snippet %}
+                        <div style="font-size: 0.8rem; background: rgba(0,0,0,0.3); border-radius: 4px; padding: 0.5rem; margin-bottom: 0.3rem;">
+                            {% if cv.selector %}
+                            <div style="color: var(--text-muted); margin-bottom: 0.2rem;"><strong>Seletor:</strong> <code>{{ cv.selector }}</code></div>
+                            {% endif %}
+                            {% if cv.snippet %}
+                            <div style="font-family: monospace; color: #94a3b8; overflow-x: auto; white-space: pre-wrap;">{{ cv.snippet }}</div>
+                            {% endif %}
+                        </div>
+                        {% endif %}
+                        {% if cv.suggestion %}
+                        <div style="color: #34d399; font-size: 0.8rem; background: rgba(16, 185, 129, 0.1); border-radius: 4px; padding: 0.4rem 0.6rem;">
+                            💡 <strong>Sugestão:</strong> {{ cv.suggestion }}
                         </div>
                         {% endif %}
                     </div>

@@ -111,3 +111,43 @@ def test_scenario_service_validation_rules():
 """)
     assert res4.valid is False
     assert any(e.field == "selector" for e in res4.errors)
+
+
+def test_scenario_service_find_scenario_path(tmp_path: Path):
+    """Valida localização de caminhos de cenários locais, biblioteca e proteção contra path traversal."""
+    service = ScenarioService()
+
+    # Cria cenário local no workspace
+    scenarios_dir = tmp_path / "scenarios"
+    scenarios_dir.mkdir()
+    scenario_file = scenarios_dir / "meu_fluxo.yaml"
+    scenario_file.write_text(
+        """id: meu_fluxo_id
+title: "Meu Fluxo"
+steps:
+  - action: goto
+    url: "https://example.com"
+""",
+        encoding="utf-8",
+    )
+
+    # 1. Encontra por ID
+    found_by_id = service.find_scenario_path("meu_fluxo_id", tmp_path)
+    assert found_by_id is not None
+    assert found_by_id.resolve() == scenario_file.resolve()
+
+    # 2. Encontra por nome do arquivo (stem)
+    found_by_stem = service.find_scenario_path("meu_fluxo", tmp_path)
+    assert found_by_stem is not None
+    assert found_by_stem.resolve() == scenario_file.resolve()
+
+    # 3. Encontra cenário da biblioteca interna embutida (ex: exemplo_odoo)
+    found_lib = service.find_scenario_path("exemplo_odoo", tmp_path)
+    assert found_lib is not None
+    assert found_lib.is_file()
+
+    # 4. Retorna None para cenário inexistente
+    assert service.find_scenario_path("cenario_fantasma_xyz", tmp_path) is None
+
+    # 5. Retorna None para tentativa de path traversal
+    assert service.find_scenario_path("../../etc/passwd", tmp_path) is None

@@ -106,3 +106,10 @@ line-ending = "auto"
 [tool.uv.workspace]
 members = [".", "studio"]
 
+# ==============================================================================
+# Configuração do Pytest (ADR-07 - Monorepo UXSentinel)
+# ==============================================================================
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "strict"
+

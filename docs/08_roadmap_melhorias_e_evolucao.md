@@ -281,48 +281,41 @@ Para garantir que a assertividade supere 95% de forma sustentável, a camada mul
 
 ---
 
-## 🖥️ Fase 4: Frontend Opcional — UXSentinel Studio & Live Mission Control
+## 🖥️ Fase 4: UXSentinel Studio (Aplicação Web Desacoplada)
 
-O **UXSentinel Studio** é uma interface web gráfica opcional projetada para coexistir de forma elegante com o navegador Playwright visível na tela e com a CLI tradicional. Ele atende tanto engenheiros de software quanto analistas de QA, designers e Product Owners que preferem uma experiência visual interativa.
+O **UXSentinel Studio** é a aplicação web gráfica oficial do ecossistema UXSentinel, distribuída como um pacote PyPI independente (`uxsentinel-studio`) via monorepo governado por **UV Workspace**. Ele permite aos operadores (QA, desenvolvedores, designers e POs) criar, editar, validar cenários e consultar relatórios sem depender do terminal e sem escrever YAML manualmente.
+
+> 📘 **Especificação de Design Completa:** Consulte [`docs/superpowers/specs/2026-09-22-uxsentinel-studio-design.md`](superpowers/specs/2026-09-22-uxsentinel-studio-design.md) para detalhes do contrato de API, segurança e UV workspace.
 
 ```mermaid
 flowchart TD
-    subgraph UXSentinel Engine
-        Agent[UXSentinelAgent]
-        Driver[Playwright Driver]
-        Vision[UnifiedVisionClient]
-        Bus[Event Bus / Notifier]
+    subgraph Pacote Core: uxsentinel
+        Engine[Motor Visual QA & Playwright]
+        Vision[Camada Multimodal LMM]
+        Services[Camada de Serviços: Execution, Scenario, Config, Results]
+        CLI[CLI Tradicional: uxsentinel]
     end
 
-    subgraph Backend Web
-        Server[FastAPI / Starlette Server :8080]
-        SSE[SSE Stream /api/events]
-        REST[REST API: /api/scenarios, /api/config]
+    subgraph Pacote Studio: uxsentinel-studio
+        FastAPI[Servidor FastAPI + Uvicorn]
+        REST[API REST: /api/scenarios, /api/config, /api/execution]
+        SPA[Interface SPA: Vue 3 + TailwindCSS + Monaco Editor]
+        StudioCLI[CLI do Studio: uxsentinel-studio]
     end
 
-    subgraph Frontend SPA Embutido
-        UI[Painel Web UXSentinel Studio]
-        Monitor[1. Live Mission Control]
-        AIAssistant[2. Assistente IA de YAML]
-        History[3. Histórico e Relatórios]
-        ConfigTab[4. Configuração Global]
-    end
-
-    Agent -->|Dispara eventos| Bus
-    Bus -->|Transmite| SSE
-    SSE -->|Atualiza em tempo real| Monitor
-    Driver -->|Navega na tela| Browser[(Navegador Visível)]
-    UI -->|Dispara execução / Edita YAML| REST
-    REST --> Agent
-    UI --> AIAssistant
-    AIAssistant -->|Gera YAML via LLM| Vision
+    CLI --> Services
+    StudioCLI --> FastAPI
+    FastAPI --> SPA
+    FastAPI -->|Importa como dependência| Services
+    Services --> Engine
 ```
 
-### 4.1 Painel "Live Mission Control" (Acompanhamento em Tempo Real)
-* **Conceito:** Enquanto o Playwright abre a janela do navegador e executa as ações em velocidade humana visível, o terminal pode ser muito técnico ou suscitar dúvidas sobre o que o agente cognitivo está "pensando".
+### 4.1 Módulo de Autoria e Edição de Cenários (Visual & YAML Dual-Mode)
+* **Conceito:** Alternância fluida entre visualização em blocos semânticos arrastáveis (`goto`, `click`, `fill`, `checkpoint`) e editor de código Monaco com syntax highlighting e validação de schema em tempo real.
 * **Funcionalidades da Tela:**
-  1. **Streaming de Passos via SSE (Server-Sent Events):** Linha do tempo dinâmica atualizada a cada ação (`goto`, `click`, `fill`, `wait_modal`), indicando sucesso, tempo de resposta e elemento afetado.
-  2. **Feed do Auditor Cognitivo:** Exibição clara e amigável da inspeção da IA em tempo real:
+  1. **Editor Visual em Blocos:** Montagem intuitiva de passos com autocompletes de seletores e parâmetros.
+  2. **Validação Estruturada em Linha:** Erros de sintaxe ou de campos obrigatórios apontam imediatamente o número do passo com erro.
+  3. **Disparo Imediato:** Botão "Executar Agora" que delega a execução diretamente para o `ExecutionService` do core.
      - *"Passo 04: Inspecionando modal de desconto no Odoo..."*
      - *"Analisando conformidade de tradução (pt-BR)..."*
      - *"Verificando visibilidade dos botões de ação e z-index..."*

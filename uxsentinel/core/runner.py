@@ -21,6 +21,7 @@ from uxsentinel.core.config import (
     resolve_archive_mode,
     resolve_axe_mode,
     resolve_baseline_mode,
+    resolve_css_mode,
     resolve_devtools_mode,
     resolve_display_mode,
     resolve_fail_fast_mode,
@@ -51,6 +52,7 @@ class ScenarioRunOptions:
     record_video: bool | None = None
     viewports: str | list[str] | list[ViewportConfig] | None = None
     enable_axe: bool | None = None
+    enable_css: bool | None = None
     update_baseline: bool | None = None
     baseline_dir: str | Path | None = None
     diff_threshold: float | None = None
@@ -157,6 +159,13 @@ class ScenarioRunnerService:
             config_axe=cfg.browser.enable_axe,
         )
 
+        # Resolução de Auditoria de CSS Híbrida
+        cfg.browser.enable_css_audit = resolve_css_mode(
+            cli_css=options.enable_css,
+            scenario_css=scenario.css,
+            config_css=cfg.browser.enable_css_audit,
+        )
+
         # Resolução de Baseline Visual
         if options.baseline_dir:
             cfg.baseline.baseline_dir = str(options.baseline_dir)
@@ -249,6 +258,7 @@ class ScenarioRunnerService:
             record_video_override=opts.record_video,
             viewports_override=cli_vp_arg,
             enable_axe_override=opts.enable_axe,
+            enable_css_override=opts.enable_css,
             update_baseline_override=opts.update_baseline,
             baseline_dir_override=opts.baseline_dir,
             diff_threshold_override=opts.diff_threshold,
@@ -265,6 +275,7 @@ class ScenarioRunnerService:
             record_video_override=opts.record_video,
             viewports_override=cli_vp_arg,
             enable_axe_override=opts.enable_axe,
+            enable_css_override=opts.enable_css,
             update_baseline_override=opts.update_baseline,
             baseline_dir_override=opts.baseline_dir,
             diff_threshold_override=opts.diff_threshold,
@@ -305,6 +316,7 @@ class ScenarioRunnerService:
                     record_video=opts.record_video,
                     viewports=[vp],
                     enable_axe=opts.enable_axe,
+                    enable_css=opts.enable_css,
                     update_baseline=opts.update_baseline,
                     baseline_dir=opts.baseline_dir,
                     diff_threshold=opts.diff_threshold,
@@ -332,6 +344,7 @@ class ScenarioRunnerService:
                 record_video=opts.record_video,
                 viewports=[vp],
                 enable_axe=opts.enable_axe,
+                enable_css=opts.enable_css,
                 update_baseline=opts.update_baseline,
                 baseline_dir=opts.baseline_dir,
                 diff_threshold=opts.diff_threshold,
@@ -370,6 +383,7 @@ class ScenarioRunnerService:
                     record_video=opts.record_video,
                     viewports=opts.viewports,
                     enable_axe=opts.enable_axe,
+                    enable_css=opts.enable_css,
                     update_baseline=opts.update_baseline,
                     baseline_dir=opts.baseline_dir,
                     diff_threshold=opts.diff_threshold,
@@ -427,6 +441,7 @@ class ScenarioRunnerService:
                         record_video=opts.record_video,
                         viewports=opts.viewports,
                         enable_axe=opts.enable_axe,
+                        enable_css=opts.enable_css,
                         update_baseline=opts.update_baseline,
                         baseline_dir=opts.baseline_dir,
                         diff_threshold=opts.diff_threshold,

@@ -60,3 +60,26 @@ def test_protected_routes_require_valid_token(client):
     r3 = client.get("/api/test-protected", headers={"X-Studio-Token": token})
     assert r3.status_code == 200
     assert r3.json()["authorized"] is True
+
+
+def test_spa_serves_index_with_full_layout(client):
+    """Valida se o index.html da SPA carrega os elementos essenciais da interface em 3 colunas."""
+    token = get_session_token()
+    resp = client.get(f"/?token={token}")
+    assert resp.status_code == 200
+    assert "app-layout" in resp.text
+    assert "yaml-code-editor" in resp.text
+    assert "terminal-logs-window" in resp.text
+    assert "sidebar" in resp.text
+    assert "inspector-col" in resp.text
+
+
+def test_spa_static_assets_delivery(client):
+    """Valida entrega dos assets estáticos style.css e app.js."""
+    resp_css = client.get("/static/style.css")
+    assert resp_css.status_code == 200
+    assert "var(--bg-base)" in resp_css.text
+
+    resp_js = client.get("/static/app.js")
+    assert resp_js.status_code == 200
+    assert "initSessionToken" in resp_js.text

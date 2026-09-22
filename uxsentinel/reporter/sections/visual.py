@@ -95,6 +95,7 @@ def render_checkpoint_details(
 ) -> list[str]:
     """Renderiza a Seção 5: Detalhamento Técnico por Checkpoint com screenshots, diffs, a11y e issues."""
     from uxsentinel.reporter.sections.a11y import render_axe_violations
+    from uxsentinel.reporter.sections.css import render_css_violations
 
     lines: list[str] = ["## 📍 5. Detalhamento Técnico por Checkpoint", ""]
 
@@ -127,6 +128,10 @@ def render_checkpoint_details(
         # Auditoria de Acessibilidade WCAG 2.2 AA (Axe-Core)
         if cp.a11y_violations:
             lines.extend(render_axe_violations(cp.a11y_violations, cp.a11y_score))
+
+        # Auditoria de CSS (UXS-47)
+        if cp.css_audit and cp.css_audit.violations:
+            lines.extend(render_css_violations(cp.css_audit))
 
         # Inconformidades de Usabilidade / Heurísticas (Issues)
         if cp.issues:

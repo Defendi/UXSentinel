@@ -34,10 +34,15 @@ Os documentos abaixo fornecem o embasamento teórico, técnico e operacional do 
    Procedimento passo a passo para criar novas releases no GitHub (via CLI `gh` ou interface web) e acionar a esteira de CI/CD automatizada com validação e deploy no PyPI.
 
 8. **[08. Roadmap de Melhorias e Evolução Técnica](08_roadmap_melhorias_e_evolucao.md)**  
-   Plano diretor de evolução inspirado nas melhores ferramentas de QA com IA do mercado (Midscene, ZeroStep, Applitools, Playwright Agents e Octomind): *Self-Healing* de seletores, gravação de vídeos/GIFs, auditoria multi-viewport, controle flexível de visualização do Chromium, **arquitetura de subagentes especialistas com árbitro reverso para assertividade acima de 95%**, baseline visual com slider antes/depois, motor Axe-Core WCAG 2.2, modo crawler exploratório, abertura de Pull Requests e **Frontend Opcional (UXSentinel Studio & Live Mission Control)** com assistente IA para criação de cenários YAML.
+   Plano diretor de evolução inspirado nas melhores ferramentas de QA com IA do mercado: *Self-Healing* de seletores, gravação de vídeos/GIFs, auditoria multi-viewport, arquitetura multiagente com árbitro reverso, baseline visual, motor Axe-Core WCAG 2.2, modo crawler exploratório e **UXSentinel Studio** (interface gráfica web desacoplada em pacote próprio `uxsentinel-studio` via UV Workspace).
 
 9. **[10. Estado Atual do Desenvolvimento, Inventário e Registro de Riscos](10_estado_atual_inventario_e_riscos.md)**  
-    Retrato fiel e operacional do código: mapeamento exato dos pacotes Python, inventário de funcionalidades concluídas vs. pendentes vinculado aos cards do Jira (`UXS-1` a `UXS-14`), matriz de riscos técnicos/produto e registro de decisões de arquitetura (ADRs) implementadas e descartadas.
+   Retrato fiel e operacional do código: mapeamento exato dos pacotes Python, inventário de funcionalidades concluídas vs. pendentes vinculado aos cards do Jira (`UXS-1` a `UXS-47`), matriz de riscos e registro de decisões de arquitetura (ADRs).
+
+10. **[Especificações de Design Arquitetural (Specs)](superpowers/specs/)**  
+    Documentos formais de decisão e detalhamento técnico de engenharia:
+    - **[`2026-09-21-backend-refactoring-design.md`](superpowers/specs/2026-09-21-backend-refactoring-design.md)**: Desacoplamento do motor de passos (`ActionContext`, `ActionRegistry`) e `ScenarioRunnerService`.
+    - **[`2026-09-22-uxsentinel-studio-design.md`](superpowers/specs/2026-09-22-uxsentinel-studio-design.md)**: Arquitetura completa do **UXSentinel Studio**, modelo de 2 pacotes PyPI independentes via UV Workspace, API REST e SPA Vue 3.
 
 ---
 

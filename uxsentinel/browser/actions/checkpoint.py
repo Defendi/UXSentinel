@@ -24,6 +24,7 @@ class CheckpointActionHandler(BaseActionHandler):
             current_viewport=ctx.current_viewport,
             multi_viewport=ctx.multi_viewport,
             effective_axe=ctx.effective_axe,
+            effective_css=getattr(ctx, "effective_css", True),
             effective_baseline_dir=ctx.effective_baseline_dir,
             effective_update_baseline=ctx.effective_update_baseline,
             effective_diff_threshold=ctx.effective_diff_threshold,

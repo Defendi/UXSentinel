@@ -16,6 +16,7 @@ from uxsentinel.browser.telemetry import (
     NetworkFailureEntry,
     PagePerformanceMetrics,
 )
+from uxsentinel.css.models import CSSAuditReport
 
 
 class IssueSeverity(StrEnum):
@@ -32,6 +33,7 @@ class IssueCategory(StrEnum):
     TEXTO_TECNICO = "texto_tecnico"
     LAYOUT_MODAL = "layout_modal"
     LAYOUT = "layout"
+    CSS = "css"
     REGRA_NEGOCIO = "regra_negocio"
     ACESSIBILIDADE = "acessibilidade"
     OUTRO = "outro"
@@ -230,6 +232,7 @@ class CheckpointResult(BaseModel):
     console_logs: list[ConsoleLogEntry] = Field(default_factory=list)
     network_failures: list[NetworkFailureEntry] = Field(default_factory=list)
     performance_metrics: PagePerformanceMetrics | None = None
+    css_audit: CSSAuditReport | None = None
 
 
 class SemanticStrategy(StrEnum):
@@ -344,6 +347,7 @@ class Scenario(BaseModel):
     devtools: bool | None = None
     video: bool | None = None
     axe: bool | None = None
+    css: bool | None = None
     markdown: bool | None = None
     fail_fast: bool | None = None
     update_baseline: bool | None = None
@@ -388,6 +392,7 @@ class TestReport(BaseModel):
     performance_history: list[PagePerformanceMetrics] = Field(default_factory=list)
     total_console_errors: int = 0
     total_console_warnings: int = 0
+    css_audit: CSSAuditReport | None = None
     success: bool = True
     error_message: str | None = None
 
@@ -429,6 +434,19 @@ class TestReport(BaseModel):
             from uxsentinel.browser.axe_runner import calculate_a11y_score
 
             self.a11y_score = calculate_a11y_score(all_violations)
+
+        # Consolida auditoria de CSS dos checkpoints se ainda não definido globalmente
+        if not self.css_audit:
+            css_audits = [cp.css_audit for cp in self.checkpoints if cp.css_audit]
+            if css_audits:
+                combined_css = CSSAuditReport()
+                combined_css.total_rules_inspected = sum(a.total_rules_inspected for a in css_audits)
+                all_css_v = []
+                for a in css_audits:
+                    all_css_v.extend(a.violations)
+                combined_css.violations = all_css_v
+                combined_css.calculate_score()
+                self.css_audit = combined_css
 
         # Consolida erros e avisos de console
         self.total_console_errors = sum(1 for log in self.console_logs if log.type in ("error", "critical"))

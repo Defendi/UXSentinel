@@ -34,7 +34,26 @@ uxsentinel --help
 
 ---
 
+## 🎨 UXSentinel Studio & Manual do Usuário (Interface Gráfica Web)
+
+O **UXSentinel Studio** é a interface visual interativa do ecossistema UXSentinel, desenvolvida para fornecer controle de missão em tempo real, edição assistida por IA e diagnóstico de qualidade para analistas de QA, designers, desenvolvedores e gestores.
+
+### 📄 Manual Oficial do Usuário em PDF (Para Leigos)
+
+Disponibilizamos na raiz do projeto o manual completo diagramado e voltado à padronização da qualidade:
+
+👉 **[Baixar / Visualizar o Manual do Usuário (PDF)](UXSentinel_Studio_Manual_do_Usuario.pdf)** *(220 KB · Formato A4 editorial)*
+
+O manual cobre de ponta a ponta:
+1. **Especificações Técnicas:** Dados de desempenho (inicialização em < 1,2s, consumo de 65-180MB RAM), loopback estrito (`127.0.0.1:8765`), proteção de credenciais (`0600`) e matriz de resoluções multi-viewport (Desktop, Tablet e Mobile).
+2. **Critérios de Aceitação da Qualidade:** Matriz de severidade de defeitos (*Bloqueante*, *Alta*, *Média*, *Baixa*) e termômetro de saúde de UX (*Score Ring* de 0 a 100).
+3. **Instruções Passo a Passo de Manuseio:** Roteiro prático cobrindo desde a inicialização via `uxsentinel-studio` até o uso do editor com autosave (`Ctrl+S`), criação de testes via **Assistente IA em linguagem natural** e acompanhamento ao vivo via *Live Preview* em tempo real.
+
+---
+
 ## 🌟 Principais Recursos
+
+- **UXSentinel Studio (Interface Web Interativa ao Vivo)**: Ambiente com layout em 3 colunas (Sidebar de cenários, Editor YAML com Autosave e Inspetor com Score Ring) conectado em tempo real via Server-Sent Events (SSE). Acompanhe a auditoria ao vivo e crie testes usando o **Assistente de IA em linguagem natural**. Consulte o [Manual do Usuário em PDF](UXSentinel_Studio_Manual_do_Usuario.pdf).
 
 - **Acompanhamento Visual ao Vivo (Human-in-the-Loop)**: O navegador abre na sua tela (`headless: false`) com ritmo humano (`slow_mo`) e efeitos visuais animados (cursor virtual e halo luminoso no elemento clicado ou focado).
 - **Inspeção de Console e DevTools Chromium Acoplado**: Abra a janela do navegador com o painel DevTools / Console ativado (`--devtools`) para auditoria ao vivo de erros JavaScript (`console.error`), avisos (`warn`), exceções não capturadas e falhas de rede HTTP (status 4xx e 5xx).
