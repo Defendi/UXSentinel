@@ -1120,9 +1120,24 @@ steps:
     }
 
     // --- 13. Boot da Aplicação ---
+    async function loadVersionStatus() {
+        try {
+            const res = await apiFetch("/api/status");
+            if (res.ok) {
+                const data = await res.json();
+                const v = data.studio_version || data.core_version;
+                if (v) {
+                    const el = document.getElementById("version-display");
+                    if (el) el.textContent = `v${v}`;
+                }
+            }
+        } catch (_) {}
+    }
+
     async function initApp() {
         initSessionToken();
         initEventListeners();
+        loadVersionStatus();
         await loadScenarios();
     }
 
