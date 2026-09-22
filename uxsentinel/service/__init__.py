@@ -10,6 +10,13 @@ from uxsentinel.service.config_service import (
     SafeConfigDTO,
 )
 from uxsentinel.service.execution_service import ExecutionOptions, ExecutionService
+from uxsentinel.service.results_service import (
+    CheckpointSummaryDTO,
+    ExecutionDetailDTO,
+    ExecutionSummaryDTO,
+    IssueDetailDTO,
+    ResultsService,
+)
 from uxsentinel.service.scenario_service import (
     ScenarioDetailDTO,
     ScenarioService,
@@ -21,13 +28,18 @@ from uxsentinel.service.scenario_service import (
 
 __all__ = [
     "BrowserConfigDTO",
+    "CheckpointSummaryDTO",
     "ConfigService",
     "ConfigUpdateDTO",
     "ConnectionResult",
+    "ExecutionDetailDTO",
     "ExecutionOptions",
     "ExecutionService",
+    "ExecutionSummaryDTO",
+    "IssueDetailDTO",
     "JiraSafeDTO",
     "ProviderSafeDTO",
+    "ResultsService",
     "SafeConfigDTO",
     "ScenarioDetailDTO",
     "ScenarioService",
