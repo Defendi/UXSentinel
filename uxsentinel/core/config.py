@@ -1,7 +1,9 @@
 import contextlib
 import os
 import re
+from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 import yaml
 from dotenv import load_dotenv
@@ -407,6 +409,24 @@ BUILTIN_PROVIDERS: dict[str, ProviderSettings] = {
 }
 
 
+class ProjectScenarioItem(BaseModel):
+    """Representa um cenário de teste associado a um projeto registrado no catálogo."""
+
+    id: str
+    path: str
+    name: str
+    last_run: str | None = None
+
+
+class ProjectCatalogEntry(BaseModel):
+    """Representa um projeto e seu inventário acumulado de cenários de teste."""
+
+    name: str
+    root_path: str
+    scenarios: dict[str, ProjectScenarioItem] = Field(default_factory=dict)
+    last_run: str | None = None
+
+
 class GlobalConfig(BaseModel):
     active_provider: str = "anthropic_cloud"
     fallback_provider: str | None = "ollama_local"
@@ -415,6 +435,7 @@ class GlobalConfig(BaseModel):
     vision: VisionSettings = Field(default_factory=VisionSettings)
     baseline: BaselineSettings = Field(default_factory=BaselineSettings)
     jira: JiraSettings = Field(default_factory=JiraSettings)
+    projects: dict[str, ProjectCatalogEntry] = Field(default_factory=dict)
     providers: dict[str, ProviderSettings] = Field(default_factory=dict)
 
     def get_active_provider(self) -> ProviderSettings:
@@ -712,6 +733,25 @@ def load_config(config_path: str | None = None) -> GlobalConfig:
             token_url=p_data.get("token_url"),
         )
 
+    projects_dict: dict[str, ProjectCatalogEntry] = {}
+    for p_id, p_data in raw_dict.get("projects", {}).items():
+        if isinstance(p_data, dict):
+            scenarios_dict: dict[str, ProjectScenarioItem] = {}
+            for s_id, s_data in p_data.get("scenarios", {}).items():
+                if isinstance(s_data, dict):
+                    scenarios_dict[s_id] = ProjectScenarioItem(
+                        id=str(s_data.get("id", s_id)),
+                        path=str(s_data.get("path", "")),
+                        name=str(s_data.get("name", s_id)),
+                        last_run=s_data.get("last_run"),
+                    )
+            projects_dict[p_id] = ProjectCatalogEntry(
+                name=str(p_data.get("name", p_id)),
+                root_path=str(p_data.get("root_path", "")),
+                scenarios=scenarios_dict,
+                last_run=p_data.get("last_run"),
+            )
+
     active_p = os.environ.get(
         "UXSENTINEL_ACTIVE_PROVIDER", raw_dict.get("active_provider", "anthropic_cloud")
     )
@@ -723,6 +763,7 @@ def load_config(config_path: str | None = None) -> GlobalConfig:
         reporting=reporting_settings,
         vision=vision_settings,
         jira=jira_settings,
+        projects=projects_dict,
         providers=providers_dict,
     )
 
@@ -759,6 +800,279 @@ def save_jira_config(
     return cfg_file
 
 
+def infer_project_metadata(
+    scenario_path: str | Path,
+    scenario_data: dict[str, Any] | None = None,
+) -> tuple[str, str, Path]:
+    """Infere metadados do projeto a partir do caminho do cenário e dados do YAML.
+
+    Retorna: (project_id, project_name, project_root_path)
+    """
+    resolved_path = Path(scenario_path).resolve()
+    current = resolved_path.parent
+    root: Path | None = None
+
+    # 1. Procura por marcadores de raiz de projeto subindo a hierarquia
+    for parent in [current, *current.parents]:
+        if (
+            (parent / ".git").exists()
+            or (parent / "pyproject.toml").exists()
+            or (parent / "package.json").exists()
+            or (parent / "cargo.toml").exists()
+            or (parent / "Cargo.toml").exists()
+            or (parent / "go.mod").exists()
+        ):
+            root = parent
+            break
+
+    # 2. Se estiver dentro de uma pasta chamada 'scenarios' ou 'cenarios', assume a pasta pai
+    if root is None:
+        for parent in [current, *current.parents]:
+            if parent.name.lower() in ("scenarios", "cenarios") and parent.parent != parent:
+                root = parent.parent
+                break
+
+    # 3. Fallback: o diretório do próprio cenário
+    if root is None:
+        root = current
+
+    # Inferência do nome do projeto
+    project_name: str | None = None
+    if scenario_data:
+        p_name = scenario_data.get("project") or scenario_data.get("projeto")
+        if isinstance(p_name, str) and p_name.strip():
+            project_name = p_name.strip()
+
+    if not project_name:
+        pkg_json = root / "package.json"
+        if pkg_json.is_file():
+            try:
+                import json
+
+                pkg_data = json.loads(pkg_json.read_text(encoding="utf-8"))
+                if isinstance(pkg_data, dict) and pkg_data.get("name"):
+                    project_name = str(pkg_data["name"]).strip()
+            except Exception:
+                pass
+
+        if not project_name:
+            pyproj = root / "pyproject.toml"
+            if pyproj.is_file():
+                try:
+                    text = pyproj.read_text(encoding="utf-8")
+                    m = re.search(r'name\s*=\s*["\']([^"\']+)["\']', text)
+                    if m:
+                        project_name = m.group(1).strip()
+                except Exception:
+                    pass
+
+    if not project_name:
+        project_name = root.name if root.name else "default"
+
+    project_id = re.sub(r"[^a-zA-Z0-9]+", "-", project_name.lower().strip()).strip("-")
+    if not project_id:
+        project_id = "default"
+
+    return project_id, project_name, root
+
+
+def register_project_scenario(
+    scenario_path: str | Path,
+    scenario_data: dict[str, Any] | None = None,
+    project_name: str | None = None,
+    config_path: Path | None = None,
+) -> Path:
+    """Registra ou atualiza um cenário no catálogo de projetos em ~/.config/uxsentinel/config.yaml.
+
+    Preserva e acumula múltiplos cenários sob a chave do projeto sem sobrescrever os existentes.
+    """
+    resolved_path = Path(scenario_path).resolve()
+    inferred_id, inferred_name, inferred_root = infer_project_metadata(resolved_path, scenario_data)
+
+    final_name = project_name.strip() if project_name and project_name.strip() else inferred_name
+    final_id = (
+        re.sub(r"[^a-zA-Z0-9]+", "-", final_name.lower().strip()).strip("-")
+        if project_name and project_name.strip()
+        else inferred_id
+    )
+    if not final_id:
+        final_id = "default"
+
+    cfg_file = config_path if config_path is not None else ensure_user_config()
+
+    data: dict[str, Any] = {}
+    if cfg_file.is_file():
+        try:
+            content = cfg_file.read_text(encoding="utf-8")
+            loaded = yaml.safe_load(content)
+            if isinstance(loaded, dict):
+                data = loaded
+        except Exception:
+            data = {}
+
+    if "projects" not in data or not isinstance(data["projects"], dict):
+        data["projects"] = {}
+
+    projects_map = data["projects"]
+    if final_id not in projects_map or not isinstance(projects_map[final_id], dict):
+        projects_map[final_id] = {
+            "name": final_name,
+            "root_path": str(inferred_root),
+            "scenarios": {},
+            "last_run": None,
+        }
+
+    proj_entry = projects_map[final_id]
+    proj_entry["name"] = final_name
+    if not proj_entry.get("root_path"):
+        proj_entry["root_path"] = str(inferred_root)
+    if "scenarios" not in proj_entry or not isinstance(proj_entry["scenarios"], dict):
+        proj_entry["scenarios"] = {}
+
+    s_data = scenario_data or {}
+    scenario_id = str(s_data.get("id") or resolved_path.stem)
+    scenario_title = str(s_data.get("name") or s_data.get("nome") or s_data.get("title") or scenario_id)
+
+    now_iso = datetime.now(UTC).isoformat()
+    proj_entry["scenarios"][scenario_id] = {
+        "id": scenario_id,
+        "path": str(resolved_path),
+        "name": scenario_title,
+        "last_run": now_iso,
+    }
+    proj_entry["last_run"] = now_iso
+
+    try:
+        cfg_file.parent.mkdir(parents=True, exist_ok=True)
+        cfg_file.write_text(yaml.safe_dump(data, sort_keys=False, allow_unicode=True), encoding="utf-8")
+        with contextlib.suppress(Exception):
+            cfg_file.chmod(0o600)
+    except Exception:
+        pass
+
+    return cfg_file
+
+
+def list_registered_projects(config_path: Path | None = None) -> dict[str, ProjectCatalogEntry]:
+    """Retorna o catálogo de projetos registrados no config.yaml."""
+    cfg_file = config_path if config_path is not None else get_user_config_path()
+    if not cfg_file.is_file():
+        return {}
+
+    try:
+        content = cfg_file.read_text(encoding="utf-8")
+        data = yaml.safe_load(content)
+        if not isinstance(data, dict) or "projects" not in data or not isinstance(data["projects"], dict):
+            return {}
+
+        result: dict[str, ProjectCatalogEntry] = {}
+        for p_id, p_val in data["projects"].items():
+            if isinstance(p_val, dict):
+                scenarios_dict: dict[str, ProjectScenarioItem] = {}
+                for s_id, s_val in p_val.get("scenarios", {}).items():
+                    if isinstance(s_val, dict):
+                        scenarios_dict[s_id] = ProjectScenarioItem(
+                            id=str(s_val.get("id", s_id)),
+                            path=str(s_val.get("path", "")),
+                            name=str(s_val.get("name", s_id)),
+                            last_run=s_val.get("last_run"),
+                        )
+                result[p_id] = ProjectCatalogEntry(
+                    name=str(p_val.get("name", p_id)),
+                    root_path=str(p_val.get("root_path", "")),
+                    scenarios=scenarios_dict,
+                    last_run=p_val.get("last_run"),
+                )
+        return result
+    except Exception:
+        return {}
+
+
+def find_project_in_catalog(
+    query: str,
+    config_path: Path | str | None = None,
+) -> tuple[str, ProjectCatalogEntry] | None:
+    """Localiza um projeto no catálogo por slug exato, nome (case-insensitive) ou correspondência unívoca."""
+    clean_q = query.strip()
+    if not clean_q:
+        return None
+
+    cfg_path = Path(config_path) if config_path else None
+    catalog = list_registered_projects(cfg_path)
+    if not catalog:
+        return None
+
+    q_lower = clean_q.lower()
+
+    # 1. Correspondência exata por ID / Slug
+    if q_lower in catalog:
+        return q_lower, catalog[q_lower]
+
+    # 2. Correspondência exata por Nome
+    for p_id, entry in catalog.items():
+        if entry.name.strip().lower() == q_lower:
+            return p_id, entry
+
+    # 3. Slug normalizado a partir da query
+    slug_q = re.sub(r"[^a-zA-Z0-9]+", "-", q_lower).strip("-")
+    if slug_q and slug_q in catalog:
+        return slug_q, catalog[slug_q]
+
+    # 4. Correspondência unívoca por prefixo ou substring
+    matches: list[tuple[str, ProjectCatalogEntry]] = []
+    for p_id, entry in catalog.items():
+        if q_lower in p_id.lower() or q_lower in entry.name.lower():
+            matches.append((p_id, entry))
+
+    if len(matches) == 1:
+        return matches[0]
+
+    return None
+
+
+def find_scenario_in_project(
+    project_entry: ProjectCatalogEntry,
+    scenario_query: str,
+) -> ProjectScenarioItem | None:
+    """Localiza um cenário dentro de um projeto por ID, nome ou nome do arquivo."""
+    clean_sq = scenario_query.strip()
+    if not clean_sq:
+        return None
+
+    sq_lower = clean_sq.lower()
+
+    # 1. Correspondência exata por ID da chave
+    if sq_lower in project_entry.scenarios:
+        return project_entry.scenarios[sq_lower]
+
+    for _s_id, s_item in project_entry.scenarios.items():
+        if s_item.id.lower() == sq_lower:
+            return s_item
+
+    # 2. Correspondência exata por Nome / Título do cenário
+    for _s_id, s_item in project_entry.scenarios.items():
+        if s_item.name.strip().lower() == sq_lower:
+            return s_item
+
+    # 3. Correspondência por nome do arquivo (ex: login.yaml ou login)
+    for _s_id, s_item in project_entry.scenarios.items():
+        path_obj = Path(s_item.path)
+        if path_obj.name.lower() == sq_lower or path_obj.stem.lower() == sq_lower:
+            return s_item
+
+    # 4. Correspondência unívoca parcial
+    matches: list[ProjectScenarioItem] = []
+    for s_id, s_item in project_entry.scenarios.items():
+        path_obj = Path(s_item.path)
+        if sq_lower in s_id.lower() or sq_lower in s_item.name.lower() or sq_lower in path_obj.stem.lower():
+            matches.append(s_item)
+
+    if len(matches) == 1:
+        return matches[0]
+
+    return None
+
+
 __all__ = [
     "BUILTIN_PROVIDERS",
     "CANONICAL_VIEWPORTS",
@@ -768,16 +1082,23 @@ __all__ = [
     "BrowserSettings",
     "GlobalConfig",
     "JiraSettings",
+    "ProjectCatalogEntry",
+    "ProjectScenarioItem",
     "ProviderSettings",
     "ReportingSettings",
     "ViewportConfig",
     "VisionSettings",
     "ensure_user_config",
+    "find_project_in_catalog",
+    "find_scenario_in_project",
     "get_user_config_dir",
     "get_user_config_path",
+    "infer_project_metadata",
+    "list_registered_projects",
     "load_config",
     "parse_viewport_spec",
     "parse_viewports",
+    "register_project_scenario",
     "resolve_axe_mode",
     "resolve_devtools_mode",
     "resolve_display_mode",

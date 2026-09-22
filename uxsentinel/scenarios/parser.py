@@ -121,7 +121,7 @@ def _resolve_env_str(
     return current
 
 
-def load_scenario(file_path: str) -> Scenario:
+def load_scenario(file_path: str, project_name: str | None = None) -> Scenario:
     path = Path(file_path)
     if not path.is_file():
         raise FileNotFoundError(f"Arquivo de cenário não encontrado: {file_path}")
@@ -291,6 +291,17 @@ def load_scenario(file_path: str) -> Scenario:
         parsed_dict.get("exceptions") or parsed_dict.get("excecoes") or parsed_dict.get("tolerances")
     )
     scenario_exceptions = parse_scenario_exceptions(scenario_exceptions_raw)
+
+    try:
+        from uxsentinel.core.config import register_project_scenario
+
+        register_project_scenario(
+            scenario_path=path,
+            scenario_data=parsed_dict,
+            project_name=project_name,
+        )
+    except Exception:
+        pass
 
     return Scenario(
         id=parsed_dict.get("id", path.stem),

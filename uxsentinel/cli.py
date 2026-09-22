@@ -11,6 +11,9 @@ from rich.table import Table
 from uxsentinel import __version__
 from uxsentinel.core.config import (
     GlobalConfig,
+    find_project_in_catalog,
+    find_scenario_in_project,
+    list_registered_projects,
     load_config,
 )
 from uxsentinel.scenarios.parser import load_scenario
@@ -84,6 +87,85 @@ def list_available_scenarios() -> None:
                 table.add_row("📦 Biblioteca Interna", yml.name, f"[red]Erro: {err}[/red]", "-", "-")
 
     console.print(table)
+
+
+def list_registered_projects_cli(config_path: Path | None = None) -> None:
+    """Exibe no terminal a tabela com os projetos cadastrados no catálogo global e seus cenários."""
+    projects = list_registered_projects(config_path)
+
+    if not projects:
+        console.print(
+            "[yellow]Nenhum projeto cadastrado no catálogo global (~/.config/uxsentinel/config.yaml).[/yellow]"
+        )
+        console.print(
+            "[dim]Execute um cenário com 'uxsentinel -s <cenario.yaml>' para registrá-lo automaticamente.[/dim]"
+        )
+        return
+
+    table = Table(title="Catálogo de Projetos & Cenários Registrados")
+    table.add_column("ID / Slug", style="cyan bold")
+    table.add_column("Nome do Projeto", style="white bold")
+    table.add_column("Diretório Raiz", style="dim")
+    table.add_column("Cenários", style="green")
+    table.add_column("Última Execução", style="yellow")
+
+    for p_id, p_entry in sorted(projects.items(), key=lambda item: item[1].name):
+        scenarios_desc: list[str] = []
+        for s_id, s_item in sorted(p_entry.scenarios.items(), key=lambda item: item[1].name):
+            scenarios_desc.append(f"• [bold]{s_item.name}[/bold] ({s_id})")
+        scenarios_str = "\n".join(scenarios_desc) if scenarios_desc else "[dim](nenhum)[/dim]"
+        last_run_str = p_entry.last_run[:19].replace("T", " ") if p_entry.last_run else "-"
+        table.add_row(p_id, p_entry.name, p_entry.root_path, scenarios_str, last_run_str)
+
+    console.print(table)
+
+
+def handle_select_project(config_path: Path | None = None) -> str | None:
+    """Exibe menu interativo para o usuário selecionar um projeto do catálogo global."""
+    from rich.prompt import Prompt
+
+    catalog = list_registered_projects(config_path)
+    if not catalog:
+        console.print(
+            "[yellow]Nenhum projeto cadastrado no catálogo global (~/.config/uxsentinel/config.yaml).[/yellow]"
+        )
+        return None
+
+    items = sorted(catalog.items(), key=lambda x: x[1].name)
+    table = Table(title="Projetos Registrados no UXSentinel")
+    table.add_column("#", style="bold cyan", justify="right")
+    table.add_column("Projeto", style="bold white")
+    table.add_column("Identificador / Slug", style="dim")
+    table.add_column("Cenários", style="green", justify="center")
+
+    for idx, (p_id, p_entry) in enumerate(items, start=1):
+        table.add_row(str(idx), p_entry.name, p_id, str(len(p_entry.scenarios)))
+
+    console.print(table)
+    try:
+        choice = Prompt.ask(
+            "[bold cyan]Selecione o número do projeto que deseja executar[/bold cyan] (ou 'q' para sair)"
+        )
+    except (EOFError, KeyboardInterrupt):
+        return None
+
+    choice_str = choice.strip()
+    if choice_str.lower() in ("q", "sair", "exit", "cancel", "cancelar"):
+        return None
+
+    try:
+        choice_idx = int(choice_str)
+        if 1 <= choice_idx <= len(items):
+            return items[choice_idx - 1][0]
+    except ValueError:
+        pass
+
+    for p_id, p_entry in items:
+        if choice_str.lower() in (p_id.lower(), p_entry.name.lower()):
+            return p_id
+
+    console.print("[red]Opção inválida selecionada.[/red]")
+    return None
 
 
 def resolve_scenario_path(scenario_arg: str | None = None) -> Path:
@@ -204,6 +286,12 @@ visível na tela e inspecionando cada checkpoint com Inteligência Artificial Mu
   uxsentinel -s scenarios/teste.yaml --jira            # Cria issues automaticamente no Jira para inconformidades
   uxsentinel --set-jira-token                          # Configura token e URL do Jira interativamente
   uxsentinel --list-scenarios                          # Lista todos os cenários disponíveis no projeto e biblioteca
+  uxsentinel --list-projects                           # Lista os projetos cadastrados no catálogo global e seus cenários
+  uxsentinel -s scenarios/teste.yaml --project-name "Alpha" # Associa o cenário ao projeto especificado
+  uxsentinel -P "Meu Projeto"                          # Executa todos os cenários do projeto pelo nome/slug
+  uxsentinel -P "Meu Projeto" -s login                 # Executa um cenário específico dentro do projeto
+  uxsentinel --scenario-path /caminho/cenario.yaml     # Executa cenário externo em caminho arbitrário
+  uxsentinel --select-project                          # Menu interativo para selecionar projeto do catálogo
   uxsentinel --version                                 # Exibe a versão instalada (ou -v)
   uxsentinel --init-config                             # Cria o arquivo de configuração em ~/.config/uxsentinel/config.yaml
 
@@ -239,6 +327,34 @@ Documentação completa: https://github.com/Defendi/UXSentinel""",
     parser.add_argument(
         "--profile",
         help="Sobrescreve o perfil de framework (ex: generic, odoo).",
+    )
+    parser.add_argument(
+        "--project-name",
+        type=str,
+        default=None,
+        help="Sobrescreve ou define o nome do projeto no catálogo para repetição de QA.",
+    )
+    parser.add_argument(
+        "-P",
+        "--project",
+        type=str,
+        default=None,
+        metavar="PROJETO",
+        help="Executa cenários do projeto especificado registrado no catálogo pelo nome ou identificador.",
+    )
+    parser.add_argument(
+        "--scenario-path",
+        "--external-scenario",
+        type=str,
+        default=None,
+        dest="scenario_path",
+        metavar="CAMINHO",
+        help="Executa diretamente um arquivo YAML de cenário em caminho arbitrário fora do diretório de trabalho.",
+    )
+    parser.add_argument(
+        "--select-project",
+        action="store_true",
+        help="Abre menu interativo no terminal para selecionar e executar um projeto cadastrado no catálogo.",
     )
     display_group = parser.add_mutually_exclusive_group()
     display_group.add_argument(
@@ -471,6 +587,11 @@ Documentação completa: https://github.com/Defendi/UXSentinel""",
         help="Lista os cenários do projeto atual e da biblioteca interna e encerra.",
     )
     parser.add_argument(
+        "--list-projects",
+        action="store_true",
+        help="Lista todos os projetos cadastrados no catálogo global (~/.config/uxsentinel/config.yaml) e seus cenários associados e encerra.",
+    )
+    parser.add_argument(
         "--check-ai",
         action="store_true",
         help="Testa a conectividade com o provedor de IA configurado e encerra.",
@@ -696,7 +817,12 @@ async def async_main() -> int:
 
     if args.list_scenarios:
         list_available_scenarios()
-        return 0
+        return EXIT_SUCESSO
+
+    if args.list_projects:
+        cfg_path = Path(args.config) if args.config else None
+        list_registered_projects_cli(cfg_path)
+        return EXIT_SUCESSO
 
     cfg = load_config(args.config)
 
@@ -718,54 +844,181 @@ async def async_main() -> int:
     if args.audit_css:
         return await handle_audit_css(args.audit_css, cfg)
 
-    scenario_arg = args.scenario or args.scenario_pos
-    try:
-        scenario_path = resolve_scenario_path(scenario_arg)
-    except (FileNotFoundError, ValueError) as err:
-        console.print(f"[bold red]Erro de Cenário:[/bold red] {err}")
-        console.print(
-            "[yellow]Dica:[/yellow] Especifique o cenário usando [bold]-s caminho/do/cenario.yaml[/bold] ou liste os cenários com [bold]--list-scenarios[/bold]."
-        )
-        return EXIT_ERRO_EXECUCAO
+    cfg_path = Path(args.config) if args.config else None
 
-    try:
-        load_scenario(str(scenario_path))
-    except (yaml.YAMLError, ValueError, OSError) as err:
-        console.print(f"[bold red]Erro ao ler o cenário:[/bold red] {err}")
-        console.print(
-            "[yellow]Dica:[/yellow] Verifique a indentação do YAML e consulte a especificação em [bold]docs/04_especificacao_cenarios_yaml.md[/bold]."
-        )
-        return EXIT_ERRO_EXECUCAO
+    # Modo interativo de seleção de projeto
+    project_target = args.project
+    if args.select_project:
+        selected = handle_select_project(cfg_path)
+        if selected is None:
+            return EXIT_SUCESSO
+        project_target = selected
 
-    options = ExecutionOptions(
-        scenario_path=scenario_path,
-        provider=args.provider,
-        profile=args.profile,
-        headless=args.headless,
-        devtools=args.devtools,
-        record_video=args.record_video,
-        viewports=args.viewports or args.viewport,
-        enable_axe=args.enable_axe,
-        enable_css=args.enable_css,
-        update_baseline=args.update_baseline,
-        baseline_dir=args.baseline_dir,
-        diff_threshold=args.diff_threshold,
-        slowmo=args.slowmo,
-        output_dir=args.output_dir,
-        markdown=args.markdown,
-        fail_fast=args.fail_fast,
-        archive=args.archive,
-        archive_dir=args.archive_dir,
-        jira=args.jira,
-        jira_project=args.jira_project,
-        fix_prompt=args.fix_prompt,
-    )
+    scenarios_to_run: list[Path] = []
+    project_display_name: str | None = None
+
+    if project_target:
+        p_match = find_project_in_catalog(project_target, cfg_path)
+        if not p_match:
+            console.print(
+                f"[bold red]Erro:[/bold red] Projeto '{project_target}' não encontrado no catálogo global."
+            )
+            all_p = list_registered_projects(cfg_path)
+            if all_p:
+                console.print("[yellow]Projetos disponíveis no catálogo:[/yellow]")
+                for pid, pent in sorted(all_p.items(), key=lambda x: x[1].name):
+                    console.print(f"  • [bold]{pent.name}[/bold] (slug: [cyan]{pid}[/cyan])")
+            else:
+                console.print("[yellow]Nenhum projeto cadastrado no catálogo global.[/yellow]")
+            return EXIT_ERRO_EXECUCAO
+
+        _p_id, p_entry = p_match
+        project_display_name = p_entry.name
+        if not p_entry.scenarios:
+            console.print(f"[yellow]O projeto '{p_entry.name}' não possui cenários registrados.[/yellow]")
+            return EXIT_ERRO_EXECUCAO
+
+        scenario_query = args.scenario or args.scenario_pos
+        if scenario_query:
+            scen_item = find_scenario_in_project(p_entry, scenario_query)
+            if not scen_item:
+                console.print(
+                    f"[bold red]Erro:[/bold red] Cenário '{scenario_query}' não encontrado no projeto '{p_entry.name}'."
+                )
+                console.print("[yellow]Cenários disponíveis neste projeto:[/yellow]")
+                for _sid, sitem in sorted(p_entry.scenarios.items(), key=lambda x: x[1].name):
+                    console.print(f"  • [bold]{sitem.name}[/bold] (id: [cyan]{sitem.id}[/cyan])")
+                return EXIT_ERRO_EXECUCAO
+            scenarios_to_run = [Path(scen_item.path)]
+        else:
+            scenarios_to_run = [
+                Path(s.path) for s in sorted(p_entry.scenarios.values(), key=lambda x: x.name)
+            ]
+
+    elif args.scenario_path:
+        ext_path = Path(args.scenario_path).resolve()
+        if not ext_path.is_file():
+            console.print(
+                f"[bold red]Erro de Cenário Externo:[/bold red] Arquivo '{args.scenario_path}' não foi encontrado."
+            )
+            return EXIT_ERRO_EXECUCAO
+        scenarios_to_run = [ext_path]
+
+    else:
+        scenario_arg = args.scenario or args.scenario_pos
+        try:
+            scenario_path = resolve_scenario_path(scenario_arg)
+        except (FileNotFoundError, ValueError) as err:
+            console.print(f"[bold red]Erro de Cenário:[/bold red] {err}")
+            console.print(
+                "[yellow]Dica:[/yellow] Especifique o cenário usando [bold]-s caminho/do/cenario.yaml[/bold], selecione um projeto com [bold]-P <projeto>[/bold] ou liste com [bold]--list-scenarios[/bold]."
+            )
+            return EXIT_ERRO_EXECUCAO
+        scenarios_to_run = [scenario_path]
+
+    # Validação e pré-carregamento dos cenários
+    for sp in scenarios_to_run:
+        if not sp.is_file():
+            console.print(
+                f"[bold red]Erro de Cenário:[/bold red] Arquivo '{sp}' não foi encontrado no sistema de arquivos."
+            )
+            return EXIT_ERRO_EXECUCAO
+        try:
+            load_scenario(str(sp), project_name=args.project_name)
+        except (yaml.YAMLError, ValueError, OSError) as err:
+            console.print(f"[bold red]Erro ao ler o cenário '{sp.name}':[/bold red] {err}")
+            return EXIT_ERRO_EXECUCAO
 
     execution_service = ExecutionService(cfg)
-    report = await execution_service.run(options)
 
+    # Execução de cenário único
+    if len(scenarios_to_run) == 1:
+        scenario_path = scenarios_to_run[0]
+        options = ExecutionOptions(
+            scenario_path=scenario_path,
+            provider=args.provider,
+            profile=args.profile,
+            headless=args.headless,
+            devtools=args.devtools,
+            record_video=args.record_video,
+            viewports=args.viewports or args.viewport,
+            enable_axe=args.enable_axe,
+            enable_css=args.enable_css,
+            update_baseline=args.update_baseline,
+            baseline_dir=args.baseline_dir,
+            diff_threshold=args.diff_threshold,
+            slowmo=args.slowmo,
+            output_dir=args.output_dir,
+            markdown=args.markdown,
+            fail_fast=args.fail_fast,
+            archive=args.archive,
+            archive_dir=args.archive_dir,
+            jira=args.jira,
+            jira_project=args.jira_project,
+            fix_prompt=args.fix_prompt,
+        )
+        report = await execution_service.run(options)
+        await asyncio.sleep(0.05)
+        return EXIT_SUCESSO if report.success else EXIT_INCONFORMIDADES
+
+    # Execução sequencial de múltiplos cenários do projeto
+    console.print(
+        f"\n[bold green]Iniciando execução de {len(scenarios_to_run)} cenários do projeto '[white]{project_display_name}[/white]'[/bold green]\n"
+    )
+    multi_results = []
+    all_success = True
+
+    for idx, sc_path in enumerate(scenarios_to_run, start=1):
+        console.print(
+            f"[bold cyan]▶ [{idx}/{len(scenarios_to_run)}] Executando Cenário: {sc_path.stem}[/bold cyan]"
+        )
+        options = ExecutionOptions(
+            scenario_path=sc_path,
+            provider=args.provider,
+            profile=args.profile,
+            headless=args.headless,
+            devtools=args.devtools,
+            record_video=args.record_video,
+            viewports=args.viewports or args.viewport,
+            enable_axe=args.enable_axe,
+            enable_css=args.enable_css,
+            update_baseline=args.update_baseline,
+            baseline_dir=args.baseline_dir,
+            diff_threshold=args.diff_threshold,
+            slowmo=args.slowmo,
+            output_dir=args.output_dir,
+            markdown=args.markdown,
+            fail_fast=args.fail_fast,
+            archive=args.archive if idx == 1 else False,
+            archive_dir=args.archive_dir,
+            jira=args.jira,
+            jira_project=args.jira_project,
+            fix_prompt=args.fix_prompt,
+        )
+        rep = await execution_service.run(options)
+        multi_results.append((sc_path.stem, rep))
+        if not rep.success:
+            all_success = False
+
+    # Sumário consolidado
+    summary_table = Table(title=f"Sumário Consolidado de Execução - {project_display_name}")
+    summary_table.add_column("Cenário", style="bold cyan")
+    summary_table.add_column("Resultado", justify="center")
+    summary_table.add_column("Passos", justify="center")
+    summary_table.add_column("Problemas", justify="center")
+    summary_table.add_column("Duração", justify="right")
+
+    for name, rep in multi_results:
+        res_label = "[bold green]PASSOU[/bold green]" if rep.success else "[bold red]FALHOU[/bold red]"
+        steps_count = str(len(rep.semantic_steps) or len(rep.checkpoints) or 0)
+        viol_count = str(rep.total_issues)
+        dur_label = f"{rep.duration_seconds:.1f}s"
+        summary_table.add_row(name, res_label, steps_count, viol_count, dur_label)
+
+    console.print("\n")
+    console.print(summary_table)
     await asyncio.sleep(0.05)
-    return EXIT_SUCESSO if report.success else EXIT_INCONFORMIDADES
+    return EXIT_SUCESSO if all_success else EXIT_INCONFORMIDADES
 
 
 def _graceful_shutdown(loop: asyncio.AbstractEventLoop) -> None:
