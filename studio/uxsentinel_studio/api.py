@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, status
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -557,9 +557,10 @@ async def update_scenario(
 async def delete_scenario(
     scenario_id: str,
     request: Request,
+    delete_file: bool = Query(False, description="Se True, apaga o arquivo físico do disco"),
     _: str = Depends(verify_studio_token),
-) -> dict[str, bool]:
-    """Exclui um cenário pertencente ao projeto (bloqueia exclusão da biblioteca)."""
+) -> dict[str, Any]:
+    """Exclui ou desvincula um cenário pertencente ao projeto (bloqueia exclusão da biblioteca)."""
     project_dir = get_project_dir(request)
     if not project_dir:
         raise HTTPException(
@@ -579,13 +580,18 @@ async def delete_scenario(
 
     service = ScenarioService()
     try:
-        deleted = service.delete_scenario(scenario_id, project_dir, project_id=active_project_id)
+        deleted = service.delete_scenario(
+            scenario_id,
+            project_dir,
+            project_id=active_project_id,
+            delete_file=delete_file,
+        )
         if not deleted:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Cenário '{scenario_id}' não encontrado no projeto ou protegido contra exclusão.",
             )
-        return {"success": True}
+        return {"success": True, "delete_file": delete_file}
     except PermissionError as err:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(err)) from err
 

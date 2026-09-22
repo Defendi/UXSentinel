@@ -232,10 +232,25 @@ class ScenarioService:
                         continue
                     try:
                         sc = load_scenario(str(candidate))
-                        if sc.id == scenario_id or candidate.stem == scenario_id:
+                        if (
+                            sc.id == scenario_id
+                            or candidate.stem == scenario_id
+                            or candidate.name == scenario_id
+                        ):
                             return candidate
                     except Exception:
                         continue
+
+        # Busca no catálogo caso o cenário tenha sido registrado com caminho customizado
+        with contextlib.suppress(Exception):
+            catalog = list_registered_projects()
+            for p_val in catalog.values():
+                for s_key, s_item in p_val.scenarios.items():
+                    if (s_key == scenario_id or getattr(s_item, "id", None) == scenario_id) and (
+                        s_item.path and Path(s_item.path).is_file()
+                    ):
+                        return Path(s_item.path).resolve()
+
         return None
 
     def get_scenario(self, scenario_id: str, base_dir: Path | str | None) -> ScenarioDetailDTO:
@@ -389,29 +404,56 @@ class ScenarioService:
         scenario_id: str,
         base_dir: Path | str | None,
         project_id: str | None = None,
+        delete_file: bool = False,
     ) -> bool:
-        """Exclui um cenário pertencente ao projeto (nunca da biblioteca interna)."""
-        if base_dir is None:
+        """Exclui ou desvincula um cenário pertencente ao projeto (nunca da biblioteca interna)."""
+        if not scenario_id or not scenario_id.strip():
             return False
 
         self._sanitize_path_component(scenario_id)
-        base_path = Path(base_dir).resolve()
-        target_dir = base_path / "scenarios"
 
-        if not target_dir.is_dir():
+        target_file = self.find_scenario_path(scenario_id, base_dir)
+
+        # Se não encontrar fisicamente, verifica se o cenário está registrado no catálogo
+        catalog_entry_found = False
+        with contextlib.suppress(Exception):
+            catalog = list_registered_projects()
+            for p_id, p_val in catalog.items():
+                if project_id and p_id != project_id:
+                    continue
+                if scenario_id in p_val.scenarios:
+                    catalog_entry_found = True
+                    break
+                for s_key, s_item in p_val.scenarios.items():
+                    if s_key == scenario_id or getattr(s_item, "id", None) == scenario_id:
+                        catalog_entry_found = True
+                        break
+                if catalog_entry_found:
+                    break
+
+        # Caso não encontre nem o arquivo nem o cenário no catálogo, retorne False
+        if target_file is None and not catalog_entry_found:
             return False
 
-        for ext in ("*.yaml", "*.yml"):
-            for candidate in target_dir.glob(ext):
-                try:
-                    sc = load_scenario(str(candidate))
-                    if sc.id == scenario_id or candidate.stem == scenario_id or candidate.name == scenario_id:
-                        candidate.unlink()
-                        remove_scenario_from_catalog(scenario_id, project_id=project_id)
-                        if sc.id != scenario_id:
-                            remove_scenario_from_catalog(sc.id, project_id=project_id)
-                        return True
-                except Exception:
-                    continue
+        # Se target_file fizer parte da biblioteca embutida do core, protege contra exclusão
+        lib_dir = self.get_library_dir().resolve()
+        if target_file is not None and str(target_file.resolve()).startswith(str(lib_dir)):
+            return False
 
-        return False
+        # Sempre remove o vínculo do catálogo
+        catalog_removed = remove_scenario_from_catalog(scenario_id, project_id=project_id)
+        if target_file is not None and target_file.is_file():
+            with contextlib.suppress(Exception):
+                sc = load_scenario(str(target_file))
+                if sc.id != scenario_id and remove_scenario_from_catalog(sc.id, project_id=project_id):
+                    catalog_removed = True
+
+        file_deleted = False
+        if delete_file and target_file is not None and target_file.is_file():
+            target_file.unlink()
+            file_deleted = True
+
+        if file_deleted or catalog_removed:
+            return True
+
+        return bool(not delete_file and (target_file is not None or catalog_entry_found))

@@ -16,6 +16,8 @@
         collapsedGroups: {},
         activeScenarioId: null,
         activeScenarioData: null,
+        pendingDeleteScenarioId: null,
+        pendingDeleteScenarioTitle: null,
         isDirty: false,
         autosaveTimer: null,
         validationTimer: null,
@@ -234,7 +236,10 @@
         li.innerHTML = `
             <div class="scenario-item-header">
                 <span class="scenario-item-title" title="${escapeHtml(sc.title || sc.id)}">${escapeHtml(sc.title || sc.id)}</span>
-                <span class="scenario-item-steps">${sc.step_count || 0} passos</span>
+                <div class="scenario-item-actions">
+                    <span class="scenario-item-steps">${sc.step_count || 0} passos</span>
+                    <button class="btn-delete-scenario-item" title="Excluir cenário" data-scenario-id="${escapeHtml(sc.id)}">🗑️</button>
+                </div>
             </div>
             <div class="scenario-item-meta">
                 <span class="scenario-item-profile">${escapeHtml(sc.profile || "generic")}</span>
@@ -242,6 +247,15 @@
                 <span>${escapeHtml(sc.filename)}</span>
             </div>
         `;
+
+        const deleteBtn = li.querySelector(".btn-delete-scenario-item");
+        if (deleteBtn) {
+            deleteBtn.addEventListener("click", (e) => {
+                e.stopPropagation();
+                openDeleteScenarioModal(sc.id, sc.title || sc.id);
+            });
+        }
+
         li.addEventListener("click", () => selectScenario(sc.id));
         return li;
     }
@@ -489,27 +503,27 @@
         }
     }
 
-    async function deleteScenario() {
-        if (!state.activeScenarioId || !state.activeScenarioData) return;
+    function openDeleteScenarioModal(scenarioId, scenarioTitle) {
+        if (!scenarioId) return;
+        state.pendingDeleteScenarioId = scenarioId;
+        state.pendingDeleteScenarioTitle = scenarioTitle || scenarioId;
 
-        const confirmDel = confirm(`Tem certeza que deseja excluir o cenário '${state.activeScenarioData.title || state.activeScenarioId}'?`);
-        if (!confirmDel) return;
-
-        try {
-            const res = await apiFetch(`/api/scenarios/${encodeURIComponent(state.activeScenarioId)}`, {
-                method: "DELETE",
-            });
-
-            if (res.ok) {
-                showToast("Cenário excluído com sucesso!", "info");
-                clearEditor();
-                await loadScenarios();
-            } else {
-                showToast("Erro ao excluir cenário.", "error");
-            }
-        } catch (err) {
-            console.error("Erro ao excluir:", err);
+        const titleEl = document.getElementById("delete-scenario-title");
+        if (titleEl) {
+            titleEl.textContent = state.pendingDeleteScenarioTitle;
         }
+
+        const linkRadio = document.querySelector('input[name="delete-scenario-mode"][value="link"]');
+        if (linkRadio) {
+            linkRadio.checked = true;
+        }
+
+        const warningEl = document.getElementById("delete-scenario-file-warning");
+        if (warningEl) {
+            warningEl.style.display = "none";
+        }
+
+        openModal("modal-delete-scenario");
     }
 
     // --- 5. Renderização do Roteiro de Passos (Preview) ---
@@ -1263,7 +1277,11 @@ steps:
         // Botões do Editor
         document.getElementById("btn-run-scenario")?.addEventListener("click", runScenarioExecution);
         document.getElementById("btn-save-scenario")?.addEventListener("click", saveScenario);
-        document.getElementById("btn-delete-scenario")?.addEventListener("click", deleteScenario);
+        document.getElementById("btn-delete-scenario")?.addEventListener("click", () => {
+            if (!state.activeScenarioId) return;
+            const title = state.activeScenarioData?.title || state.activeScenarioId;
+            openDeleteScenarioModal(state.activeScenarioId, title);
+        });
 
         // Seletor de Projetos
         document.getElementById("select-active-project")?.addEventListener("change", async (e) => {
@@ -1374,6 +1392,54 @@ steps:
         document.getElementById("btn-confirm-create-scenario")?.addEventListener("click", confirmCreateScenario);
         document.getElementById("btn-submit-ai-prompt")?.addEventListener("click", submitAiPrompt);
         document.getElementById("btn-apply-ai-yaml")?.addEventListener("click", applyAiGeneratedYaml);
+
+        // Modal de Exclusão de Cenário
+        document.querySelectorAll('input[name="delete-scenario-mode"]').forEach((radio) => {
+            radio.addEventListener("change", (e) => {
+                const warningEl = document.getElementById("delete-scenario-file-warning");
+                if (warningEl) {
+                    warningEl.style.display = e.target.value === "file" ? "block" : "none";
+                }
+            });
+        });
+
+        document.getElementById("btn-confirm-delete-scenario")?.addEventListener("click", async () => {
+            if (!state.pendingDeleteScenarioId) return;
+
+            const modeInput = document.querySelector('input[name="delete-scenario-mode"]:checked');
+            const mode = modeInput ? modeInput.value : "link";
+            const deleteFile = mode === "file";
+
+            try {
+                const res = await apiFetch(
+                    `/api/scenarios/${encodeURIComponent(state.pendingDeleteScenarioId)}?delete_file=${deleteFile}`,
+                    { method: "DELETE" }
+                );
+
+                if (res.ok) {
+                    closeModals();
+                    const wasActive = state.activeScenarioId === state.pendingDeleteScenarioId;
+                    if (wasActive) {
+                        clearEditor();
+                    }
+                    await loadScenarios();
+                    if (deleteFile) {
+                        showToast("Cenário excluído permanentemente do disco!", "info");
+                    } else {
+                        showToast("Cenário desvinculado do catálogo com sucesso!", "info");
+                    }
+                } else {
+                    const errData = await res.json().catch(() => ({}));
+                    showToast(errData.detail || "Erro ao excluir cenário.", "error");
+                }
+            } catch (err) {
+                console.error("Erro ao excluir cenário:", err);
+                showToast("Falha de comunicação ao excluir cenário.", "error");
+            } finally {
+                state.pendingDeleteScenarioId = null;
+                state.pendingDeleteScenarioTitle = null;
+            }
+        });
 
         document.querySelectorAll("[data-close-modal]").forEach((btn) => {
             btn.addEventListener("click", closeModals);

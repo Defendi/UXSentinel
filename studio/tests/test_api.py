@@ -196,9 +196,10 @@ steps:
     assert resp_get.json()["title"] == "Novo Fluxo Atualizado"
 
     # 4. Exclusão do cenário
-    resp_delete = client.delete("/api/scenarios/novo_fluxo", headers=auth_headers)
+    resp_delete = client.delete("/api/scenarios/novo_fluxo?delete_file=true", headers=auth_headers)
     assert resp_delete.status_code == 200
     assert resp_delete.json()["success"] is True
+    assert resp_delete.json()["delete_file"] is True
     assert not (project_workspace / "scenarios" / "novo_fluxo.yaml").exists()
 
     # 5. Exclusão de cenário inexistente -> 404
@@ -950,10 +951,11 @@ steps:
     cfg_data = yaml.safe_load(cfg_file.read_text(encoding="utf-8"))
     assert "cenario_para_deletar" in cfg_data["projects"]["projeto-crud"]["scenarios"]
 
-    # Exclui o cenário via API
-    del_resp = client.delete("/api/scenarios/cenario_para_deletar", headers=auth_headers)
+    # Exclui o cenário via API com delete_file=true
+    del_resp = client.delete("/api/scenarios/cenario_para_deletar?delete_file=true", headers=auth_headers)
     assert del_resp.status_code == 200
     assert del_resp.json()["success"] is True
+    assert del_resp.json()["delete_file"] is True
 
     # 1. Arquivo físico deve ter sido removido
     assert not scen_file.exists()
@@ -961,3 +963,72 @@ steps:
     # 2. Link no config.yaml deve ter sido removido
     cfg_after = yaml.safe_load(cfg_file.read_text(encoding="utf-8"))
     assert "cenario_para_deletar" not in cfg_after["projects"]["projeto-crud"]["scenarios"]
+
+
+def test_delete_scenario_unlink_only_via_api(
+    client: TestClient, auth_headers: dict[str, str], tmp_path: Path, monkeypatch
+) -> None:
+    """Garante que DELETE /api/scenarios/{id}?delete_file=false desvincula do config.yaml e mantém o arquivo no disco."""
+    import yaml
+
+    from uxsentinel.core.config import register_project_scenario
+
+    cfg_dir = tmp_path / "config" / "uxsentinel"
+    cfg_dir.mkdir(parents=True)
+    cfg_file = cfg_dir / "config.yaml"
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+
+    proj_dir = tmp_path / "meu_projeto_unlink"
+    (proj_dir / "scenarios").mkdir(parents=True)
+
+    # Cadastra projeto
+    resp = client.post(
+        "/api/projects",
+        json={"name": "Projeto Unlink", "path": str(proj_dir)},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 201
+
+    # Cria cenário
+    yaml_content = """version: "1.0"
+id: cenario_para_desvincular
+title: Cenário Para Desvincular
+steps:
+  - action: goto
+    url: "https://example.com/unlink"
+"""
+    create_resp = client.post(
+        "/api/scenarios",
+        json={"filename": "cenario_para_desvincular.yaml", "yaml_content": yaml_content},
+        headers=auth_headers,
+    )
+    assert create_resp.status_code == 201
+
+    scen_file = proj_dir / "scenarios" / "cenario_para_desvincular.yaml"
+    assert scen_file.is_file()
+
+    # Registra no catálogo config.yaml
+    register_project_scenario(
+        scenario_path=scen_file,
+        scenario_data={"id": "cenario_para_desvincular", "name": "Cenário Para Desvincular"},
+        project_name="Projeto Unlink",
+        config_path=cfg_file,
+    )
+
+    cfg_data = yaml.safe_load(cfg_file.read_text(encoding="utf-8"))
+    assert "cenario_para_desvincular" in cfg_data["projects"]["projeto-unlink"]["scenarios"]
+
+    # Desvincula o cenário via API com delete_file=false
+    del_resp = client.delete(
+        "/api/scenarios/cenario_para_desvincular?delete_file=false", headers=auth_headers
+    )
+    assert del_resp.status_code == 200
+    assert del_resp.json()["success"] is True
+    assert del_resp.json()["delete_file"] is False
+
+    # 1. Arquivo físico deve continuar no disco
+    assert scen_file.is_file()
+
+    # 2. Link no config.yaml deve ter sido removido
+    cfg_after = yaml.safe_load(cfg_file.read_text(encoding="utf-8"))
+    assert "cenario_para_desvincular" not in cfg_after["projects"]["projeto-unlink"]["scenarios"]

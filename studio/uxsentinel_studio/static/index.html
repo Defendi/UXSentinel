@@ -523,6 +523,42 @@
             </div>
         </div>
 
+        <!-- Modal: Excluir Cenário -->
+        <div class="modal-overlay" id="modal-delete-scenario">
+            <div class="modal-card">
+                <div class="modal-header">
+                    <h3>Excluir Cenário</h3>
+                    <button class="btn-close-modal modal-close" data-close-modal>✕</button>
+                </div>
+                <div class="modal-body">
+                    <p>Tem certeza que deseja excluir o cenário <strong id="delete-scenario-title"></strong>?</p>
+                    <div class="delete-scenario-options">
+                        <label class="radio-option">
+                            <input type="radio" name="delete-scenario-mode" value="link" checked>
+                            <div class="radio-text">
+                                <strong>Apenas desvincular do catálogo (Mantém o arquivo no disco)</strong>
+                                <span class="radio-desc">Remove a referência do cenário no config.yaml, preservando o arquivo YAML para uso futuro.</span>
+                            </div>
+                        </label>
+                        <label class="radio-option">
+                            <input type="radio" name="delete-scenario-mode" value="file">
+                            <div class="radio-text">
+                                <strong class="text-danger">Excluir arquivo fisicamente do disco (Apaga permanentemente da pasta do projeto)</strong>
+                                <span class="radio-desc">Exclui o arquivo YAML do sistema de arquivos e desvincula do catálogo do projeto.</span>
+                            </div>
+                        </label>
+                    </div>
+                    <div class="alert-box danger-box" id="delete-scenario-file-warning" style="display: none;">
+                        ⚠️ <strong>Atenção:</strong> O arquivo YAML será permanentemente apagado da pasta do projeto. Esta operação é irreversível!
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" data-close-modal>Cancelar</button>
+                    <button class="btn btn-danger" id="btn-confirm-delete-scenario">Confirmar Exclusão</button>
+                </div>
+            </div>
+        </div>
+
         <!-- Container de Notificações Toast -->
         <div class="toast-container" id="toast-container"></div>
     </div>

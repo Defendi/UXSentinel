@@ -3,6 +3,7 @@
 from pathlib import Path
 
 import pytest
+import yaml
 
 from uxsentinel.service.scenario_service import ScenarioService
 
@@ -64,8 +65,8 @@ steps:
     assert detail.steps[0].action == "goto"
     assert detail.steps[1].selector == "button.submit"
 
-    # 3. Excluir
-    deleted = service.delete_scenario("crud_test", tmp_path)
+    # 3. Excluir fisicamente
+    deleted = service.delete_scenario("crud_test", tmp_path, delete_file=True)
     assert deleted is True
     assert not saved_path.exists()
 
@@ -262,3 +263,135 @@ def test_scenario_service_catalog_explicit_scenario_mapping(tmp_path: Path, monk
 
     scenarios = service.list_scenarios(tmp_path, project_id="proj-custom")
     assert any(s.id == "odoo_login_e_modal_sinistro" and s.project_id == "proj-custom" for s in scenarios)
+
+
+def test_delete_scenario_unlink_only_preserves_file_and_removes_from_catalog(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """Valida que delete_file=False mantém o arquivo no disco e remove o link do config.yaml."""
+    cfg_dir = tmp_path / "config" / "uxsentinel"
+    cfg_dir.mkdir(parents=True)
+    cfg_file = cfg_dir / "config.yaml"
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+
+    proj_dir = tmp_path / "meu_projeto"
+    scen_dir = proj_dir / "scenarios"
+    scen_dir.mkdir(parents=True)
+    scen_file = scen_dir / "fluxo_unlink.yaml"
+    scen_file.write_text(
+        """version: "1.0"
+id: fluxo_unlink
+title: Fluxo Unlink
+steps:
+  - action: goto
+    url: "https://example.com"
+""",
+        encoding="utf-8",
+    )
+
+    from uxsentinel.core.config import register_project_scenario
+
+    register_project_scenario(
+        scenario_path=scen_file,
+        scenario_data={"id": "fluxo_unlink", "name": "Fluxo Unlink"},
+        project_name="Projeto Teste",
+        config_path=cfg_file,
+    )
+
+    cfg_data = yaml.safe_load(cfg_file.read_text(encoding="utf-8"))
+    assert "fluxo_unlink" in cfg_data["projects"]["projeto-teste"]["scenarios"]
+
+    service = ScenarioService()
+    deleted = service.delete_scenario(
+        "fluxo_unlink",
+        proj_dir,
+        project_id="projeto-teste",
+        delete_file=False,
+    )
+    assert deleted is True
+
+    # Arquivo no disco foi preservado
+    assert scen_file.is_file()
+
+    # Vínculo no catálogo foi removido
+    cfg_after = yaml.safe_load(cfg_file.read_text(encoding="utf-8"))
+    assert "fluxo_unlink" not in cfg_after["projects"]["projeto-teste"]["scenarios"]
+
+
+def test_delete_scenario_physical_deletes_file_and_removes_from_catalog(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """Valida que delete_file=True apaga o arquivo físico e desvincula do config.yaml."""
+    cfg_dir = tmp_path / "config" / "uxsentinel"
+    cfg_dir.mkdir(parents=True)
+    cfg_file = cfg_dir / "config.yaml"
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+
+    proj_dir = tmp_path / "meu_projeto_fisico"
+    scen_dir = proj_dir / "scenarios"
+    scen_dir.mkdir(parents=True)
+    scen_file = scen_dir / "fluxo_fisico.yaml"
+    scen_file.write_text(
+        """version: "1.0"
+id: fluxo_fisico
+title: Fluxo Fisico
+steps:
+  - action: goto
+    url: "https://example.com"
+""",
+        encoding="utf-8",
+    )
+
+    from uxsentinel.core.config import register_project_scenario
+
+    register_project_scenario(
+        scenario_path=scen_file,
+        scenario_data={"id": "fluxo_fisico", "name": "Fluxo Fisico"},
+        project_name="Projeto Fisico",
+        config_path=cfg_file,
+    )
+
+    cfg_data = yaml.safe_load(cfg_file.read_text(encoding="utf-8"))
+    assert "fluxo_fisico" in cfg_data["projects"]["projeto-fisico"]["scenarios"]
+
+    service = ScenarioService()
+    deleted = service.delete_scenario(
+        "fluxo_fisico",
+        proj_dir,
+        project_id="projeto-fisico",
+        delete_file=True,
+    )
+    assert deleted is True
+
+    # Arquivo no disco foi removido
+    assert not scen_file.exists()
+
+    # Vínculo no catálogo foi removido
+    cfg_after = yaml.safe_load(cfg_file.read_text(encoding="utf-8"))
+    assert "fluxo_fisico" not in cfg_after["projects"]["projeto-fisico"]["scenarios"]
+
+
+def test_delete_scenario_in_project_root(tmp_path: Path):
+    """Valida exclusão de cenário localizado na raiz do projeto (fora da pasta scenarios/)."""
+    proj_dir = tmp_path / "projeto_raiz"
+    proj_dir.mkdir(parents=True)
+    root_scen_file = proj_dir / "cenario_raiz.yaml"
+    root_scen_file.write_text(
+        """version: "1.0"
+id: cenario_raiz
+title: Cenário na Raiz
+steps:
+  - action: goto
+    url: "https://example.com/raiz"
+""",
+        encoding="utf-8",
+    )
+
+    service = ScenarioService()
+    located = service.find_scenario_path("cenario_raiz", proj_dir)
+    assert located is not None
+    assert located.resolve() == root_scen_file.resolve()
+
+    deleted = service.delete_scenario("cenario_raiz", proj_dir, delete_file=True)
+    assert deleted is True
+    assert not root_scen_file.exists()

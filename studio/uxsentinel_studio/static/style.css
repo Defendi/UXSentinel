@@ -437,6 +437,35 @@ body {
     font-family: var(--font-mono);
 }
 
+.scenario-item-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    flex-shrink: 0;
+}
+
+.btn-delete-scenario-item {
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    font-size: 0.75rem;
+    padding: 2px 4px;
+    border-radius: 4px;
+    opacity: 0.25;
+    transition: opacity 0.2s ease, background 0.2s ease, transform 0.15s ease;
+    line-height: 1;
+}
+
+.scenario-item:hover .btn-delete-scenario-item {
+    opacity: 0.7;
+}
+
+.btn-delete-scenario-item:hover {
+    opacity: 1 !important;
+    background: rgba(239, 68, 68, 0.2);
+    transform: scale(1.15);
+}
+
 .scenario-item-meta {
     display: flex;
     align-items: center;
@@ -1542,4 +1571,63 @@ body {
     font-size: 2rem;
     display: block;
     margin-bottom: 0.5rem;
+}
+
+/* Opções de Exclusão de Cenário no Modal */
+.delete-scenario-options {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    margin: 0.5rem 0;
+}
+
+.radio-option {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.65rem;
+    padding: 0.75rem 0.9rem;
+    border: 1px solid var(--border-subtle);
+    border-radius: 6px;
+    background-color: var(--bg-surface);
+    cursor: pointer;
+    transition: border-color 0.2s ease, background-color 0.2s ease;
+}
+
+.radio-option:hover {
+    border-color: var(--accent-purple);
+    background-color: var(--bg-surface-elevated);
+}
+
+.radio-option input[type="radio"] {
+    margin-top: 0.2rem;
+    cursor: pointer;
+    accent-color: var(--accent-purple);
+}
+
+.radio-option .radio-text strong {
+    display: block;
+    font-size: 0.82rem;
+    color: var(--text-primary);
+    margin-bottom: 0.2rem;
+}
+
+.radio-option .radio-text .radio-desc {
+    font-size: 0.74rem;
+    color: var(--text-muted);
+    line-height: 1.35;
+    display: block;
+}
+
+.text-danger {
+    color: var(--accent-red) !important;
+}
+
+.alert-box.danger-box {
+    background-color: rgba(239, 68, 68, 0.1);
+    border: 1px solid rgba(239, 68, 68, 0.3);
+    color: var(--accent-red);
+    border-radius: 6px;
+    padding: 0.75rem 0.9rem;
+    font-size: 0.8rem;
+    line-height: 1.4;
 }
