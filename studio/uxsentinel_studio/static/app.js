@@ -285,23 +285,25 @@
 
         if (!state.projects || state.projects.length === 0) {
             treeContainer.innerHTML = `
-                <div class="empty-state-card" style="padding: 32px 16px; text-align: center; color: var(--text-muted);">
-                    <div style="font-size: 2.2rem; margin-bottom: 10px;">📂</div>
-                    <p style="font-weight: 600; color: var(--text-main); margin-bottom: 6px; font-size: 0.95rem;">Nenhum projeto cadastrado</p>
-                    <p style="font-size: 0.82rem; line-height: 1.4;">Cadastre um novo projeto para visualizar e gerenciar seus cenários de teste.</p>
+                <div class="empty-state" style="padding: 24px 16px; text-align: center; color: var(--color-text-muted); font-size: 13px;">
+                    <span style="font-size: 28px; display: block; margin-bottom: 8px;">📂</span>
+                    Nenhum cenário cadastrado.<br>
+                    <span style="font-size: 12px; color: var(--color-text-dim);">Adicione uma pasta de projeto no botão ➕ acima.</span>
                 </div>
             `;
+            clearEditor();
             return;
         }
 
         if (state.filteredScenarios.length === 0) {
             treeContainer.innerHTML = `
-                <div class="empty-state-card" style="padding: 32px 16px; text-align: center; color: var(--text-muted);">
-                    <div style="font-size: 2.2rem; margin-bottom: 10px;">📝</div>
-                    <p style="font-weight: 600; color: var(--text-main); margin-bottom: 6px; font-size: 0.95rem;">Nenhum cenário encontrado</p>
-                    <p style="font-size: 0.82rem; line-height: 1.4;">Crie um novo cenário no projeto ativo ou ajuste a busca.</p>
+                <div class="empty-state" style="padding: 24px 16px; text-align: center; color: var(--color-text-muted); font-size: 13px;">
+                    <span style="font-size: 28px; display: block; margin-bottom: 8px;">📂</span>
+                    Nenhum cenário cadastrado.<br>
+                    <span style="font-size: 12px; color: var(--color-text-dim);">Adicione uma pasta de projeto no botão ➕ acima.</span>
                 </div>
             `;
+            clearEditor();
             return;
         }
 

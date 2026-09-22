@@ -3,16 +3,31 @@
 import contextlib
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 import yaml
 from pydantic import BaseModel, Field
 
 from uxsentinel.core.config import (
-    infer_project_metadata,
     list_registered_projects,
     remove_scenario_from_catalog,
 )
-from uxsentinel.scenarios.parser import load_scenario
+from uxsentinel.scenarios.parser import (
+    IGNORED_YAML_FILENAMES,
+    is_valid_scenario_file,
+    load_scenario,
+)
+
+__all__ = [
+    "IGNORED_YAML_FILENAMES",
+    "ScenarioDetailDTO",
+    "ScenarioService",
+    "ScenarioSummaryDTO",
+    "StepDTO",
+    "StepError",
+    "ValidationResult",
+    "is_valid_scenario_file",
+]
 
 
 class StepDTO(BaseModel):
@@ -79,6 +94,117 @@ class ScenarioService:
         """Localiza o diretório da biblioteca de cenários embutida do UXSentinel."""
         return Path(__file__).resolve().parent.parent / "scenarios" / "library"
 
+    @staticmethod
+    def is_valid_scenario_file(path: Path | str) -> bool:
+        """Verifica se o arquivo é um cenário de teste YAML válido do UXSentinel."""
+        return is_valid_scenario_file(path)
+
+    def _collect_project_scenarios(
+        self,
+        project_id: str,
+        entry: Any,
+        scenarios: list[ScenarioSummaryDTO],
+        seen_ids: set[str],
+    ) -> None:
+        """Varre e coleta cenários válidos de um projeto cadastrado no catálogo."""
+        candidate_paths: list[Path] = []
+        p_name = entry.name or project_id
+
+        if entry.root_path:
+            with contextlib.suppress(Exception):
+                root = Path(entry.root_path).resolve()
+                if root.is_dir():
+                    search_folders = [
+                        root / "scenarios",
+                        root / ".uxsentinel" / "scenarios",
+                        root / "tests" / "scenarios",
+                        root,
+                    ]
+                    for sdir in search_folders:
+                        if not sdir.is_dir():
+                            continue
+                        for ext in ("*.yaml", "*.yml"):
+                            for f in sdir.glob(ext):
+                                candidate_paths.append(f)
+
+        if getattr(entry, "scenarios", None):
+            for s_item in entry.scenarios.values():
+                if getattr(s_item, "path", None):
+                    with contextlib.suppress(Exception):
+                        p = Path(s_item.path).resolve()
+                        if p.is_file():
+                            candidate_paths.append(p)
+
+        for yml in candidate_paths:
+            yml_resolved = yml.resolve()
+            if not is_valid_scenario_file(yml_resolved):
+                continue
+            try:
+                sc = load_scenario(str(yml_resolved))
+                if not sc.steps:
+                    continue
+                if sc.id in seen_ids:
+                    continue
+                seen_ids.add(sc.id)
+                stat = yml_resolved.stat()
+                mod_time = datetime.fromtimestamp(stat.st_mtime, tz=UTC)
+                scenarios.append(
+                    ScenarioSummaryDTO(
+                        id=sc.id,
+                        filename=yml_resolved.name,
+                        title=sc.title,
+                        profile=sc.profile,
+                        tags=sc.tags,
+                        source="project",
+                        step_count=len(sc.steps),
+                        modified_at=mod_time,
+                        project_id=project_id,
+                        project_name=p_name,
+                    )
+                )
+            except Exception:
+                continue
+
+    def _collect_library_scenarios(
+        self,
+        scenarios: list[ScenarioSummaryDTO],
+        seen_ids: set[str],
+    ) -> None:
+        """Coleta cenários válidos da biblioteca embutida do UXSentinel."""
+        lib_dir = self.get_library_dir()
+        if not lib_dir.is_dir():
+            return
+        for ext in ("*.yaml", "*.yml"):
+            for yml in lib_dir.glob(ext):
+                yml_resolved = yml.resolve()
+                if not is_valid_scenario_file(yml_resolved):
+                    continue
+                try:
+                    sc = load_scenario(str(yml_resolved))
+                    if not sc.steps:
+                        continue
+                    if sc.id in seen_ids:
+                        continue
+                    seen_ids.add(sc.id)
+                    stat = yml_resolved.stat()
+                    mod_time = datetime.fromtimestamp(stat.st_mtime, tz=UTC)
+                    scenarios.append(
+                        ScenarioSummaryDTO(
+                            id=sc.id,
+                            filename=yml_resolved.name,
+                            title=sc.title,
+                            profile=sc.profile,
+                            tags=sc.tags,
+                            source="library",
+                            step_count=len(sc.steps),
+                            modified_at=mod_time,
+                            project_id="library",
+                            project_name="Biblioteca Embutida",
+                        )
+                    )
+                except Exception:
+                    continue
+
     def list_scenarios(
         self,
         base_dir: Path | str | None = None,
@@ -89,108 +215,38 @@ class ScenarioService:
         scenarios: list[ScenarioSummaryDTO] = []
         seen_ids: set[str] = set()
 
-        search_dirs: list[tuple[Path, str]] = []
-        if base_dir is not None:
-            base_path = Path(base_dir).resolve()
-            search_dirs.extend(
-                [
-                    (base_path / "scenarios", "project"),
-                    (base_path / ".uxsentinel" / "scenarios", "project"),
-                    (base_path / "tests" / "scenarios", "project"),
-                    (base_path, "project"),
-                ]
-            )
-        if include_library:
-            search_dirs.append((self.get_library_dir(), "library"))
-
-        if not search_dirs:
-            return scenarios
-
-        catalog = {}
+        catalog: dict[str, Any] = {}
         with contextlib.suppress(Exception):
             catalog = list_registered_projects()
 
-        for sdir, source in search_dirs:
-            if not sdir.is_dir():
-                continue
-            for ext in ("*.yaml", "*.yml"):
-                for yml in sdir.glob(ext):
-                    if yml.name in (
-                        "config.yaml",
-                        "config.example.yaml",
-                        "uxsentinel.yaml",
-                        ".uxsentinel.yaml",
-                    ):
-                        continue
-                    try:
-                        sc = load_scenario(str(yml))
-                        if sc.id in seen_ids:
-                            continue
-                        seen_ids.add(sc.id)
-                        stat = yml.stat()
-                        mod_time = datetime.fromtimestamp(stat.st_mtime, tz=UTC)
-                        yml_resolved = yml.resolve()
+        # 1. Se project_id == "library", busca exclusivamente na biblioteca interna
+        if project_id == "library":
+            if include_library:
+                self._collect_library_scenarios(scenarios, seen_ids)
+            return sorted(scenarios, key=lambda s: s.title.lower())
 
-                        p_id: str | None = None
-                        p_name: str | None = None
+        # 2. Se project_id for fornecido (diferente de "library"), busca no catálogo
+        if project_id is not None:
+            if project_id not in catalog:
+                return []
+            entry = catalog[project_id]
+            self._collect_project_scenarios(project_id, entry, scenarios, seen_ids)
+            return sorted(scenarios, key=lambda s: s.title.lower())
 
-                        # 1. Se o caminho do YAML estiver explicitamente registrado em p_val.scenarios de algum projeto do catálogo
-                        for cat_p_id, p_val in catalog.items():
-                            for _s_id, s_item in p_val.scenarios.items():
-                                if s_item.path:
-                                    with contextlib.suppress(Exception):
-                                        if Path(s_item.path).resolve() == yml_resolved:
-                                            p_id = cat_p_id
-                                            p_name = p_val.name
-                                            break
-                            if p_id is not None:
-                                break
+        # 3. Se project_id for None (ou seja, 'Todos os Projetos'):
+        # Se houver projetos cadastrados no catálogo, varre cada um deles
+        if catalog:
+            for p_id, entry in catalog.items():
+                self._collect_project_scenarios(p_id, entry, scenarios, seen_ids)
+        else:
+            # Se NÃO houver nenhum projeto cadastrado no catálogo:
+            # Não invente projetos fictícios a partir do diretório onde o servidor foi aberto (como $HOME / ALEXANDRE).
+            # Retorne lista vazia para projetos!
+            pass
 
-                        # 2. Se o caminho do YAML estiver sob o root_path de algum projeto do catálogo (para cenários do projeto)
-                        if p_id is None and source != "library":
-                            for cat_p_id, p_val in catalog.items():
-                                if p_val.root_path:
-                                    with contextlib.suppress(Exception):
-                                        cat_root = Path(p_val.root_path).resolve()
-                                        if yml_resolved == cat_root or cat_root in yml_resolved.parents:
-                                            p_id = cat_p_id
-                                            p_name = p_val.name
-                                            break
-
-                        # 3. Caso contrário, use infer_project_metadata(yml)
-                        # 4. Se for da biblioteca padrão e não pertencer a nenhum projeto cadastrado nem ao projeto do base_dir,
-                        # atribua p_id = "library" e p_name = "Biblioteca Embutida"
-                        if p_id is None:
-                            if source == "library":
-                                p_id = "library"
-                                p_name = "Biblioteca Embutida"
-                            else:
-                                inf_id, inf_name, _ = infer_project_metadata(yml)
-                                p_id = inf_id
-                                p_name = inf_name
-                                if p_id in catalog:
-                                    p_name = catalog[p_id].name
-
-                        # Se filtragem por project_id foi solicitada, ignora se não corresponder
-                        if project_id is not None and p_id != project_id:
-                            continue
-
-                        scenarios.append(
-                            ScenarioSummaryDTO(
-                                id=sc.id,
-                                filename=yml.name,
-                                title=sc.title,
-                                profile=sc.profile,
-                                tags=sc.tags,
-                                source=source,
-                                step_count=len(sc.steps),
-                                modified_at=mod_time,
-                                project_id=p_id,
-                                project_name=p_name,
-                            )
-                        )
-                    except Exception:
-                        continue
+        # Inclui biblioteca embutida se solicitado
+        if include_library:
+            self._collect_library_scenarios(scenarios, seen_ids)
 
         return sorted(scenarios, key=lambda s: s.title.lower())
 
@@ -205,6 +261,45 @@ class ScenarioService:
         if not clean_q:
             return None
 
+        # 1. Busca primeiro nos projetos do catálogo
+        with contextlib.suppress(Exception):
+            catalog = list_registered_projects()
+            for p_val in catalog.values():
+                for s_key, s_item in p_val.scenarios.items():
+                    if (s_key == scenario_id or getattr(s_item, "id", None) == scenario_id) and (
+                        s_item.path and Path(s_item.path).is_file()
+                    ):
+                        cand = Path(s_item.path).resolve()
+                        if is_valid_scenario_file(cand):
+                            return cand
+
+                if p_val.root_path:
+                    r_path = Path(p_val.root_path).resolve()
+                    if r_path.is_dir():
+                        for sdir in (
+                            r_path / "scenarios",
+                            r_path / ".uxsentinel" / "scenarios",
+                            r_path / "tests" / "scenarios",
+                            r_path,
+                        ):
+                            if not sdir.is_dir():
+                                continue
+                            for ext in ("*.yaml", "*.yml"):
+                                for candidate in sdir.glob(ext):
+                                    if not is_valid_scenario_file(candidate):
+                                        continue
+                                    try:
+                                        sc = load_scenario(str(candidate))
+                                        if (
+                                            sc.id == scenario_id
+                                            or candidate.stem == scenario_id
+                                            or candidate.name == scenario_id
+                                        ):
+                                            return candidate.resolve()
+                                    except Exception:
+                                        continue
+
+        # 2. Busca no base_dir caso fornecido
         search_dirs: list[Path] = []
         if base_dir is not None:
             base_path = Path(base_dir).resolve()
@@ -223,12 +318,7 @@ class ScenarioService:
                 continue
             for ext in ("*.yaml", "*.yml"):
                 for candidate in sdir.glob(ext):
-                    if candidate.name in (
-                        "config.yaml",
-                        "config.example.yaml",
-                        "uxsentinel.yaml",
-                        ".uxsentinel.yaml",
-                    ):
+                    if not is_valid_scenario_file(candidate):
                         continue
                     try:
                         sc = load_scenario(str(candidate))
@@ -237,19 +327,9 @@ class ScenarioService:
                             or candidate.stem == scenario_id
                             or candidate.name == scenario_id
                         ):
-                            return candidate
+                            return candidate.resolve()
                     except Exception:
                         continue
-
-        # Busca no catálogo caso o cenário tenha sido registrado com caminho customizado
-        with contextlib.suppress(Exception):
-            catalog = list_registered_projects()
-            for p_val in catalog.values():
-                for s_key, s_item in p_val.scenarios.items():
-                    if (s_key == scenario_id or getattr(s_item, "id", None) == scenario_id) and (
-                        s_item.path and Path(s_item.path).is_file()
-                    ):
-                        return Path(s_item.path).resolve()
 
         return None
 

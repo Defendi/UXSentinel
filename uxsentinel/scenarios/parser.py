@@ -8,6 +8,54 @@ from uxsentinel.core.models import Scenario, ScenarioExceptions, StepAction
 
 ENV_VAR_PATTERN = re.compile(r"\$\{([A-Za-z0-9_]+)(?::-([^}]*))?\}")
 
+IGNORED_YAML_FILENAMES: frozenset[str] = frozenset(
+    {
+        "config.yaml",
+        "config.yml",
+        "config.example.yaml",
+        "uxsentinel.yaml",
+        ".uxsentinel.yaml",
+        "workspace.yaml",
+        "workspace.yml",
+        "docker-compose.yaml",
+        "docker-compose.yml",
+        "helm.yaml",
+        "chart.yaml",
+        "action.yaml",
+        "action.yml",
+    }
+)
+
+
+def is_valid_scenario_file(path: Path | str) -> bool:
+    """Verifica se o arquivo é um cenário de teste YAML válido do UXSentinel.
+
+    Ignora arquivos de configuração/orquestração conhecidos, arquivos ocultos,
+    conteúdos que não sejam dicionários ou que não possuam passos de teste válidos.
+    """
+    try:
+        p = Path(path)
+        if not p.is_file():
+            return False
+
+        name_lower = p.name.lower()
+        if name_lower.startswith("."):
+            return False
+        if name_lower in IGNORED_YAML_FILENAMES:
+            return False
+        if p.suffix.lower() not in (".yaml", ".yml"):
+            return False
+
+        content = p.read_text(encoding="utf-8")
+        data = yaml.safe_load(content)
+        if not isinstance(data, dict):
+            return False
+
+        steps = data.get("steps") or data.get("passos")
+        return bool(isinstance(steps, list) and len(steps) > 0)
+    except Exception:
+        return False
+
 
 def _normalize_string_list(val: object) -> list[str]:
     if isinstance(val, list):
@@ -146,7 +194,9 @@ def load_scenario(
     interpolated_text = _resolve_env_str(raw_text, env_source=resolved_env, allow_os_environ=False)
     parsed_dict = yaml.safe_load(interpolated_text) or {}
 
-    steps_raw = parsed_dict.get("steps", [])
+    steps_raw = (
+        parsed_dict.get("steps") if parsed_dict.get("steps") is not None else parsed_dict.get("passos", [])
+    )
     if not isinstance(steps_raw, list):
         raise ValueError(
             f"Cenário inválido em '{file_path}': o campo 'steps' deve ser uma lista de passos, "

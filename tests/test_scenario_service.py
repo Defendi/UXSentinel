@@ -8,14 +8,21 @@ import yaml
 from uxsentinel.service.scenario_service import ScenarioService
 
 
-def test_scenario_service_lists_project_and_library_scenarios(tmp_path: Path):
-    """Valida se a listagem agrupa cenários locais e da biblioteca interna."""
+def test_scenario_service_lists_project_and_library_scenarios(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """Valida se a listagem agrupa cenários do projeto cadastrado no catálogo e da biblioteca interna."""
+    cfg_dir = tmp_path / "config" / "uxsentinel"
+    cfg_dir.mkdir(parents=True)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+
     service = ScenarioService()
 
     # Cria cenário local de teste no tmp_path
     local_dir = tmp_path / "scenarios"
     local_dir.mkdir()
-    (local_dir / "teste_local.yaml").write_text(
+    scen_file = local_dir / "teste_local.yaml"
+    scen_file.write_text(
         """version: "1.0"
 id: "local_01"
 title: "Cenário Local de Teste"
@@ -25,6 +32,15 @@ steps:
     url: "https://example.com"
 """,
         encoding="utf-8",
+    )
+
+    from uxsentinel.core.config import register_project_scenario
+
+    register_project_scenario(
+        scenario_path=scen_file,
+        scenario_data={"id": "local_01", "name": "Cenário Local de Teste"},
+        project_name="Projeto Teste",
+        config_path=cfg_dir / "config.yaml",
     )
 
     scenarios = service.list_scenarios(tmp_path)
@@ -395,3 +411,135 @@ steps:
     deleted = service.delete_scenario("cenario_raiz", proj_dir, delete_file=True)
     assert deleted is True
     assert not root_scen_file.exists()
+
+
+def test_scenario_service_ignores_non_scenario_yamls(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """Garante que arquivos como workspace.yaml (sem chave steps) e outros YAMLs arbitrários são ignorados (UXS-72)."""
+    cfg_dir = tmp_path / "config" / "uxsentinel"
+    cfg_dir.mkdir(parents=True)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+
+    proj_dir = tmp_path / "meu_projeto"
+    scenarios_dir = proj_dir / "scenarios"
+    scenarios_dir.mkdir(parents=True)
+
+    # 1. Arquivo de workspace sem steps (como reportado no Jira UXS-72)
+    workspace_yaml = proj_dir / "workspace.yaml"
+    workspace_yaml.write_text(
+        """name: GoTryx Documentation Platform
+project_paths:
+  - /mnt/home/alexandre/Projetos
+global_settings: {}
+""",
+        encoding="utf-8",
+    )
+
+    # 2. Arquivos de configuração / orquestração na lista de ignorados
+    (proj_dir / "docker-compose.yaml").write_text("version: '3'\nservices: {}\n", encoding="utf-8")
+    (proj_dir / ".clang-format.yaml").write_text("BasedOnStyle: LLVM\n", encoding="utf-8")
+    (scenarios_dir / "invalido_sem_steps.yaml").write_text(
+        "title: Sem Passos\nprofile: generic\n", encoding="utf-8"
+    )
+    (scenarios_dir / "passos_vazios.yaml").write_text("title: Passos Vazios\nsteps: []\n", encoding="utf-8")
+
+    # 3. Cenário válido com pelo menos 1 passo
+    valid_scenario = scenarios_dir / "cenario_legitimo.yaml"
+    valid_scenario.write_text(
+        """version: "1.0"
+id: cenario_legitimo
+title: Cenário Legítimo
+steps:
+  - action: goto
+    url: "https://example.com"
+""",
+        encoding="utf-8",
+    )
+
+    catalog_data = {
+        "projects": {
+            "proj-legitimo": {
+                "name": "Projeto Legítimo",
+                "root_path": str(proj_dir),
+                "scenarios": {},
+            }
+        }
+    }
+    (cfg_dir / "config.yaml").write_text(yaml.safe_dump(catalog_data), encoding="utf-8")
+
+    service = ScenarioService()
+
+    # is_valid_scenario_file diretamente
+    assert not service.is_valid_scenario_file(workspace_yaml)
+    assert not service.is_valid_scenario_file(proj_dir / "docker-compose.yaml")
+    assert not service.is_valid_scenario_file(proj_dir / ".clang-format.yaml")
+    assert not service.is_valid_scenario_file(scenarios_dir / "invalido_sem_steps.yaml")
+    assert not service.is_valid_scenario_file(scenarios_dir / "passos_vazios.yaml")
+    assert service.is_valid_scenario_file(valid_scenario)
+
+    # list_scenarios deve retornar estritamente o cenário legítimo
+    scenarios = service.list_scenarios(proj_dir, project_id="proj-legitimo", include_library=False)
+    ids = [s.id for s in scenarios]
+    assert ids == ["cenario_legitimo"]
+    assert "workspace" not in ids
+
+
+def test_scenario_service_all_projects_lists_only_catalog_scenarios(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """Garante que em 'Todos os Projetos' (project_id=None), apenas projetos do catálogo são listados (UXS-72)."""
+    cfg_dir = tmp_path / "config" / "uxsentinel"
+    cfg_dir.mkdir(parents=True)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+
+    # Diretório arbitrário do servidor (ex: home do usuário com arquivos YAML)
+    home_fake = tmp_path / "alexandre"
+    home_fake.mkdir()
+    (home_fake / "workspace.yaml").write_text("name: Plataforma Fake\n", encoding="utf-8")
+    (home_fake / "cenario_perdido.yaml").write_text(
+        """id: perdido
+title: Perdido
+steps:
+  - action: goto
+    url: https://example.com
+""",
+        encoding="utf-8",
+    )
+
+    service = ScenarioService()
+
+    # Cenário 1: Sem projetos no catálogo -> retorna [] para cenários de projeto
+    res_sem_catalogo = service.list_scenarios(home_fake, project_id=None, include_library=False)
+    assert res_sem_catalogo == []
+
+    # Cenário 2: Com projetos no catálogo -> lista apenas cenários daquele projeto registrado
+    proj_real = tmp_path / "projeto_cadastrado"
+    scen_real_dir = proj_real / "scenarios"
+    scen_real_dir.mkdir(parents=True)
+    (scen_real_dir / "cenario_cadastrado.yaml").write_text(
+        """id: cenario_cadastrado
+title: Cenário Cadastrado
+steps:
+  - action: goto
+    url: https://cadastrado.example.com
+""",
+        encoding="utf-8",
+    )
+
+    catalog_data = {
+        "projects": {
+            "proj-cadastrado": {
+                "name": "Projeto Cadastrado",
+                "root_path": str(proj_real),
+                "scenarios": {},
+            }
+        }
+    }
+    (cfg_dir / "config.yaml").write_text(yaml.safe_dump(catalog_data), encoding="utf-8")
+
+    res_com_catalogo = service.list_scenarios(home_fake, project_id=None, include_library=False)
+    ids_retornados = [s.id for s in res_com_catalogo]
+
+    assert "cenario_cadastrado" in ids_retornados
+    assert "perdido" not in ids_retornados
+    assert "workspace" not in ids_retornados
+    assert all(s.project_id == "proj-cadastrado" for s in res_com_catalogo)

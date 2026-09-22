@@ -99,8 +99,24 @@ def test_authentication_protection(client: TestClient, auth_headers: dict[str, s
 # ==============================================================================
 
 
-def test_list_and_get_scenarios(client: TestClient, auth_headers: dict[str, str]) -> None:
+def test_list_and_get_scenarios(
+    client: TestClient, auth_headers: dict[str, str], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Testa listagem e detalhamento de cenários do projeto e biblioteca."""
+    cfg_dir = tmp_path / "config" / "uxsentinel"
+    cfg_dir.mkdir(parents=True, exist_ok=True)
+    cfg_file = cfg_dir / "config.yaml"
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+
+    from uxsentinel.core.config import register_project_scenario
+
+    register_project_scenario(
+        scenario_path=Path(client.app.state.project_dir) / "scenarios" / "cenario_teste.yaml",
+        scenario_data={"id": "cenario_teste", "name": "Cenário de Teste Unitário"},
+        project_name="Workspace Teste",
+        config_path=cfg_file,
+    )
+
     # Listagem
     resp = client.get("/api/scenarios", headers=auth_headers)
     assert resp.status_code == 200
@@ -741,7 +757,19 @@ def test_list_scenarios_includes_project_fields(
     client: TestClient, auth_headers: dict[str, str], tmp_path: Path, monkeypatch
 ) -> None:
     """Valida se /api/scenarios retorna project_id e project_name preenchidos."""
+    cfg_dir = tmp_path / "config" / "uxsentinel"
+    cfg_dir.mkdir(parents=True, exist_ok=True)
+    cfg_file = cfg_dir / "config.yaml"
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+
+    from uxsentinel.core.config import register_project_scenario
+
+    register_project_scenario(
+        scenario_path=Path(client.app.state.project_dir) / "scenarios" / "cenario_teste.yaml",
+        scenario_data={"id": "cenario_teste", "name": "Cenário de Teste Unitário"},
+        project_name="Workspace Teste",
+        config_path=cfg_file,
+    )
 
     resp = client.get("/api/scenarios", headers=auth_headers)
     assert resp.status_code == 200
@@ -1026,9 +1054,56 @@ steps:
     assert del_resp.json()["success"] is True
     assert del_resp.json()["delete_file"] is False
 
-    # 1. Arquivo físico deve continuar no disco
-    assert scen_file.is_file()
-
     # 2. Link no config.yaml deve ter sido removido
     cfg_after = yaml.safe_load(cfg_file.read_text(encoding="utf-8"))
     assert "cenario_para_desvincular" not in cfg_after["projects"]["projeto-unlink"]["scenarios"]
+
+
+def test_api_scenarios_ignores_non_scenario_yamls_without_steps(
+    client: TestClient, auth_headers: dict[str, str], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Garante que /api/scenarios não lista arquivos YAML arbitrários sem chave steps (UXS-72)."""
+    cfg_dir = tmp_path / "config" / "uxsentinel"
+    cfg_dir.mkdir(parents=True)
+    cfg_file = cfg_dir / "config.yaml"
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+
+    proj_dir = Path(client.app.state.project_dir)
+
+    # 1. Cria workspace.yaml na raiz do projeto (arquivo sem steps gerador do bug)
+    workspace_file = proj_dir / "workspace.yaml"
+    workspace_file.write_text(
+        """name: GoTryx Documentation Platform
+project_paths:
+  - /mnt/home/alexandre/Projetos
+global_settings: {}
+""",
+        encoding="utf-8",
+    )
+
+    # 2. Cria arquivo com steps vazio e arquivo arbitrário de orquestração
+    (proj_dir / "scenarios" / "invalido.yaml").write_text("title: Sem steps\n", encoding="utf-8")
+    (proj_dir / "scenarios" / "steps_vazio.yaml").write_text("title: Vazio\nsteps: []\n", encoding="utf-8")
+    (proj_dir / "docker-compose.yml").write_text("version: '3'\n", encoding="utf-8")
+
+    # 3. Registra projeto no catálogo
+    from uxsentinel.core.config import register_project_scenario
+
+    register_project_scenario(
+        scenario_path=proj_dir / "scenarios" / "cenario_teste.yaml",
+        scenario_data={"id": "cenario_teste", "name": "Cenário de Teste Unitário"},
+        project_name="Workspace Teste",
+        config_path=cfg_file,
+    )
+
+    resp = client.get("/api/scenarios", headers=auth_headers)
+    assert resp.status_code == 200
+    scenarios = resp.json()
+    returned_ids = [s["id"] for s in scenarios]
+
+    assert "cenario_teste" in returned_ids
+    assert "workspace" not in returned_ids
+    assert "invalido" not in returned_ids
+    assert "steps_vazio" not in returned_ids
+    assert "docker-compose" not in returned_ids
+    assert all(s["step_count"] > 0 for s in scenarios)

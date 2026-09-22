@@ -386,8 +386,12 @@ async def create_project(
         projects_map[slug]["name"] = clean_name
         projects_map[slug]["root_path"] = str(proj_path)
 
+    cfg_file.write_text(yaml.safe_dump(data, sort_keys=False, allow_unicode=True), encoding="utf-8")
+    with contextlib.suppress(Exception):
+        cfg_file.chmod(0o600)
+
     scen_service = ScenarioService()
-    found_scenarios = scen_service.list_scenarios(proj_path)
+    found_scenarios = scen_service.list_scenarios(proj_path, project_id=slug)
     for sc in found_scenarios:
         if sc.source == "project":
             p = scen_service.find_scenario_path(sc.id, proj_path)
