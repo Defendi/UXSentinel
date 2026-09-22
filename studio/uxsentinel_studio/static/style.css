@@ -202,6 +202,16 @@ body {
     letter-spacing: 0.01em;
 }
 
+.ai-status-banner.warning {
+    background: linear-gradient(90deg, rgba(239, 68, 68, 0.18) 0%, rgba(20, 24, 35, 0.95) 100%);
+    border-bottom: 1px solid rgba(239, 68, 68, 0.5);
+    box-shadow: 0 2px 12px rgba(239, 68, 68, 0.15);
+}
+
+.ai-status-banner.warning .ai-banner-text {
+    color: #fca5a5;
+}
+
 /* Workspace 3 Colunas */
 .workspace {
     display: grid;

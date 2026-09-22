@@ -361,15 +361,6 @@ def test_results_and_artifacts(
 
 def test_run_execution_and_status(client: TestClient, auth_headers: dict[str, str]) -> None:
     """Valida disparo de execução assíncrona e consulta de status."""
-    # Cenário inexistente -> 404
-    r_404 = client.post(
-        "/api/execution/run",
-        json={"scenario_id": "cenario_inexistente"},
-        headers=auth_headers,
-    )
-    assert r_404.status_code == 404
-
-    # Disparo com mock do ExecutionService para manter hermeticidade
     dummy_report = TestReport(
         scenario_id="cenario_teste",
         scenario_title="Cenário de Teste Unitário",
@@ -378,11 +369,27 @@ def test_run_execution_and_status(client: TestClient, auth_headers: dict[str, st
         duration_seconds=1.5,
     )
 
-    with patch(
-        "uxsentinel.service.execution_service.ExecutionService.run",
-        new_callable=AsyncMock,
-        return_value=dummy_report,
+    with (
+        patch(
+            "uxsentinel_studio.api.UnifiedVisionClient.test_connection",
+            new_callable=AsyncMock,
+            return_value=(True, "IA operacional"),
+        ),
+        patch(
+            "uxsentinel.service.execution_service.ExecutionService.run",
+            new_callable=AsyncMock,
+            return_value=dummy_report,
+        ),
     ):
+        # Cenário inexistente -> 404
+        r_404 = client.post(
+            "/api/execution/run",
+            json={"scenario_id": "cenario_inexistente"},
+            headers=auth_headers,
+        )
+        assert r_404.status_code == 404
+
+        # Disparo com mock do ExecutionService para manter hermeticidade
         resp_run = client.post(
             "/api/execution/run",
             json={"scenario_id": "cenario_teste"},
@@ -840,7 +847,14 @@ def test_executions_api_endpoint_respects_cap(client: TestClient, auth_headers: 
     assert len(EXECUTIONS) == 50
     oldest_id = next(iter(EXECUTIONS))
 
-    with patch("uxsentinel.service.execution_service.ExecutionService.run", new_callable=AsyncMock):
+    with (
+        patch(
+            "uxsentinel_studio.api.UnifiedVisionClient.test_connection",
+            new_callable=AsyncMock,
+            return_value=(True, "IA operacional"),
+        ),
+        patch("uxsentinel.service.execution_service.ExecutionService.run", new_callable=AsyncMock),
+    ):
         resp = client.post("/api/execution/run", json={"scenario_id": "cenario_teste"}, headers=auth_headers)
         assert resp.status_code == 202
         new_run_id = resp.json()["run_id"]
@@ -1408,7 +1422,7 @@ def _build_mock_safe_config(
 
 
 def test_ai_status_endpoint_api_key_connected(client: TestClient, auth_headers: dict[str, str]) -> None:
-    """Valida GET /api/config/ai-status com provedor API Key contendo chave válida."""
+    """Valida GET /api/config/ai-status com provedor API Key contendo chave válida e conexão operacional."""
     mock_cfg = _build_mock_safe_config(
         active_provider="gemini_cloud",
         providers={
@@ -1420,13 +1434,20 @@ def test_ai_status_endpoint_api_key_connected(client: TestClient, auth_headers: 
             )
         },
     )
-    with patch("uxsentinel.service.config_service.ConfigService.get_safe_config", return_value=mock_cfg):
+    with (
+        patch("uxsentinel.service.config_service.ConfigService.get_safe_config", return_value=mock_cfg),
+        patch(
+            "uxsentinel_studio.api.UnifiedVisionClient.test_connection",
+            new_callable=AsyncMock,
+            return_value=(True, "API Gemini operacional."),
+        ),
+    ):
         resp = client.get("/api/config/ai-status", headers=auth_headers)
         assert resp.status_code == 200
         data = resp.json()
         assert data["connected"] is True
         assert data["provider"] == "gemini_cloud"
-        assert "configurado com chave de API" in data["message"]
+        assert "operacional" in data["message"]
 
 
 def test_ai_status_endpoint_api_key_disconnected(client: TestClient, auth_headers: dict[str, str]) -> None:
@@ -1452,7 +1473,7 @@ def test_ai_status_endpoint_api_key_disconnected(client: TestClient, auth_header
 
 
 def test_ai_status_endpoint_sso_connected_via_cache(client: TestClient, auth_headers: dict[str, str]) -> None:
-    """Valida GET /api/config/ai-status com provedor SSO autenticado via cache."""
+    """Valida GET /api/config/ai-status com provedor SSO autenticado via cache e teste bem-sucedido."""
     mock_cfg = _build_mock_safe_config(
         active_provider="gemini_sso",
         providers={
@@ -1467,13 +1488,18 @@ def test_ai_status_endpoint_sso_connected_via_cache(client: TestClient, auth_hea
     with (
         patch("uxsentinel.service.config_service.ConfigService.get_safe_config", return_value=mock_cfg),
         patch("uxsentinel_studio.api.get_cached_token", return_value="ya29.mock_oauth_token_valido"),
+        patch(
+            "uxsentinel_studio.api.UnifiedVisionClient.test_connection",
+            new_callable=AsyncMock,
+            return_value=(True, "Provedor SSO operacional."),
+        ),
     ):
         resp = client.get("/api/config/ai-status", headers=auth_headers)
         assert resp.status_code == 200
         data = resp.json()
         assert data["connected"] is True
         assert data["provider"] == "gemini_sso"
-        assert "autenticado" in data["message"]
+        assert "operacional" in data["message"]
 
 
 def test_ai_status_endpoint_sso_disconnected(client: TestClient, auth_headers: dict[str, str]) -> None:
@@ -1504,8 +1530,8 @@ def test_ai_status_endpoint_sso_disconnected(client: TestClient, auth_headers: d
         assert "não autenticado" in data["message"]
 
 
-def test_ai_status_endpoint_local_provider(client: TestClient, auth_headers: dict[str, str]) -> None:
-    """Valida GET /api/config/ai-status com provedor local (Ollama)."""
+def test_ai_status_endpoint_local_provider_success(client: TestClient, auth_headers: dict[str, str]) -> None:
+    """Valida GET /api/config/ai-status com provedor local (Ollama) operacional."""
     mock_cfg = _build_mock_safe_config(
         active_provider="ollama_local",
         providers={
@@ -1517,17 +1543,87 @@ def test_ai_status_endpoint_local_provider(client: TestClient, auth_headers: dic
             )
         },
     )
-    with patch("uxsentinel.service.config_service.ConfigService.get_safe_config", return_value=mock_cfg):
+    with (
+        patch("uxsentinel.service.config_service.ConfigService.get_safe_config", return_value=mock_cfg),
+        patch(
+            "uxsentinel_studio.api.UnifiedVisionClient.test_connection",
+            new_callable=AsyncMock,
+            return_value=(True, "Ollama local operacional com o modelo 'qwen2-vl:7b'."),
+        ),
+    ):
         resp = client.get("/api/config/ai-status", headers=auth_headers)
         assert resp.status_code == 200
         data = resp.json()
         assert data["connected"] is True
         assert data["provider"] == "ollama_local"
-        assert "ativo" in data["message"]
+        assert "operacional" in data["message"]
+
+
+def test_ai_status_endpoint_local_provider_missing_model(
+    client: TestClient, auth_headers: dict[str, str]
+) -> None:
+    """Valida GET /api/config/ai-status com Ollama sem o modelo instalado (UXS-75 causa raiz)."""
+    mock_cfg = _build_mock_safe_config(
+        active_provider="ollama_local",
+        providers={
+            "ollama_local": ProviderSafeDTO(
+                type="local",
+                service="ollama",
+                model="qwen2-vl:7b",
+                has_api_key=False,
+            )
+        },
+    )
+    with (
+        patch("uxsentinel.service.config_service.ConfigService.get_safe_config", return_value=mock_cfg),
+        patch(
+            "uxsentinel_studio.api.UnifiedVisionClient.test_connection",
+            new_callable=AsyncMock,
+            return_value=(
+                False,
+                "Ollama ativo, mas o modelo 'qwen2-vl:7b' não está instalado. Execute 'ollama pull qwen2-vl:7b'.",
+            ),
+        ),
+    ):
+        resp = client.get("/api/config/ai-status", headers=auth_headers)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["connected"] is False
+        assert data["provider"] == "ollama_local"
+        assert "não está instalado" in data["message"]
+
+
+def test_ai_status_endpoint_timeout(client: TestClient, auth_headers: dict[str, str]) -> None:
+    """Valida GET /api/config/ai-status tratando TimeoutError."""
+    mock_cfg = _build_mock_safe_config(
+        active_provider="ollama_local",
+        providers={
+            "ollama_local": ProviderSafeDTO(
+                type="local",
+                service="ollama",
+                model="qwen2-vl:7b",
+                has_api_key=False,
+            )
+        },
+    )
+    with (
+        patch("uxsentinel.service.config_service.ConfigService.get_safe_config", return_value=mock_cfg),
+        patch(
+            "uxsentinel_studio.api.UnifiedVisionClient.test_connection",
+            new_callable=AsyncMock,
+            side_effect=TimeoutError(),
+        ),
+    ):
+        resp = client.get("/api/config/ai-status", headers=auth_headers)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["connected"] is False
+        assert data["provider"] == "ollama_local"
+        assert "Tempo limite esgotado" in data["message"]
 
 
 def test_execution_run_blocked_when_ai_disconnected(client: TestClient, auth_headers: dict[str, str]) -> None:
-    """Garante que POST /api/execution/run retorna 400 se a IA não estiver configurada."""
+    """Garante que POST /api/execution/run retorna 400 com a mensagem exata se a IA não estiver conectada."""
     mock_cfg = _build_mock_safe_config(
         active_provider="gemini_cloud",
         providers={
@@ -1547,7 +1643,7 @@ def test_execution_run_blocked_when_ai_disconnected(client: TestClient, auth_hea
         )
         assert resp.status_code == 400
         data = resp.json()
-        assert "Nenhum provedor de IA conectado ou configurado" in data["detail"]
+        assert "Chave de API não informada para o provedor 'gemini_cloud'." in data["detail"]
 
 
 def test_execution_run_allowed_when_ai_connected(client: TestClient, auth_headers: dict[str, str]) -> None:
@@ -1572,6 +1668,11 @@ def test_execution_run_allowed_when_ai_connected(client: TestClient, auth_header
     )
     with (
         patch("uxsentinel.service.config_service.ConfigService.get_safe_config", return_value=mock_cfg),
+        patch(
+            "uxsentinel_studio.api.UnifiedVisionClient.test_connection",
+            new_callable=AsyncMock,
+            return_value=(True, "Conectado"),
+        ),
         patch(
             "uxsentinel.service.execution_service.ExecutionService.run",
             new_callable=AsyncMock,
@@ -1613,6 +1714,11 @@ def test_execution_run_with_headless_and_slowmo_overrides(
     )
     with (
         patch("uxsentinel.service.config_service.ConfigService.get_safe_config", return_value=mock_cfg),
+        patch(
+            "uxsentinel_studio.api.UnifiedVisionClient.test_connection",
+            new_callable=AsyncMock,
+            return_value=(True, "Conectado"),
+        ),
         patch(
             "uxsentinel.service.execution_service.ExecutionService.run",
             new_callable=AsyncMock,

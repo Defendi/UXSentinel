@@ -39,6 +39,7 @@ from uxsentinel.service import (
     ScenarioSummaryDTO,
     ValidationResult,
 )
+from uxsentinel.vision.client import UnifiedVisionClient
 from uxsentinel_studio import __version__ as studio_version
 from uxsentinel_studio.security import verify_studio_token, verify_studio_token_or_query
 
@@ -169,8 +170,8 @@ def get_output_dir(project_dir: Path | None) -> Path:
     return project_dir / "report"
 
 
-def _check_ai_status(project_dir: Path | None) -> AIStatusDTO:
-    """Verifica se o provedor de IA ativo está minimamente configurado ou autenticado."""
+async def _check_ai_status(project_dir: Path | None = None) -> AIStatusDTO:
+    """Verifica se o provedor de IA ativo está conectado e funcional via teste real."""
     safe_cfg = ConfigService().get_safe_config(project_dir)
     active_p = safe_cfg.active_provider or ""
     if not active_p or active_p not in safe_cfg.providers:
@@ -185,51 +186,63 @@ def _check_ai_status(project_dir: Path | None) -> AIStatusDTO:
 
     if p_type == "sso" or "sso" in active_p.lower():
         cached_tok = get_cached_token(active_p)
-        if p_info.has_api_key or bool(cached_tok):
-            return AIStatusDTO(
-                connected=True,
-                provider=active_p,
-                message=f"Provedor SSO '{active_p}' autenticado e pronto para uso.",
-            )
-        cache_file = get_sso_cache_file()
-        if cache_file.is_file():
-            try:
-                cdata = json.loads(cache_file.read_text(encoding="utf-8"))
-                if active_p in cdata and cdata[active_p].get("token"):
-                    return AIStatusDTO(
-                        connected=True,
-                        provider=active_p,
-                        message=f"Provedor SSO '{active_p}' autenticado via cache.",
-                    )
-            except Exception:
-                pass
+        token_found = p_info.has_api_key or bool(cached_tok)
+        if not token_found:
+            cache_file = get_sso_cache_file()
+            if cache_file.is_file():
+                try:
+                    cdata = json.loads(cache_file.read_text(encoding="utf-8"))
+                    if active_p in cdata and cdata[active_p].get("token"):
+                        token_found = True
+                except Exception:
+                    pass
 
+        if not token_found:
+            return AIStatusDTO(
+                connected=False,
+                provider=active_p,
+                message=f"Provedor SSO '{active_p}' não autenticado. Realize o login SSO ou configure a chave nas configurações.",
+            )
+
+    elif p_type != "local" and active_p not in ("ollama_local", "vllm_local"):
+        # Provedores API Key (gemini_api_key, openai, anthropic_cloud, etc.)
+        if not p_info.has_api_key:
+            return AIStatusDTO(
+                connected=False,
+                provider=active_p,
+                message=f"Chave de API não informada para o provedor '{active_p}'.",
+            )
+
+    try:
+        active_config_path = (
+            Path(safe_cfg.config_files.active_config_path)
+            if safe_cfg.config_files and safe_cfg.config_files.active_config_path
+            else None
+        )
+        raw_cfg = ConfigService()._load_raw_config(active_config_path)
+        raw_cfg.active_provider = active_p
+        client = UnifiedVisionClient(raw_cfg)
+        ok, msg = await asyncio.wait_for(
+            client.test_connection(check_fallback=False),
+            timeout=3.5,
+        )
+        return AIStatusDTO(
+            connected=ok,
+            provider=active_p,
+            message=msg,
+        )
+    except TimeoutError:
         return AIStatusDTO(
             connected=False,
             provider=active_p,
-            message=f"Provedor SSO '{active_p}' não autenticado. Realize o login SSO ou configure a chave nas configurações.",
+            message=f"Tempo limite esgotado (timeout) ao tentar conectar com a IA '{active_p}'.",
         )
-
-    if p_type == "local" or active_p in ("ollama_local", "vllm_local"):
+    except Exception as ex:
         return AIStatusDTO(
-            connected=True,
+            connected=False,
             provider=active_p,
-            message=f"Provedor local '{active_p}' ativo.",
+            message=f"Falha de conexão com a IA '{active_p}': {ex}",
         )
-
-    # Provedores API Key (gemini_api_key, openai, anthropic_cloud, etc.)
-    if p_info.has_api_key:
-        return AIStatusDTO(
-            connected=True,
-            provider=active_p,
-            message=f"Provedor '{active_p}' configurado com chave de API.",
-        )
-
-    return AIStatusDTO(
-        connected=False,
-        provider=active_p,
-        message=f"Chave de API não informada para o provedor '{active_p}'.",
-    )
 
 
 async def publish_execution_event(run_id: str, event: str, data: Any) -> None:
@@ -815,11 +828,11 @@ async def run_execution(
     project_dir = get_project_dir(request)
 
     # Validação mandatória de IA ativa conectada/configurada
-    ai_status = _check_ai_status(project_dir)
+    ai_status = await _check_ai_status(project_dir)
     if not ai_status.connected:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Nenhum provedor de IA conectado ou configurado. Configure as credenciais no menu Configurações antes de executar a análise.",
+            detail=ai_status.message,
         )
 
     scenario_path = ScenarioService().find_scenario_path(req.scenario_id, project_dir)
@@ -969,7 +982,7 @@ async def get_ai_status(
 ) -> AIStatusDTO:
     """Verifica se o provedor de IA ativo está conectado e configurado para análises."""
     project_dir = get_project_dir(request)
-    return _check_ai_status(project_dir)
+    return await _check_ai_status(project_dir)
 
 
 @router.post("/config")

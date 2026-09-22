@@ -1295,22 +1295,41 @@ steps:
     }
 
     async function checkAIStatus() {
+        const banner = document.getElementById("ai-status-banner");
+        const bannerText = document.getElementById("ai-banner-text");
         try {
             const res = await apiFetch("/api/config/ai-status");
             if (res.ok) {
                 const data = await res.json();
                 state.aiConnected = Boolean(data.connected);
-                const banner = document.getElementById("ai-status-banner");
-                const bannerText = document.getElementById("ai-banner-text");
                 if (!data.connected) {
-                    if (banner) banner.style.display = "flex";
+                    if (banner) {
+                        banner.style.display = "flex";
+                        banner.classList.add("warning");
+                    }
                     if (bannerText && data.message) bannerText.textContent = data.message;
                 } else {
-                    if (banner) banner.style.display = "none";
+                    if (banner) {
+                        banner.style.display = "none";
+                        banner.classList.remove("warning");
+                    }
                 }
+            } else {
+                state.aiConnected = false;
+                if (banner) {
+                    banner.style.display = "flex";
+                    banner.classList.add("warning");
+                }
+                if (bannerText) bannerText.textContent = "Não foi possível verificar a conectividade com a IA.";
             }
         } catch (err) {
             console.error("Erro ao verificar status da IA:", err);
+            state.aiConnected = false;
+            if (banner) {
+                banner.style.display = "flex";
+                banner.classList.add("warning");
+            }
+            if (bannerText) bannerText.textContent = "Erro ao conectar com o serviço de validação de IA.";
         }
     }
 
@@ -1456,6 +1475,7 @@ steps:
                 }
             }
             await loadScenarios();
+            await checkAIStatus();
         });
 
         // Modal: Adicionar Projeto
