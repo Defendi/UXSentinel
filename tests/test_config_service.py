@@ -104,3 +104,26 @@ async def test_config_service_test_ai_connection_mocked():
         res = await service.test_ai_connection("gemini_sso")
         assert res.valid is True
         assert "conectado com sucesso" in res.message
+
+
+def test_config_service_resolves_config_files_locations(tmp_path: Path):
+    """Valida resolução e status de caminhos em ConfigFilesDTO."""
+    proj_dir = tmp_path / "meu_projeto"
+    proj_dir.mkdir(parents=True)
+    cfg_file = proj_dir / "uxsentinel.yaml"
+    cfg_file.write_text("active_provider: 'anthropic_cloud'\n", encoding="utf-8")
+    env_file = proj_dir / ".env"
+    env_file.write_text("API_KEY=123\n", encoding="utf-8")
+
+    service = ConfigService()
+    safe = service.get_safe_config(project_dir=proj_dir)
+
+    assert safe.config_files is not None
+    cf = safe.config_files
+    assert cf.project_dir == str(proj_dir.resolve())
+    assert cf.project_config_path == str(cfg_file.resolve())
+    assert cf.project_config_exists is True
+    assert cf.env_path == str(env_file.resolve())
+    assert cf.env_exists is True
+    assert cf.active_config_path == str(cfg_file.resolve())
+    assert isinstance(cf.user_config_exists, bool)

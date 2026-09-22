@@ -46,6 +46,19 @@ class ProviderSafeDTO(BaseModel):
     has_api_key: bool
 
 
+class ConfigFilesDTO(BaseModel):
+    """Localização e status dos arquivos de configuração e ambiente."""
+
+    active_config_path: str
+    user_config_path: str
+    project_config_path: str | None = None
+    env_path: str | None = None
+    project_dir: str
+    user_config_exists: bool
+    project_config_exists: bool
+    env_exists: bool
+
+
 class SafeConfigDTO(BaseModel):
     """Representação segura da configuração global com mascaramento total de segredos."""
 
@@ -54,6 +67,7 @@ class SafeConfigDTO(BaseModel):
     browser: BrowserConfigDTO
     jira: JiraSafeDTO
     providers: dict[str, ProviderSafeDTO] = Field(default_factory=dict)
+    config_files: ConfigFilesDTO | None = None
 
 
 class ConfigUpdateDTO(BaseModel):
@@ -82,14 +96,60 @@ class ConfigService:
     """Serviço de configuração segura do UXSentinel."""
 
     def __init__(self, config_path: Path | str | None = None) -> None:
+        self._custom_config = config_path is not None
         self.config_path = Path(config_path) if config_path else get_user_config_path()
 
-    def _load_raw_config(self) -> GlobalConfig:
-        return load_config(str(self.config_path) if self.config_path.is_file() else None)
+    def _load_raw_config(self, target_config_path: Path | None = None) -> GlobalConfig:
+        target = target_config_path or self.config_path
+        return load_config(str(target) if target and target.is_file() else None)
 
-    def get_safe_config(self) -> SafeConfigDTO:
-        """Gera SafeConfigDTO mascarando todos os segredos."""
-        cfg = self._load_raw_config()
+    def get_safe_config(self, project_dir: Path | str | None = None) -> SafeConfigDTO:
+        """Gera SafeConfigDTO mascarando todos os segredos e informando os arquivos de config."""
+        proj_dir = Path(project_dir).resolve() if project_dir else Path.cwd().resolve()
+
+        user_cfg = get_user_config_path().resolve()
+        user_config_path = str(user_cfg)
+        user_config_exists = user_cfg.is_file()
+
+        # Resolução de configuração do projeto
+        candidate_project_files = [
+            proj_dir / "uxsentinel.yaml",
+            proj_dir / ".uxsentinel.yaml",
+            proj_dir / "config" / "config.yaml",
+            proj_dir / "config" / "config.example.yaml",
+        ]
+        detected_project_cfg: Path | None = None
+        for cp in candidate_project_files:
+            if cp.is_file():
+                detected_project_cfg = cp.resolve()
+                break
+
+        if detected_project_cfg:
+            project_config_path = str(detected_project_cfg)
+            project_config_exists = True
+        else:
+            default_proj_cfg = proj_dir / "config" / "config.yaml"
+            project_config_path = str(default_proj_cfg.resolve())
+            project_config_exists = False
+
+        env_file = (proj_dir / ".env").resolve()
+        env_path = str(env_file)
+        env_exists = env_file.is_file()
+
+        # Resolução do arquivo ativo efetivo respeitando hierarquia
+        active_target_path: Path | None = None
+        if self._custom_config and self.config_path and self.config_path.is_file():
+            active_target_path = self.config_path.resolve()
+        elif project_config_exists and detected_project_cfg:
+            active_target_path = detected_project_cfg
+        elif user_config_exists:
+            active_target_path = user_cfg
+        else:
+            active_target_path = user_cfg
+
+        active_config_path = str(active_target_path)
+
+        cfg = self._load_raw_config(active_target_path)
 
         # Verifica se o token do Jira está configurado
         jira_token_val = cfg.jira.api_token or ""
@@ -126,12 +186,24 @@ class ConfigService:
                 has_api_key=has_key,
             )
 
+        config_files_dto = ConfigFilesDTO(
+            active_config_path=active_config_path,
+            user_config_path=user_config_path,
+            project_config_path=project_config_path,
+            env_path=env_path,
+            project_dir=str(proj_dir),
+            user_config_exists=user_config_exists,
+            project_config_exists=project_config_exists,
+            env_exists=env_exists,
+        )
+
         return SafeConfigDTO(
             active_provider=cfg.active_provider,
             fallback_provider=cfg.fallback_provider,
             browser=safe_browser,
             jira=safe_jira,
             providers=safe_providers,
+            config_files=config_files_dto,
         )
 
     def update_config(self, data: ConfigUpdateDTO) -> None:

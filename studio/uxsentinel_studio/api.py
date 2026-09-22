@@ -495,11 +495,13 @@ async def stream_execution(
 
 @router.get("/config", response_model=SafeConfigDTO)
 async def get_config(
+    request: Request,
     _: str = Depends(verify_studio_token),
 ) -> SafeConfigDTO:
     """Retorna a configuração global com todos os tokens e segredos mascarados."""
+    project_dir = get_project_dir(request)
     service = ConfigService()
-    return service.get_safe_config()
+    return service.get_safe_config(project_dir=project_dir)
 
 
 @router.post("/config")

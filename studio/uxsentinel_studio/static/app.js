@@ -709,6 +709,46 @@
 
             const cfg = await res.json();
 
+            // Localização dos Arquivos de Configuração
+            if (cfg.config_files) {
+                const files = cfg.config_files;
+
+                // Arquivo Ativo
+                const elActive = document.getElementById("cfg-file-active");
+                if (elActive) elActive.textContent = files.active_config_path || "--";
+
+                // Config Usuário Global
+                const elUser = document.getElementById("cfg-file-user");
+                const badgeUser = document.getElementById("cfg-badge-user");
+                if (elUser) elUser.textContent = files.user_config_path || "--";
+                if (badgeUser) {
+                    badgeUser.textContent = files.user_config_exists ? "Existe (0600)" : "Padrão (Auto)";
+                    badgeUser.className = `badge ${files.user_config_exists ? "badge-success" : "badge-muted"}`;
+                }
+
+                // Config Projeto
+                const elProject = document.getElementById("cfg-file-project");
+                const badgeProject = document.getElementById("cfg-badge-project");
+                if (elProject) elProject.textContent = files.project_config_path || "Nenhum arquivo detectado";
+                if (badgeProject) {
+                    badgeProject.textContent = files.project_config_exists ? "Detectado" : "Não presente";
+                    badgeProject.className = `badge ${files.project_config_exists ? "badge-success" : "badge-muted"}`;
+                }
+
+                // Arquivo .env
+                const elEnv = document.getElementById("cfg-file-env");
+                const badgeEnv = document.getElementById("cfg-badge-env");
+                if (elEnv) elEnv.textContent = files.env_path || "Nenhum .env detectado";
+                if (badgeEnv) {
+                    badgeEnv.textContent = files.env_exists ? "Presente" : "Não presente";
+                    badgeEnv.className = `badge ${files.env_exists ? "badge-success" : "badge-muted"}`;
+                }
+
+                // Diretório Raiz do Projeto
+                const elProjDir = document.getElementById("cfg-file-project-dir");
+                if (elProjDir) elProjDir.textContent = files.project_dir || "--";
+            }
+
             // Provedor IA
             const provSelect = document.getElementById("cfg-active-provider");
             if (provSelect && cfg.active_provider) {

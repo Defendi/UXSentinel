@@ -183,6 +183,54 @@
                     </div>
 
                     <div class="settings-form">
+                        <!-- Seção Localização dos Arquivos de Configuração -->
+                        <div class="form-section config-files-section">
+                            <h3>📁 Localização dos Arquivos de Configuração</h3>
+                            <p class="section-desc">Mapeamento dos caminhos absolutos e status de detecção dos arquivos de configuração e ambiente.</p>
+
+                            <div class="config-files-grid">
+                                <div class="config-file-card active-card">
+                                    <div class="file-card-header">
+                                        <span class="file-card-title">🎯 Arquivo Ativo em Uso</span>
+                                        <span class="badge badge-success" id="cfg-badge-active">Ativo</span>
+                                    </div>
+                                    <code class="file-path" id="cfg-file-active">Carregando...</code>
+                                </div>
+
+                                <div class="config-file-card">
+                                    <div class="file-card-header">
+                                        <span class="file-card-title">👤 Configuração Global do Usuário (XDG 0600)</span>
+                                        <span class="badge" id="cfg-badge-user">--</span>
+                                    </div>
+                                    <code class="file-path" id="cfg-file-user">Carregando...</code>
+                                </div>
+
+                                <div class="config-file-card">
+                                    <div class="file-card-header">
+                                        <span class="file-card-title">📦 Configuração Local do Projeto</span>
+                                        <span class="badge" id="cfg-badge-project">--</span>
+                                    </div>
+                                    <code class="file-path" id="cfg-file-project">Carregando...</code>
+                                </div>
+
+                                <div class="config-file-card">
+                                    <div class="file-card-header">
+                                        <span class="file-card-title">🔐 Variáveis de Ambiente (.env)</span>
+                                        <span class="badge" id="cfg-badge-env">--</span>
+                                    </div>
+                                    <code class="file-path" id="cfg-file-env">Carregando...</code>
+                                </div>
+
+                                <div class="config-file-card full-width">
+                                    <div class="file-card-header">
+                                        <span class="file-card-title">📂 Diretório Raiz do Projeto</span>
+                                        <span class="badge badge-cyan" id="cfg-badge-project-dir">Workspace</span>
+                                    </div>
+                                    <code class="file-path" id="cfg-file-project-dir">Carregando...</code>
+                                </div>
+                            </div>
+                        </div>
+
                         <!-- Seção Provedor de IA -->
                         <div class="form-section">
                             <h3>🧠 Provedores de IA Multimodal</h3>

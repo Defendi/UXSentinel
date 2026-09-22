@@ -2,6 +2,7 @@
 
 from uxsentinel.service.config_service import (
     BrowserConfigDTO,
+    ConfigFilesDTO,
     ConfigService,
     ConfigUpdateDTO,
     ConnectionResult,
@@ -29,6 +30,7 @@ from uxsentinel.service.scenario_service import (
 __all__ = [
     "BrowserConfigDTO",
     "CheckpointSummaryDTO",
+    "ConfigFilesDTO",
     "ConfigService",
     "ConfigUpdateDTO",
     "ConnectionResult",
