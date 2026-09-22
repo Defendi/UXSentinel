@@ -75,7 +75,7 @@ class ScenarioService:
         """Localiza o diretório da biblioteca de cenários embutida do UXSentinel."""
         return Path(__file__).resolve().parent.parent / "scenarios" / "library"
 
-    def list_scenarios(self, base_dir: Path | str) -> list[ScenarioSummaryDTO]:
+    def list_scenarios(self, base_dir: Path | str, project_id: str | None = None) -> list[ScenarioSummaryDTO]:
         """Lista cenários do projeto local e da biblioteca interna."""
         base_path = Path(base_dir).resolve()
         scenarios: list[ScenarioSummaryDTO] = []
@@ -112,14 +112,51 @@ class ScenarioService:
                         seen_ids.add(sc.id)
                         stat = yml.stat()
                         mod_time = datetime.fromtimestamp(stat.st_mtime, tz=UTC)
+                        yml_resolved = yml.resolve()
 
-                        if source == "library":
-                            p_id = "library"
-                            p_name = "Biblioteca Embutida"
-                        else:
-                            p_id, p_name, _ = infer_project_metadata(yml)
-                            if p_id in catalog:
-                                p_name = catalog[p_id].name
+                        p_id: str | None = None
+                        p_name: str | None = None
+
+                        # 1. Se o caminho do YAML estiver explicitamente registrado em p_val.scenarios de algum projeto do catálogo
+                        for cat_p_id, p_val in catalog.items():
+                            for _s_id, s_item in p_val.scenarios.items():
+                                if s_item.path:
+                                    with contextlib.suppress(Exception):
+                                        if Path(s_item.path).resolve() == yml_resolved:
+                                            p_id = cat_p_id
+                                            p_name = p_val.name
+                                            break
+                            if p_id is not None:
+                                break
+
+                        # 2. Se o caminho do YAML estiver sob o root_path de algum projeto do catálogo (para cenários do projeto)
+                        if p_id is None and source != "library":
+                            for cat_p_id, p_val in catalog.items():
+                                if p_val.root_path:
+                                    with contextlib.suppress(Exception):
+                                        cat_root = Path(p_val.root_path).resolve()
+                                        if yml_resolved == cat_root or cat_root in yml_resolved.parents:
+                                            p_id = cat_p_id
+                                            p_name = p_val.name
+                                            break
+
+                        # 3. Caso contrário, use infer_project_metadata(yml)
+                        # 4. Se for da biblioteca padrão e não pertencer a nenhum projeto cadastrado nem ao projeto do base_dir,
+                        # atribua p_id = "library" e p_name = "Biblioteca Embutida"
+                        if p_id is None:
+                            if source == "library":
+                                p_id = "library"
+                                p_name = "Biblioteca Embutida"
+                            else:
+                                inf_id, inf_name, _ = infer_project_metadata(yml)
+                                p_id = inf_id
+                                p_name = inf_name
+                                if p_id in catalog:
+                                    p_name = catalog[p_id].name
+
+                        # Se filtragem por project_id foi solicitada, ignora se não corresponder
+                        if project_id is not None and p_id != project_id:
+                            continue
 
                         scenarios.append(
                             ScenarioSummaryDTO(

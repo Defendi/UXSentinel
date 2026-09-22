@@ -737,6 +737,67 @@ def test_list_scenarios_includes_project_fields(
     assert sc["project_name"] is not None
 
 
+def test_list_scenarios_filter_by_project_id(
+    client: TestClient, auth_headers: dict[str, str], tmp_path: Path, monkeypatch
+) -> None:
+    """Valida filtro project_id em GET /api/scenarios?project_id=... (UXS-68)."""
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+
+    # Cria dois projetos distintos com seus próprios cenários
+    p1_dir = tmp_path / "proj1"
+    (p1_dir / "scenarios").mkdir(parents=True)
+    (p1_dir / "scenarios" / "login.yaml").write_text(
+        """version: "1.0"
+id: proj1_login
+title: "Login Projeto 1"
+steps:
+  - action: goto
+    url: "https://p1.example.com"
+""",
+        encoding="utf-8",
+    )
+
+    p2_dir = tmp_path / "proj2"
+    (p2_dir / "scenarios").mkdir(parents=True)
+    (p2_dir / "scenarios" / "checkout.yaml").write_text(
+        """version: "1.0"
+id: proj2_checkout
+title: "Checkout Projeto 2"
+steps:
+  - action: goto
+    url: "https://p2.example.com"
+""",
+        encoding="utf-8",
+    )
+
+    # Cadastra ambos via endpoint
+    client.post("/api/projects", json={"name": "Projeto Alpha", "path": str(p1_dir)}, headers=auth_headers)
+    client.post("/api/projects", json={"name": "Projeto Beta", "path": str(p2_dir)}, headers=auth_headers)
+
+    # 1. Busca cenários com project_id=projeto-alpha
+    resp1 = client.get("/api/scenarios?project_id=projeto-alpha", headers=auth_headers)
+    assert resp1.status_code == 200
+    data1 = resp1.json()
+    assert len(data1) == 1
+    assert data1[0]["id"] == "proj1_login"
+    assert data1[0]["project_id"] == "projeto-alpha"
+
+    # 2. Busca cenários com project_id=projeto-beta
+    resp2 = client.get("/api/scenarios?project_id=projeto-beta", headers=auth_headers)
+    assert resp2.status_code == 200
+    data2 = resp2.json()
+    assert len(data2) == 1
+    assert data2[0]["id"] == "proj2_checkout"
+    assert data2[0]["project_id"] == "projeto-beta"
+
+    # 3. Busca cenários com project_id=library
+    resp_lib = client.get("/api/scenarios?project_id=library", headers=auth_headers)
+    assert resp_lib.status_code == 200
+    data_lib = resp_lib.json()
+    assert len(data_lib) > 0
+    assert all(sc["project_id"] == "library" for sc in data_lib)
+
+
 def test_delete_project_unauthorized(client: TestClient) -> None:
     """Garante que DELETE /api/projects/{project_id} rejeita requisição sem token (401)."""
     resp = client.delete("/api/projects/qualquer-projeto")

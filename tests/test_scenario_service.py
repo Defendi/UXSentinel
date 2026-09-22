@@ -151,3 +151,114 @@ steps:
 
     # 5. Retorna None para tentativa de path traversal
     assert service.find_scenario_path("../../etc/passwd", tmp_path) is None
+
+
+def test_scenario_service_filter_by_project_id(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """Valida a filtragem precisa por project_id no ScenarioService (UXS-68)."""
+    import yaml
+
+    cfg_dir = tmp_path / "config" / "uxsentinel"
+    cfg_dir.mkdir(parents=True)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+
+    proj_a_dir = tmp_path / "proj_a"
+    scenarios_a = proj_a_dir / "scenarios"
+    scenarios_a.mkdir(parents=True)
+    (scenarios_a / "fluxo_a.yaml").write_text(
+        """version: "1.0"
+id: fluxo_a
+title: "Fluxo Projeto A"
+steps:
+  - action: goto
+    url: "https://a.example.com"
+""",
+        encoding="utf-8",
+    )
+
+    proj_b_dir = tmp_path / "proj_b"
+    scenarios_b = proj_b_dir / "scenarios"
+    scenarios_b.mkdir(parents=True)
+    (scenarios_b / "fluxo_b.yaml").write_text(
+        """version: "1.0"
+id: fluxo_b
+title: "Fluxo Projeto B"
+steps:
+  - action: goto
+    url: "https://b.example.com"
+""",
+        encoding="utf-8",
+    )
+
+    catalog_data = {
+        "projects": {
+            "proj-a": {
+                "name": "Projeto Alpha",
+                "root_path": str(proj_a_dir),
+                "scenarios": {},
+            },
+            "proj-b": {
+                "name": "Projeto Beta",
+                "root_path": str(proj_b_dir),
+                "scenarios": {},
+            },
+        }
+    }
+    (cfg_dir / "config.yaml").write_text(yaml.safe_dump(catalog_data), encoding="utf-8")
+
+    service = ScenarioService()
+
+    # 1. Filtro com project_id="proj-a": só retorna cenários de proj-a
+    res_a = service.list_scenarios(proj_a_dir, project_id="proj-a")
+    assert len(res_a) == 1
+    assert res_a[0].id == "fluxo_a"
+    assert res_a[0].project_id == "proj-a"
+    assert res_a[0].project_name == "Projeto Alpha"
+
+    # 2. Filtro com project_id="library": só retorna cenários da biblioteca interna
+    res_lib = service.list_scenarios(proj_a_dir, project_id="library")
+    assert len(res_lib) > 0
+    assert all(s.project_id == "library" for s in res_lib)
+    assert all(s.id != "fluxo_a" for s in res_lib)
+
+    # 3. Filtro com project_id inexistente: lista vazia
+    res_empty = service.list_scenarios(proj_a_dir, project_id="inexistente")
+    assert len(res_empty) == 0
+
+    # 4. Sem project_id (None): retorna proj-a e library
+    res_all = service.list_scenarios(proj_a_dir, project_id=None)
+    ids_all = {s.id for s in res_all}
+    assert "fluxo_a" in ids_all
+    assert any(s.project_id == "library" for s in res_all)
+
+
+def test_scenario_service_catalog_explicit_scenario_mapping(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """Valida mapeamento de cenário explicitamente cadastrado no catálogo por caminho."""
+    import yaml
+
+    cfg_dir = tmp_path / "config" / "uxsentinel"
+    cfg_dir.mkdir(parents=True)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+
+    service = ScenarioService()
+    lib_scenario = service.find_scenario_path("exemplo_odoo", tmp_path)
+    assert lib_scenario is not None
+
+    catalog_data = {
+        "projects": {
+            "proj-custom": {
+                "name": "Custom Project",
+                "root_path": str(tmp_path),
+                "scenarios": {
+                    "exemplo_odoo": {
+                        "id": "exemplo_odoo",
+                        "path": str(lib_scenario),
+                        "name": "Custom Odoo",
+                    }
+                },
+            }
+        }
+    }
+    (cfg_dir / "config.yaml").write_text(yaml.safe_dump(catalog_data), encoding="utf-8")
+
+    scenarios = service.list_scenarios(tmp_path, project_id="proj-custom")
+    assert any(s.id == "odoo_login_e_modal_sinistro" and s.project_id == "proj-custom" for s in scenarios)

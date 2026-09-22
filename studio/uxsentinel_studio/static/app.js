@@ -175,7 +175,10 @@
 
     async function loadScenarios() {
         try {
-            const res = await apiFetch("/api/scenarios");
+            const url = state.activeProjectId
+                ? `/api/scenarios?project_id=${encodeURIComponent(state.activeProjectId)}`
+                : "/api/scenarios";
+            const res = await apiFetch(url);
             if (!res.ok) return;
             state.scenarios = await res.json();
             filterAndRenderScenarios();
@@ -217,13 +220,13 @@
                 (sc.project_id && sc.project_id.toLowerCase().includes(query));
             if (!matchesQuery) return false;
 
+            // Se um projeto específico estiver selecionado no dropdown, restringe todos os cenários
+            if (state.activeProjectId && sc.project_id !== state.activeProjectId) {
+                return false;
+            }
+
             if (state.activeFilter === "project") return sc.source === "project";
             if (state.activeFilter === "library") return sc.source === "library";
-
-            // Se um projeto específico estiver selecionado no dropdown
-            if (state.activeProjectId && sc.source === "project") {
-                return sc.project_id === state.activeProjectId;
-            }
 
             return true;
         });
@@ -286,6 +289,11 @@
             groupDiv.appendChild(ul);
             treeContainer.appendChild(groupDiv);
         });
+
+        const libraryContainer = document.getElementById("library-group-container");
+        if (libraryContainer) {
+            libraryContainer.style.display = libraryCount > 0 ? "block" : "none";
+        }
 
         const lCountEl = document.getElementById("library-count");
         if (lCountEl) lCountEl.textContent = libraryCount;

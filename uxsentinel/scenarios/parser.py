@@ -295,11 +295,14 @@ def load_scenario(file_path: str, project_name: str | None = None) -> Scenario:
     try:
         from uxsentinel.core.config import register_project_scenario
 
-        register_project_scenario(
-            scenario_path=path,
-            scenario_data=parsed_dict,
-            project_name=project_name,
-        )
+        lib_dir = Path(__file__).resolve().parent / "library"
+        resolved_p = path.resolve()
+        if not (resolved_p == lib_dir or lib_dir in resolved_p.parents):
+            register_project_scenario(
+                scenario_path=path,
+                scenario_data=parsed_dict,
+                project_name=project_name,
+            )
     except Exception:
         pass
 

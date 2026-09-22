@@ -481,12 +481,21 @@ async def delete_project(
 @router.get("/scenarios", response_model=list[ScenarioSummaryDTO])
 async def list_scenarios(
     request: Request,
+    project_id: str | None = None,
     _: str = Depends(verify_studio_token),
 ) -> list[ScenarioSummaryDTO]:
     """Lista todos os cenários disponíveis no projeto e na biblioteca embutida."""
     project_dir = get_project_dir(request)
+    if project_id and project_id != "library":
+        with contextlib.suppress(Exception):
+            catalog = list_registered_projects()
+            if project_id in catalog and catalog[project_id].root_path:
+                cand_dir = Path(catalog[project_id].root_path)
+                if cand_dir.is_dir():
+                    project_dir = cand_dir
+
     service = ScenarioService()
-    return service.list_scenarios(project_dir)
+    return service.list_scenarios(project_dir, project_id=project_id)
 
 
 @router.get("/scenarios/{scenario_id}", response_model=ScenarioDetailDTO)
