@@ -39,6 +39,7 @@ from uxsentinel.core.config import (
     resolve_markdown_mode,
     resolve_video_mode,
 )
+from uxsentinel.core.events import EventBus, EventType, ExecutionEvent
 from uxsentinel.core.models import (
     CheckpointResult,
     ExecutionResult,
@@ -83,6 +84,7 @@ class UXSentinelAgent:
         archive_override: bool | None = None,
         archive_dir_override: str | Path | None = None,
         fail_fast_override: bool | None = None,
+        event_bus: EventBus | None = None,
     ):
         self.config = config
         self.headless_override = headless_override
@@ -98,6 +100,7 @@ class UXSentinelAgent:
         self.archive_override = archive_override
         self.archive_dir_override = archive_dir_override
         self.fail_fast_override = fail_fast_override
+        self.event_bus = event_bus or EventBus()
         self.inspector = ScreenInspector(config)
         self.healer = SelectorHealer(
             vision_client=self.inspector.client,
@@ -131,9 +134,12 @@ class UXSentinelAgent:
         archive_override: bool | None = None,
         archive_dir_override: str | Path | None = None,
         fail_fast_override: bool | None = None,
+        event_bus: EventBus | None = None,
     ) -> TestReport:
         profile = scenario.profile or "generic"
         start_time = time.time()
+        bus = event_bus or self.event_bus
+        scenario_failed_emitted = False
 
         # Determina o modo fail_fast respeitando a hierarquia:
         # CLI Flag > Cenário YAML > Config global > Fallback True
@@ -344,6 +350,18 @@ class UXSentinelAgent:
             archived_report_path=str(archived_zip_path) if archived_zip_path else None,
         )
 
+        await bus.publish(
+            ExecutionEvent(
+                event_type=EventType.SCENARIO_STARTED,
+                scenario_id=scenario.id,
+                data={
+                    "title": scenario.title,
+                    "profile": profile,
+                    "viewports": [vp.label for vp in effective_viewports],
+                },
+            )
+        )
+
         console.print(
             f"🔍 Verificando conectividade com o provedor de IA ([yellow]{self.config.active_provider}[/yellow])..."
         )
@@ -358,6 +376,14 @@ class UXSentinelAgent:
             report.success = False
             report.finished_at = datetime.now()
             report.duration_seconds = time.time() - start_time
+            scenario_failed_emitted = True
+            await bus.publish(
+                ExecutionEvent(
+                    event_type=EventType.SCENARIO_FAILED,
+                    scenario_id=scenario.id,
+                    data={"error": report.error_message},
+                )
+            )
             self.last_execution_result = ExecutionResult(
                 scenario_id=scenario.id,
                 success=False,
@@ -437,6 +463,7 @@ class UXSentinelAgent:
                                     effective_baseline_dir=effective_baseline_dir,
                                     effective_update_baseline=effective_update_baseline,
                                     effective_diff_threshold=effective_diff_threshold,
+                                    event_bus=bus,
                                 )
                                 progress.advance(task_id)
                                 if not should_continue:
@@ -471,6 +498,7 @@ class UXSentinelAgent:
                                 effective_baseline_dir=effective_baseline_dir,
                                 effective_update_baseline=effective_update_baseline,
                                 effective_diff_threshold=effective_diff_threshold,
+                                event_bus=bus,
                             )
                             if not should_continue:
                                 interrupted = True
@@ -479,6 +507,14 @@ class UXSentinelAgent:
         except Exception as exc:
             console.print(f"[bold red]❌ Erro fatal na execução do cenário:[/bold red] {exc}")
             report.error_message = str(exc)
+            scenario_failed_emitted = True
+            await bus.publish(
+                ExecutionEvent(
+                    event_type=EventType.SCENARIO_FAILED,
+                    scenario_id=scenario.id,
+                    data={"error": str(exc)},
+                )
+            )
 
         finally:
             # Processa e renomeia o vídeo gravado caso disponível
@@ -535,6 +571,28 @@ class UXSentinelAgent:
                 report=report,
                 error_message=report.error_message,
             )
+
+            if not scenario_failed_emitted:
+                if report.success and not report.error_message:
+                    await bus.publish(
+                        ExecutionEvent(
+                            event_type=EventType.SCENARIO_COMPLETED,
+                            scenario_id=scenario.id,
+                            data={
+                                "duration_seconds": report.duration_seconds,
+                                "total_checkpoints": len(report.checkpoints),
+                                "total_issues": report.total_issues,
+                            },
+                        )
+                    )
+                else:
+                    await bus.publish(
+                        ExecutionEvent(
+                            event_type=EventType.SCENARIO_FAILED,
+                            scenario_id=scenario.id,
+                            data={"error": report.error_message or "Execution failed"},
+                        )
+                    )
 
             # Salva relatórios
             if self.config.reporting.generate_json:
@@ -598,6 +656,7 @@ class UXSentinelAgent:
         report: TestReport,
         out_dir: Path,
         effective_fail_fast: bool = True,
+        event_bus: EventBus | None = None,
         **kwargs,
     ) -> bool:
         """Executa um passo. Em caso de falha de execução ou asserção/checkpoint grave:
@@ -605,18 +664,57 @@ class UXSentinelAgent:
         - Se fail-fast estiver ativo, interrompe imediatamente a execução retornando False.
         Retorna True se deve continuar, ou False se a execução deve ser interrompida.
         """
+        bus = event_bus or kwargs.get("event_bus") or getattr(self, "event_bus", None)
+        current_viewport: ViewportConfig | None = kwargs.get("current_viewport")
+        multi_viewport: bool = kwargs.get("multi_viewport", False)
+        vp_label = current_viewport.label if current_viewport else None
+        desc = step.description or f"{step.action} {step.selector or step.url or step.target or ''}"
+
+        if bus:
+            await bus.publish(
+                ExecutionEvent(
+                    event_type=EventType.STEP_STARTED,
+                    scenario_id=scenario.id,
+                    viewport=vp_label,
+                    step_index=index,
+                    action=step.action,
+                    data={
+                        "description": step.description,
+                        "selector": step.selector or step.target,
+                        "url": step.url,
+                    },
+                )
+            )
+
         initial_cp_count = len(report.checkpoints)
         try:
-            await self._execute_step(index, step, driver, scenario, report, out_dir, **kwargs)
+            await self._execute_step(
+                index,
+                step,
+                driver,
+                scenario,
+                report,
+                out_dir,
+                event_bus=bus,
+                **kwargs,
+            )
         except Exception as exc:
             progress: Progress | None = kwargs.get("progress")
-            current_viewport: ViewportConfig | None = kwargs.get("current_viewport")
-            multi_viewport: bool = kwargs.get("multi_viewport", False)
             p_console = progress.console if progress is not None else console
-            desc = step.description or f"{step.action} {step.selector or step.url or step.target or ''}"
-            vp_label = current_viewport.label if current_viewport else None
 
             p_console.print(f"    [bold red]❌ FALHA NA EXECUÇÃO DO PASSO {index:02d}:[/bold red] {exc}")
+
+            if bus:
+                await bus.publish(
+                    ExecutionEvent(
+                        event_type=EventType.STEP_FAILED,
+                        scenario_id=scenario.id,
+                        viewport=vp_label,
+                        step_index=index,
+                        action=step.action,
+                        data={"error": str(exc), "fail_fast": effective_fail_fast},
+                    )
+                )
 
             # Captura screenshot do erro imediatamente no driver
             clean_vp = (
@@ -683,12 +781,38 @@ class UXSentinelAgent:
                     break
 
             if has_severe_failure:
+                if bus:
+                    await bus.publish(
+                        ExecutionEvent(
+                            event_type=EventType.STEP_FAILED,
+                            scenario_id=scenario.id,
+                            viewport=vp_label,
+                            step_index=index,
+                            action=step.action,
+                            data={
+                                "error": "Falha grave detectada em checkpoint ou asserção",
+                                "fail_fast": effective_fail_fast,
+                            },
+                        )
+                    )
                 progress = kwargs.get("progress")
                 p_console = progress.console if progress is not None else console
                 p_console.print(
                     "\n[bold red]⛔ FALHA GRAVE DETECTADA: Interrompendo execução imediatamente (--fail-fast ativo).[/bold red]\n"
                 )
                 return False
+
+        if bus:
+            await bus.publish(
+                ExecutionEvent(
+                    event_type=EventType.STEP_COMPLETED,
+                    scenario_id=scenario.id,
+                    viewport=vp_label,
+                    step_index=index,
+                    action=step.action,
+                    data={"description": desc},
+                )
+            )
 
         return True
 
@@ -709,8 +833,11 @@ class UXSentinelAgent:
         effective_baseline_dir: str | Path = "scenarios/baselines",
         effective_update_baseline: bool = False,
         effective_diff_threshold: float = 0.1,
+        event_bus: EventBus | None = None,
+        **kwargs,
     ) -> None:
         p_console = progress.console if progress is not None else console
+        bus = event_bus or kwargs.get("event_bus") or getattr(self, "event_bus", None)
         action = step.action.lower().strip()
         desc = step.description or f"{action} {step.selector or step.url or step.target or ''}"
         vp_tag = f" [dim][{current_viewport.name}][/dim]" if (multi_viewport and current_viewport) else ""
@@ -771,6 +898,7 @@ class UXSentinelAgent:
             effective_diff_threshold=effective_diff_threshold,
             scenario_exceptions=scenario.exceptions,
             agent=self,
+            event_bus=bus,
         )
 
         await default_action_registry.execute(ctx)
@@ -780,6 +908,23 @@ class UXSentinelAgent:
             for ev in driver.healing_events[initial_healing_count:]:
                 report.healed_steps.append(ev)
                 report.healing_events.append(ev)
+                if bus:
+                    await bus.publish(
+                        ExecutionEvent(
+                            event_type=EventType.HEALING_APPLIED,
+                            scenario_id=scenario.id,
+                            viewport=current_viewport.label if current_viewport else None,
+                            step_index=index,
+                            action=step.action,
+                            data={
+                                "original_selector": ev.original_selector,
+                                "recovered_selector": ev.recovered_selector,
+                                "strategy": ev.strategy,
+                                "coordinates": ev.coordinates,
+                                "yaml_fix_suggestion": ev.yaml_fix_suggestion,
+                            },
+                        )
+                    )
                 strat_label = (
                     "Acessibilidade Semântica" if ev.strategy == "accessibility" else "Visão Multimodal LMM"
                 )
@@ -811,8 +956,11 @@ class UXSentinelAgent:
         effective_update_baseline: bool = False,
         effective_diff_threshold: float = 0.1,
         scenario_exceptions: ScenarioExceptions | None = None,
+        event_bus: EventBus | None = None,
+        **kwargs,
     ) -> None:
         p_console = progress.console if progress is not None else console
+        bus = event_bus or kwargs.get("event_bus") or getattr(self, "event_bus", None)
         base_cp_name = step.name or f"checkpoint_{len(report.checkpoints) + 1}"
         expected = step.expected_behavior or "A tela deve estar limpa e sem erros."
 
@@ -859,6 +1007,22 @@ class UXSentinelAgent:
         else:
             if hasattr(driver, "page") and hasattr(driver.page, "screenshot"):
                 await driver.page.screenshot(path=str(screenshot_file), full_page=True)
+
+        if bus:
+            await bus.publish(
+                ExecutionEvent(
+                    event_type=EventType.CHECKPOINT_CAPTURED,
+                    scenario_id=report.scenario_id,
+                    viewport=vp_label,
+                    step_index=step_index,
+                    action="checkpoint",
+                    data={
+                        "name": cp_name,
+                        "screenshot_path": str(screenshot_file),
+                        "expected_behavior": expected,
+                    },
+                )
+            )
 
         # Resolução e Execução do Baseline Visual
         baseline_base = Path(effective_baseline_dir)
@@ -977,6 +1141,21 @@ class UXSentinelAgent:
                     p_console.print(
                         "    [bold green]♿ A11y Score: 100.0% (Conforme WCAG 2.2 AA)[/bold green]"
                     )
+
+                if bus:
+                    await bus.publish(
+                        ExecutionEvent(
+                            event_type=EventType.AXE_AUDIT_COMPLETED,
+                            scenario_id=report.scenario_id,
+                            viewport=vp_label,
+                            step_index=step_index,
+                            action="checkpoint",
+                            data={
+                                "score": cp_a11y_score,
+                                "violations_count": len(a11y_violations),
+                            },
+                        )
+                    )
             except Exception as a11y_exc:
                 p_console.print(
                     f"    [yellow]⚠️ Falha na auditoria de acessibilidade Axe-Core: {a11y_exc}[/yellow]"
@@ -1052,6 +1231,22 @@ class UXSentinelAgent:
 
         cp_result.healed_events = list(report.healed_steps)
         report.checkpoints.append(cp_result)
+
+        if bus:
+            await bus.publish(
+                ExecutionEvent(
+                    event_type=EventType.AI_INSPECTION_COMPLETED,
+                    scenario_id=report.scenario_id,
+                    viewport=vp_label,
+                    step_index=step_index,
+                    action="checkpoint",
+                    data={
+                        "name": cp_name,
+                        "status": cp_result.status,
+                        "issues_count": len(cp_result.issues),
+                    },
+                )
+            )
 
         if cp_result.status == "ok":
             p_console.print("    [bold green]✓ Checkpoint aprovado sem inconformidades![/bold green]")

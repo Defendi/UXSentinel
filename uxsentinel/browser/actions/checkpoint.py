@@ -29,4 +29,5 @@ class CheckpointActionHandler(BaseActionHandler):
             effective_update_baseline=ctx.effective_update_baseline,
             effective_diff_threshold=ctx.effective_diff_threshold,
             scenario_exceptions=ctx.scenario.exceptions,
+            event_bus=ctx.event_bus or getattr(ctx.agent, "event_bus", None),
         )

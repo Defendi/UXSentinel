@@ -42,6 +42,7 @@ class ActionContext:
     effective_diff_threshold: float = 0.1
     scenario_exceptions: ScenarioExceptions | None = None
     agent: Any | None = None
+    event_bus: Any | None = None
 
     @property
     def console(self) -> Console:
