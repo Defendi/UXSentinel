@@ -13,8 +13,8 @@ from uxsentinel.core.config import (
     GlobalConfig,
     load_config,
 )
-from uxsentinel.core.runner import ScenarioRunnerService, ScenarioRunOptions
 from uxsentinel.scenarios.parser import load_scenario
+from uxsentinel.service.execution_service import ExecutionOptions, ExecutionService
 
 console = Console()
 
@@ -321,6 +321,28 @@ Documentação completa: https://github.com/Defendi/UXSentinel""",
         default=None,
         help="Desativa a auditoria de acessibilidade Axe-Core.",
     )
+    css_group = parser.add_mutually_exclusive_group()
+    css_group.add_argument(
+        "--css",
+        dest="enable_css",
+        action="store_true",
+        default=None,
+        help="Ativa a auditoria e inspeção híbrida de CSS (layout, overflow, especificidade e boas práticas).",
+    )
+    css_group.add_argument(
+        "--no-css",
+        dest="enable_css",
+        action="store_false",
+        default=None,
+        help="Desativa a auditoria de CSS.",
+    )
+    parser.add_argument(
+        "--audit-css",
+        type=str,
+        default=None,
+        metavar="TARGET",
+        help="Executa auditoria de CSS isolada e direta (URL da web ou arquivo/diretório .css) exibindo tabela Rich no terminal.",
+    )
     baseline_group = parser.add_argument_group("Baseline Visual e Regressão")
     baseline_group.add_argument(
         "--update-baseline",
@@ -606,6 +628,64 @@ async def handle_check_ai(cfg: GlobalConfig, provider_override: str | None) -> i
         return 1
 
 
+async def handle_audit_css(target: str, cfg: GlobalConfig) -> int:
+    """Executa auditoria profunda de CSS em uma URL ao vivo ou arquivo/diretório estático."""
+    from rich.table import Table
+
+    from uxsentinel.css.models import CSSSeverity
+    from uxsentinel.css.runner import CSSInspector
+
+    is_url = target.startswith("http://") or target.startswith("https://")
+    console.print(f"🎨 [bold cyan]Iniciando Auditoria de CSS (UXS-47):[/bold cyan] [yellow]{target}[/yellow]")
+
+    if is_url:
+        from uxsentinel.browser.context import open_browser_session
+
+        browser_cfg = cfg.browser
+        async with open_browser_session(browser_cfg) as (browser, context):
+            page = await context.new_page()
+            try:
+                await page.goto(target, wait_until="networkidle", timeout=30000)
+            except Exception as e:
+                console.print(f"[bold red]❌ Falha ao navegar até a URL:[/bold red] {e}")
+                return EXIT_ERRO_EXECUCAO
+            report = await CSSInspector.audit_page(page)
+    else:
+        target_path = Path(target)
+        if not target_path.exists():
+            console.print(f"[bold red]❌ Alvo não encontrado:[/bold red] {target}")
+            return EXIT_ERRO_EXECUCAO
+        report = CSSInspector.audit_file_or_dir(target_path)
+
+    table = Table(title=f"Resultados da Auditoria de CSS - Score: {report.score:.1f}/100")
+    table.add_column("Severidade", style="bold")
+    table.add_column("Regra", style="cyan")
+    table.add_column("Seletor / Arquivo", style="magenta")
+    table.add_column("Descrição")
+    table.add_column("Sugestão", style="green")
+
+    sev_styles = {
+        CSSSeverity.BLOQUEANTE: "[bold white on red] BLOQUEANTE [/bold white on red]",
+        CSSSeverity.ALTA: "[bold red]ALTA[/bold red]",
+        CSSSeverity.MEDIA: "[bold yellow]MEDIA[/bold yellow]",
+        CSSSeverity.BAIXA: "[bold blue]BAIXA[/bold blue]",
+    }
+
+    for v in report.violations:
+        sev_label = sev_styles.get(v.severity, str(v.severity.value))
+        target_col = v.selector or v.snippet or "-"
+        table.add_row(sev_label, v.rule_id, target_col[:40], v.description, v.suggestion or "-")
+
+    console.print(table)
+    summary_text = ", ".join(f"{k}: {v}" for k, v in report.summary.items())
+    console.print(
+        f"[bold]Regras inspecionadas:[/bold] {report.total_rules_inspected} | [bold]Violações:[/bold] {len(report.violations)} ({summary_text})"
+    )
+
+    has_bloqueante = any(v.severity == CSSSeverity.BLOQUEANTE for v in report.violations)
+    return EXIT_INCONFORMIDADES if has_bloqueante or report.violations else EXIT_SUCESSO
+
+
 async def async_main() -> int:
     """Ponto de entrada assíncrono principal da CLI do UXSentinel."""
     parser = build_arg_parser()
@@ -635,6 +715,9 @@ async def async_main() -> int:
     if args.check_ai:
         return await handle_check_ai(cfg, args.provider)
 
+    if args.audit_css:
+        return await handle_audit_css(args.audit_css, cfg)
+
     scenario_arg = args.scenario or args.scenario_pos
     try:
         scenario_path = resolve_scenario_path(scenario_arg)
@@ -646,7 +729,7 @@ async def async_main() -> int:
         return EXIT_ERRO_EXECUCAO
 
     try:
-        scenario = load_scenario(str(scenario_path))
+        load_scenario(str(scenario_path))
     except (yaml.YAMLError, ValueError, OSError) as err:
         console.print(f"[bold red]Erro ao ler o cenário:[/bold red] {err}")
         console.print(
@@ -654,7 +737,8 @@ async def async_main() -> int:
         )
         return EXIT_ERRO_EXECUCAO
 
-    options = ScenarioRunOptions(
+    options = ExecutionOptions(
+        scenario_path=scenario_path,
         provider=args.provider,
         profile=args.profile,
         headless=args.headless,
@@ -662,6 +746,7 @@ async def async_main() -> int:
         record_video=args.record_video,
         viewports=args.viewports or args.viewport,
         enable_axe=args.enable_axe,
+        enable_css=args.enable_css,
         update_baseline=args.update_baseline,
         baseline_dir=args.baseline_dir,
         diff_threshold=args.diff_threshold,
@@ -676,8 +761,8 @@ async def async_main() -> int:
         fix_prompt=args.fix_prompt,
     )
 
-    runner = ScenarioRunnerService(cfg)
-    report = await runner.run_scenario(scenario, options)
+    execution_service = ExecutionService(cfg)
+    report = await execution_service.run(options)
 
     await asyncio.sleep(0.05)
     return EXIT_SUCESSO if report.success else EXIT_INCONFORMIDADES
