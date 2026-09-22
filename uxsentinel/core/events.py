@@ -22,6 +22,7 @@ class EventType(StrEnum):
     STEP_COMPLETED = "step_completed"
     STEP_FAILED = "step_failed"
     CHECKPOINT_CAPTURED = "checkpoint_captured"
+    CHECKPOINT_COMPLETED = "checkpoint_completed"
     AI_INSPECTION_COMPLETED = "ai_inspection_completed"
     HEALING_APPLIED = "healing_applied"
     AXE_AUDIT_COMPLETED = "axe_audit_completed"

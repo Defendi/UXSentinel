@@ -7,8 +7,16 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
+from uxsentinel.core.events import EventType, ExecutionEvent
 from uxsentinel.core.models import CheckpointResult, TestReport
-from uxsentinel.service import ConnectionResult
+from uxsentinel.service import (
+    BrowserConfigDTO,
+    ConnectionResult,
+    JiraSafeDTO,
+    ProviderSafeDTO,
+    SafeConfigDTO,
+)
+from uxsentinel.service.config_service import SecretFieldStatus
 from uxsentinel_studio.api import EXECUTIONS, publish_execution_event
 from uxsentinel_studio.server import create_app, get_session_token
 
@@ -320,10 +328,26 @@ def test_results_and_artifacts(
     assert resp_detail.json()["id"] == "cenario_teste"
     assert resp_detail.json()["status"] == "passed"
 
-    # Recuperação do artefato HTML
+    # Recuperação do artefato HTML via Header
     resp_artifact = client.get("/api/results/cenario_teste/artifacts/relatorio.html", headers=auth_headers)
     assert resp_artifact.status_code == 200
     assert "Audit OK" in resp_artifact.text
+
+    # Recuperação do artefato HTML via Query Param ?token= sem Header (UXS-74)
+    valid_token = get_session_token()
+    resp_query_auth = client.get(f"/api/results/cenario_teste/artifacts/relatorio.html?token={valid_token}")
+    assert resp_query_auth.status_code == 200
+    assert "Audit OK" in resp_query_auth.text
+
+    # Rejeição sem token nem header -> 401
+    resp_anon = client.get("/api/results/cenario_teste/artifacts/relatorio.html")
+    assert resp_anon.status_code == 401
+
+    # Rejeição com token inválido na query -> 401
+    resp_bad_token = client.get(
+        "/api/results/cenario_teste/artifacts/relatorio.html?token=token_invalido_xyz"
+    )
+    assert resp_bad_token.status_code == 401
 
     # Detalhe inexistente -> 404
     resp_detail_404 = client.get("/api/results/exec_fantasma", headers=auth_headers)
@@ -519,6 +543,173 @@ def test_execute_scenario_task_publishes_all_events(project_workspace: Path) -> 
     assert any('"event": "checkpoint"' in item for item in history)
     assert any('"event": "completed"' in item for item in history)
     assert EXECUTIONS[run_id]["status"] == "completed"
+
+
+def test_execute_scenario_task_realtime_eventbus_streaming(project_workspace: Path) -> None:
+    """Valida a transmissão de eventos em tempo real via EventBus durante a execução."""
+    from uxsentinel.service.execution_service import ExecutionOptions
+    from uxsentinel_studio.api import _execute_scenario_task
+
+    run_id = "test_eventbus_realtime_001"
+    main_queue: asyncio.Queue[str | None] = asyncio.Queue()
+
+    EXECUTIONS[run_id] = {
+        "run_id": run_id,
+        "scenario_id": "cenario_teste",
+        "status": "running",
+        "current_step": 0,
+        "logs": [],
+        "started_at": "2026-09-22T10:00:00Z",
+        "result": None,
+        "error": None,
+        "queue": main_queue,
+        "subscribers": [],
+        "event_history": [],
+    }
+
+    dummy_report = TestReport(
+        scenario_id="cenario_teste",
+        scenario_title="Cenário de Teste Unitário",
+        success=True,
+        total_issues=0,
+        duration_seconds=1.8,
+        checkpoints=[
+            CheckpointResult(
+                name="home_renderizada",
+                status="ok",
+                issues=[],
+                expected_behavior="Página acessível",
+            )
+        ],
+    )
+
+    scenario_file = project_workspace / "scenarios" / "cenario_teste.yaml"
+    options = ExecutionOptions(
+        scenario_path=scenario_file,
+        output_dir=str(project_workspace / "report"),
+    )
+
+    async def mock_run(opts: ExecutionOptions) -> TestReport:
+        # Simula publicação compassada de eventos no barramento durante a execução
+        bus = opts.event_bus
+        assert bus is not None
+
+        await bus.publish(
+            ExecutionEvent(
+                event_type=EventType.STEP_STARTED,
+                scenario_id="cenario_teste",
+                step_index=1,
+                action="goto",
+                data={"description": "Navegação inicial", "url": "https://exemplo.com.br"},
+            )
+        )
+        await bus.publish(
+            ExecutionEvent(
+                event_type=EventType.STEP_COMPLETED,
+                scenario_id="cenario_teste",
+                step_index=1,
+                action="goto",
+                data={"description": "Navegação inicial"},
+            )
+        )
+        await bus.publish(
+            ExecutionEvent(
+                event_type=EventType.CHECKPOINT_COMPLETED,
+                scenario_id="cenario_teste",
+                step_index=2,
+                action="checkpoint",
+                data={
+                    "name": "home_renderizada",
+                    "status": "ok",
+                    "issues_count": 0,
+                    "expected_behavior": "Página acessível",
+                    "screenshot_path": "/tmp/screenshot.png",
+                },
+            )
+        )
+        return dummy_report
+
+    with patch(
+        "uxsentinel.service.execution_service.ExecutionService.run",
+        side_effect=mock_run,
+    ):
+        asyncio.run(_execute_scenario_task(run_id, options))
+
+    history = EXECUTIONS[run_id]["event_history"]
+    logs = EXECUTIONS[run_id]["logs"]
+
+    # Valida presença de eventos formatados
+    assert any('"event": "step"' in item and '"status": "running"' in item for item in history)
+    assert any('"event": "step"' in item and '"status": "passed"' in item for item in history)
+    assert any('"event": "checkpoint"' in item and '"name": "home_renderizada"' in item for item in history)
+    assert any('"event": "completed"' in item for item in history)
+    assert any("[PASSO 1/2] Executando: goto - Navegação inicial" in msg for msg in logs)
+    assert any("[PASSO 1/2] ✓ Concluído com sucesso." in msg for msg in logs)
+    assert EXECUTIONS[run_id]["status"] == "completed"
+
+
+def test_execute_scenario_task_ai_error_streaming_and_history(project_workspace: Path) -> None:
+    """Valida que erros de conexão de IA são reportados via SSE e gravados no histórico."""
+    from uxsentinel.service.execution_service import ExecutionOptions
+    from uxsentinel_studio.api import _execute_scenario_task
+
+    run_id = "test_ai_error_002"
+    main_queue: asyncio.Queue[str | None] = asyncio.Queue()
+
+    EXECUTIONS[run_id] = {
+        "run_id": run_id,
+        "scenario_id": "cenario_teste",
+        "status": "running",
+        "current_step": 0,
+        "logs": [],
+        "started_at": "2026-09-22T10:00:00Z",
+        "result": None,
+        "error": None,
+        "queue": main_queue,
+        "subscribers": [],
+        "event_history": [],
+    }
+
+    ai_error_report = TestReport(
+        scenario_id="cenario_teste",
+        scenario_title="Cenário de Teste Unitário",
+        success=False,
+        error_message="Falha de conexão com a IA: API Key inválida ou expirada",
+        duration_seconds=0.5,
+    )
+
+    scenario_file = project_workspace / "scenarios" / "cenario_teste.yaml"
+    options = ExecutionOptions(
+        scenario_path=scenario_file,
+        output_dir=str(project_workspace / "report"),
+    )
+
+    async def mock_run_ai_error(opts: ExecutionOptions) -> TestReport:
+        bus = opts.event_bus
+        assert bus is not None
+        await bus.publish(
+            ExecutionEvent(
+                event_type=EventType.SCENARIO_FAILED,
+                scenario_id="cenario_teste",
+                data={"error": ai_error_report.error_message},
+            )
+        )
+        return ai_error_report
+
+    with patch(
+        "uxsentinel.service.execution_service.ExecutionService.run",
+        side_effect=mock_run_ai_error,
+    ):
+        asyncio.run(_execute_scenario_task(run_id, options))
+
+    history = EXECUTIONS[run_id]["event_history"]
+    logs = EXECUTIONS[run_id]["logs"]
+
+    assert EXECUTIONS[run_id]["status"] == "failed"
+    assert "Falha de conexão com a IA: API Key inválida ou expirada" in EXECUTIONS[run_id]["error"]
+    assert any('"event": "error"' in item for item in history)
+    assert any("Falha de conexão com a IA" in item for item in history)
+    assert any("[ERRO NA EXECUÇÃO]" in msg for msg in logs)
 
 
 # ==============================================================================
@@ -1196,3 +1387,306 @@ steps:
     proj_sem_pasta = next((p for p in projects3 if p["name"] == "Projeto Sem Pasta"), None)
     assert proj_sem_pasta is not None
     assert proj_sem_pasta["scenarios_count"] == 0
+
+
+# ==============================================================================
+# 17. Status de IA e Bloqueio Mandatório de Execução (UXS-74 / Passo 2)
+# ==============================================================================
+
+
+def _build_mock_safe_config(
+    active_provider: str,
+    providers: dict[str, ProviderSafeDTO],
+) -> SafeConfigDTO:
+    """Helper para construir SafeConfigDTO hermético para testes de status de IA."""
+    return SafeConfigDTO(
+        active_provider=active_provider,
+        browser=BrowserConfigDTO(),
+        jira=JiraSafeDTO(api_token=SecretFieldStatus(configured=False)),
+        providers=providers,
+    )
+
+
+def test_ai_status_endpoint_api_key_connected(client: TestClient, auth_headers: dict[str, str]) -> None:
+    """Valida GET /api/config/ai-status com provedor API Key contendo chave válida."""
+    mock_cfg = _build_mock_safe_config(
+        active_provider="gemini_cloud",
+        providers={
+            "gemini_cloud": ProviderSafeDTO(
+                type="api_key",
+                service="gemini",
+                model="gemini-1.5-pro",
+                has_api_key=True,
+            )
+        },
+    )
+    with patch("uxsentinel.service.config_service.ConfigService.get_safe_config", return_value=mock_cfg):
+        resp = client.get("/api/config/ai-status", headers=auth_headers)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["connected"] is True
+        assert data["provider"] == "gemini_cloud"
+        assert "configurado com chave de API" in data["message"]
+
+
+def test_ai_status_endpoint_api_key_disconnected(client: TestClient, auth_headers: dict[str, str]) -> None:
+    """Valida GET /api/config/ai-status com provedor API Key sem chave configurada."""
+    mock_cfg = _build_mock_safe_config(
+        active_provider="openai_cloud",
+        providers={
+            "openai_cloud": ProviderSafeDTO(
+                type="api_key",
+                service="openai",
+                model="gpt-4o",
+                has_api_key=False,
+            )
+        },
+    )
+    with patch("uxsentinel.service.config_service.ConfigService.get_safe_config", return_value=mock_cfg):
+        resp = client.get("/api/config/ai-status", headers=auth_headers)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["connected"] is False
+        assert data["provider"] == "openai_cloud"
+        assert "Chave de API não informada" in data["message"]
+
+
+def test_ai_status_endpoint_sso_connected_via_cache(client: TestClient, auth_headers: dict[str, str]) -> None:
+    """Valida GET /api/config/ai-status com provedor SSO autenticado via cache."""
+    mock_cfg = _build_mock_safe_config(
+        active_provider="gemini_sso",
+        providers={
+            "gemini_sso": ProviderSafeDTO(
+                type="sso",
+                service="gemini",
+                model="gemini-1.5-pro",
+                has_api_key=False,
+            )
+        },
+    )
+    with (
+        patch("uxsentinel.service.config_service.ConfigService.get_safe_config", return_value=mock_cfg),
+        patch("uxsentinel_studio.api.get_cached_token", return_value="ya29.mock_oauth_token_valido"),
+    ):
+        resp = client.get("/api/config/ai-status", headers=auth_headers)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["connected"] is True
+        assert data["provider"] == "gemini_sso"
+        assert "autenticado" in data["message"]
+
+
+def test_ai_status_endpoint_sso_disconnected(client: TestClient, auth_headers: dict[str, str]) -> None:
+    """Valida GET /api/config/ai-status com provedor SSO não autenticado."""
+    mock_cfg = _build_mock_safe_config(
+        active_provider="claude_sso",
+        providers={
+            "claude_sso": ProviderSafeDTO(
+                type="sso",
+                service="anthropic",
+                model="claude-haiku-4-5",
+                has_api_key=False,
+            )
+        },
+    )
+    with (
+        patch("uxsentinel.service.config_service.ConfigService.get_safe_config", return_value=mock_cfg),
+        patch("uxsentinel_studio.api.get_cached_token", return_value=None),
+        patch(
+            "uxsentinel_studio.api.get_sso_cache_file", return_value=Path("/tmp/non_existent_sso_cache.json")
+        ),
+    ):
+        resp = client.get("/api/config/ai-status", headers=auth_headers)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["connected"] is False
+        assert data["provider"] == "claude_sso"
+        assert "não autenticado" in data["message"]
+
+
+def test_ai_status_endpoint_local_provider(client: TestClient, auth_headers: dict[str, str]) -> None:
+    """Valida GET /api/config/ai-status com provedor local (Ollama)."""
+    mock_cfg = _build_mock_safe_config(
+        active_provider="ollama_local",
+        providers={
+            "ollama_local": ProviderSafeDTO(
+                type="local",
+                service="ollama",
+                model="qwen2-vl:7b",
+                has_api_key=False,
+            )
+        },
+    )
+    with patch("uxsentinel.service.config_service.ConfigService.get_safe_config", return_value=mock_cfg):
+        resp = client.get("/api/config/ai-status", headers=auth_headers)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["connected"] is True
+        assert data["provider"] == "ollama_local"
+        assert "ativo" in data["message"]
+
+
+def test_execution_run_blocked_when_ai_disconnected(client: TestClient, auth_headers: dict[str, str]) -> None:
+    """Garante que POST /api/execution/run retorna 400 se a IA não estiver configurada."""
+    mock_cfg = _build_mock_safe_config(
+        active_provider="gemini_cloud",
+        providers={
+            "gemini_cloud": ProviderSafeDTO(
+                type="api_key",
+                service="gemini",
+                model="gemini-1.5-pro",
+                has_api_key=False,
+            )
+        },
+    )
+    with patch("uxsentinel.service.config_service.ConfigService.get_safe_config", return_value=mock_cfg):
+        resp = client.post(
+            "/api/execution/run",
+            json={"scenario_id": "cenario_teste"},
+            headers=auth_headers,
+        )
+        assert resp.status_code == 400
+        data = resp.json()
+        assert "Nenhum provedor de IA conectado ou configurado" in data["detail"]
+
+
+def test_execution_run_allowed_when_ai_connected(client: TestClient, auth_headers: dict[str, str]) -> None:
+    """Garante que POST /api/execution/run cria execução quando a IA está conectada."""
+    mock_cfg = _build_mock_safe_config(
+        active_provider="gemini_cloud",
+        providers={
+            "gemini_cloud": ProviderSafeDTO(
+                type="api_key",
+                service="gemini",
+                model="gemini-1.5-pro",
+                has_api_key=True,
+            )
+        },
+    )
+    dummy_report = TestReport(
+        scenario_id="cenario_teste",
+        scenario_title="Cenário de Teste Unitário",
+        success=True,
+        total_issues=0,
+        duration_seconds=1.0,
+    )
+    with (
+        patch("uxsentinel.service.config_service.ConfigService.get_safe_config", return_value=mock_cfg),
+        patch(
+            "uxsentinel.service.execution_service.ExecutionService.run",
+            new_callable=AsyncMock,
+            return_value=dummy_report,
+        ),
+    ):
+        resp = client.post(
+            "/api/execution/run",
+            json={"scenario_id": "cenario_teste"},
+            headers=auth_headers,
+        )
+        assert resp.status_code == 202
+        data = resp.json()
+        assert "run_id" in data
+        assert data["status"] == "running"
+
+
+def test_execution_run_with_headless_and_slowmo_overrides(
+    client: TestClient, auth_headers: dict[str, str]
+) -> None:
+    """Garante que POST /api/execution/run aceita overrides de headless e slowmo e os repassa ao ExecutionService."""
+    mock_cfg = _build_mock_safe_config(
+        active_provider="gemini_cloud",
+        providers={
+            "gemini_cloud": ProviderSafeDTO(
+                type="api_key",
+                service="gemini",
+                model="gemini-1.5-pro",
+                has_api_key=True,
+            )
+        },
+    )
+    dummy_report = TestReport(
+        scenario_id="cenario_teste",
+        scenario_title="Cenário de Teste Unitário",
+        success=True,
+        total_issues=0,
+        duration_seconds=1.0,
+    )
+    with (
+        patch("uxsentinel.service.config_service.ConfigService.get_safe_config", return_value=mock_cfg),
+        patch(
+            "uxsentinel.service.execution_service.ExecutionService.run",
+            new_callable=AsyncMock,
+            return_value=dummy_report,
+        ) as mock_run,
+    ):
+        resp = client.post(
+            "/api/execution/run",
+            json={
+                "scenario_id": "cenario_teste",
+                "overrides": {
+                    "headless": False,
+                    "slowmo": 450,
+                },
+            },
+            headers=auth_headers,
+        )
+        assert resp.status_code == 202
+        data = resp.json()
+        assert "run_id" in data
+        assert data["status"] == "running"
+
+        assert mock_run.call_count == 1
+        call_options = mock_run.call_args[0][0]
+        assert call_options.headless is False
+        assert call_options.slowmo == 450
+
+
+def test_login_sso_success_claude(client: TestClient, auth_headers: dict[str, str]) -> None:
+    """Valida POST /api/config/login-sso com claude_sso com sucesso hermético."""
+    with patch("uxsentinel.cli.handle_login_sso", return_value=0) as mock_handle:
+        resp = client.post(
+            "/api/config/login-sso",
+            json={"provider": "claude_sso"},
+            headers=auth_headers,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["success"] is True
+        assert "claude_sso" in data["message"]
+        assert mock_handle.call_count == 1
+
+
+def test_login_sso_success_gemini(client: TestClient, auth_headers: dict[str, str]) -> None:
+    """Valida POST /api/config/login-sso com gemini_sso com sucesso hermético."""
+    with patch("uxsentinel.cli.handle_login_sso", return_value=0) as mock_handle:
+        resp = client.post(
+            "/api/config/login-sso",
+            json={"provider": "gemini_sso"},
+            headers=auth_headers,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["success"] is True
+        assert "gemini_sso" in data["message"]
+        assert mock_handle.call_count == 1
+
+
+def test_login_sso_invalid_provider(client: TestClient, auth_headers: dict[str, str]) -> None:
+    """Valida erro 400 em POST /api/config/login-sso ao informar provedor não SSO."""
+    resp = client.post(
+        "/api/config/login-sso",
+        json={"provider": "openai"},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 400
+    data = resp.json()
+    assert "não é suportado" in data["detail"]
+
+
+def test_login_sso_unauthorized(client: TestClient) -> None:
+    """Valida recusa 401 em POST /api/config/login-sso sem token de autenticação."""
+    resp = client.post(
+        "/api/config/login-sso",
+        json={"provider": "claude_sso"},
+    )
+    assert resp.status_code == 401

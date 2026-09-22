@@ -1,6 +1,7 @@
 """Serviço de orquestração e execução desacoplado de interfaces de terminal."""
 
 from pathlib import Path
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -34,6 +35,7 @@ class ExecutionOptions(BaseModel):
     jira: bool | None = None
     jira_project: str | None = None
     fix_prompt: bool | None = None
+    event_bus: Any | None = None
     extra_options: dict = Field(default_factory=dict)
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -73,4 +75,8 @@ class ExecutionService:
             extra_options=options.extra_options,
         )
 
-        return await self.runner.run_scenario(scenario, runner_options)
+        return await self.runner.run_scenario(
+            scenario,
+            runner_options,
+            event_bus=options.event_bus,
+        )

@@ -38,6 +38,15 @@
             </div>
         </header>
 
+        <!-- Banner Horizontal de Aviso de IA (UXS-74) -->
+        <div class="ai-status-banner" id="ai-status-banner" style="display: none;">
+            <div class="ai-banner-content">
+                <span class="ai-banner-icon">⚠️</span>
+                <span class="ai-banner-text" id="ai-banner-text">Nenhum provedor de IA conectado. A análise visual de QA requer uma IA ativa.</span>
+            </div>
+            <button class="btn btn-sm btn-primary" id="btn-banner-configure-ai">⚙️ Configurar IA</button>
+        </div>
+
         <!-- Main Workspace Grid -->
         <main class="workspace">
             <!-- COLUNA 1: Sidebar de Cenários e Navegação -->
@@ -102,6 +111,13 @@
                                     <option value="generic">generic (Universal)</option>
                                     <option value="odoo">odoo (Enterprise ERP)</option>
                                 </select>
+                            </div>
+                            <div class="toolbar-headless-toggle" title="Alternar entre modo invisível (background) e janela do navegador visível na tela">
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="editor-execution-headless" checked>
+                                    <span class="toggle-slider"></span>
+                                </label>
+                                <span class="toggle-label" id="editor-execution-headless-label">Headless</span>
                             </div>
                             <button class="btn btn-primary" id="btn-run-scenario" title="Dispara a execução do cenário no background">
                                 <span>▶️</span> Executar Agora
@@ -236,12 +252,17 @@
                                     <label for="cfg-active-provider">Provedor Ativo:</label>
                                     <select id="cfg-active-provider">
                                         <option value="gemini_sso">gemini_sso (Google Cloud Multimodal SSO)</option>
+                                        <option value="claude_sso">claude_sso (Anthropic Claude 3.5 Sonnet SSO)</option>
+                                        <option value="anthropic_cloud">anthropic_cloud (Anthropic Claude Cloud API)</option>
                                         <option value="gemini_api_key">gemini_api_key (Google Gemini API Direct)</option>
                                         <option value="openai">openai (GPT-4o Vision API)</option>
                                         <option value="ollama_local">ollama_local (Llama 3.2 Vision Local)</option>
                                     </select>
                                 </div>
-                                <div class="form-group flex-1 form-actions-align">
+                                <div class="form-group flex-1 form-actions-align" style="display: flex; gap: 0.5rem;">
+                                    <button class="btn btn-secondary" id="btn-login-sso" style="display: none;">
+                                        <span>🔑</span> Login SSO no Navegador
+                                    </button>
                                     <button class="btn btn-secondary btn-block" id="btn-test-ai">
                                         <span>⚡</span> Testar Conexão IA
                                     </button>

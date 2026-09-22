@@ -715,15 +715,16 @@ def handle_logout_sso(cfg: GlobalConfig, provider_override: str | None) -> int:
 
 def handle_login_sso(cfg: GlobalConfig, provider_override: str | None) -> int:
     """Abre navegador para autenticação SSO interativa."""
+    from uxsentinel.core.config import BUILTIN_PROVIDERS
     from uxsentinel.core.sso import login_via_browser
 
     target_provider_name = provider_override or cfg.active_provider
-    if target_provider_name not in cfg.providers:
+    provider = cfg.providers.get(target_provider_name) or BUILTIN_PROVIDERS.get(target_provider_name)
+    if not provider:
         console.print(
             f"[bold red]Erro:[/bold red] Provedor '{target_provider_name}' não encontrado no arquivo de configuração."
         )
         return 1
-    provider = cfg.providers[target_provider_name]
     try:
         login_via_browser(target_provider_name, provider)
         return 0

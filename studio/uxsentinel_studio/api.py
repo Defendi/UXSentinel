@@ -21,6 +21,8 @@ from uxsentinel.core.config import (
     list_registered_projects,
     remove_project_from_catalog,
 )
+from uxsentinel.core.events import EventBus, EventType, ExecutionEvent
+from uxsentinel.core.sso import get_cached_token, get_sso_cache_file
 from uxsentinel.scenarios.parser import load_scenario
 from uxsentinel.service import (
     ConfigService,
@@ -123,10 +125,24 @@ class TestAIRequest(BaseModel):
     provider: str
 
 
+class LoginSSORequest(BaseModel):
+    """Payload para autenticação SSO via navegador."""
+
+    provider: str
+
+
 class GenerateScenarioRequest(BaseModel):
     """Payload para geração assistida de cenários via IA."""
 
     prompt: str
+
+
+class AIStatusDTO(BaseModel):
+    """Status estruturado de conexão e configuração do provedor de IA ativo."""
+
+    connected: bool
+    provider: str
+    message: str
 
 
 # --- Helpers Utilitários ---
@@ -151,6 +167,69 @@ def get_output_dir(project_dir: Path | None) -> Path:
         if c.is_dir():
             return c
     return project_dir / "report"
+
+
+def _check_ai_status(project_dir: Path | None) -> AIStatusDTO:
+    """Verifica se o provedor de IA ativo está minimamente configurado ou autenticado."""
+    safe_cfg = ConfigService().get_safe_config(project_dir)
+    active_p = safe_cfg.active_provider or ""
+    if not active_p or active_p not in safe_cfg.providers:
+        return AIStatusDTO(
+            connected=False,
+            provider=active_p,
+            message="Nenhum provedor de IA ativo configurado.",
+        )
+
+    p_info = safe_cfg.providers[active_p]
+    p_type = (p_info.type or "").lower()
+
+    if p_type == "sso" or "sso" in active_p.lower():
+        cached_tok = get_cached_token(active_p)
+        if p_info.has_api_key or bool(cached_tok):
+            return AIStatusDTO(
+                connected=True,
+                provider=active_p,
+                message=f"Provedor SSO '{active_p}' autenticado e pronto para uso.",
+            )
+        cache_file = get_sso_cache_file()
+        if cache_file.is_file():
+            try:
+                cdata = json.loads(cache_file.read_text(encoding="utf-8"))
+                if active_p in cdata and cdata[active_p].get("token"):
+                    return AIStatusDTO(
+                        connected=True,
+                        provider=active_p,
+                        message=f"Provedor SSO '{active_p}' autenticado via cache.",
+                    )
+            except Exception:
+                pass
+
+        return AIStatusDTO(
+            connected=False,
+            provider=active_p,
+            message=f"Provedor SSO '{active_p}' não autenticado. Realize o login SSO ou configure a chave nas configurações.",
+        )
+
+    if p_type == "local" or active_p in ("ollama_local", "vllm_local"):
+        return AIStatusDTO(
+            connected=True,
+            provider=active_p,
+            message=f"Provedor local '{active_p}' ativo.",
+        )
+
+    # Provedores API Key (gemini_api_key, openai, anthropic_cloud, etc.)
+    if p_info.has_api_key:
+        return AIStatusDTO(
+            connected=True,
+            provider=active_p,
+            message=f"Provedor '{active_p}' configurado com chave de API.",
+        )
+
+    return AIStatusDTO(
+        connected=False,
+        provider=active_p,
+        message=f"Chave de API não informada para o provedor '{active_p}'.",
+    )
 
 
 async def publish_execution_event(run_id: str, event: str, data: Any) -> None:
@@ -225,44 +304,149 @@ async def _emit_checkpoint_events(run_id: str, report: Any) -> None:
 
 
 async def _execute_scenario_task(run_id: str, options: ExecutionOptions) -> None:
-    """Tarefa em segundo plano que orquestra a execução via ExecutionService."""
+    """Tarefa em segundo plano que orquestra a execução via ExecutionService e EventBus."""
     service = ExecutionService()
     try:
         scenario_id = EXECUTIONS.get(run_id, {}).get("scenario_id", "desconhecido")
+        display_mode = (
+            "Navegador Gráfico Visível (Headed)" if options.headless is False else "Headless (Background)"
+        )
         await publish_execution_event(
-            run_id, "log", {"message": f"Iniciando execução do cenário: {scenario_id}"}
+            run_id, "log", {"message": f"Iniciando execução do cenário: {scenario_id} [{display_mode}]"}
         )
         try:
             scenario = load_scenario(str(options.scenario_path))
+            total_steps = len(scenario.steps) if scenario and scenario.steps else 0
             await publish_execution_event(
                 run_id,
                 "log",
-                {"message": f"Cenário carregado: '{scenario.title}' com {len(scenario.steps)} passo(s)."},
+                {"message": f"Cenário carregado: '{scenario.title}' com {total_steps} passo(s)."},
             )
         except Exception:
             scenario = None
+            total_steps = 0
+
+        bus = EventBus()
+        events_emitted: set[str] = set()
+
+        async def _on_event(event: ExecutionEvent) -> None:
+            idx = event.step_index or 0
+            idx_str = str(idx) if idx else "??"
+            tot_str = str(total_steps) if total_steps else "??"
+            action = event.action or ""
+            desc = event.data.get("description") or event.data.get("selector") or event.data.get("url") or ""
+
+            if event.event_type == EventType.STEP_STARTED:
+                events_emitted.add("step")
+                log_msg = f"[PASSO {idx_str}/{tot_str}] Executando: {action}"
+                if desc:
+                    log_msg += f" - {desc}"
+                await publish_execution_event(run_id, "log", {"message": log_msg})
+                await publish_execution_event(
+                    run_id,
+                    "step",
+                    {
+                        "step_index": idx,
+                        "total_steps": total_steps,
+                        "action": action,
+                        "description": desc,
+                        "status": "running",
+                    },
+                )
+            elif event.event_type == EventType.STEP_COMPLETED:
+                events_emitted.add("step")
+                log_msg = f"[PASSO {idx_str}/{tot_str}] ✓ Concluído com sucesso."
+                await publish_execution_event(run_id, "log", {"message": log_msg})
+                await publish_execution_event(
+                    run_id,
+                    "step",
+                    {
+                        "step_index": idx,
+                        "total_steps": total_steps,
+                        "action": action,
+                        "description": desc,
+                        "status": "passed",
+                    },
+                )
+            elif event.event_type == EventType.STEP_FAILED:
+                events_emitted.add("step")
+                err_text = event.data.get("error", "Falha na execução do passo")
+                log_msg = f"[PASSO {idx_str}/{tot_str}] ❌ Falha: {err_text}"
+                await publish_execution_event(run_id, "log", {"message": log_msg})
+                await publish_execution_event(
+                    run_id,
+                    "step",
+                    {
+                        "step_index": idx,
+                        "total_steps": total_steps,
+                        "action": action,
+                        "description": desc,
+                        "status": "failed",
+                        "error": err_text,
+                    },
+                )
+            elif event.event_type in (EventType.CHECKPOINT_COMPLETED, EventType.AI_INSPECTION_COMPLETED):
+                events_emitted.add("checkpoint")
+                cp_name = event.data.get("name", "")
+                raw_status = event.data.get("status", "ok")
+                issues_cnt = event.data.get("issues_count", 0)
+                cp_status = "passed" if (raw_status == "ok" and issues_cnt == 0) else "failed"
+                await publish_execution_event(
+                    run_id,
+                    "checkpoint",
+                    {
+                        "name": cp_name,
+                        "status": cp_status,
+                        "issues_count": issues_cnt,
+                        "expected_behavior": event.data.get("expected_behavior", ""),
+                        "screenshot_path": event.data.get("screenshot_path", ""),
+                    },
+                )
+            elif event.event_type == EventType.SCENARIO_FAILED:
+                err_msg = event.data.get("error", "Falha na execução do cenário")
+                EXECUTIONS[run_id]["status"] = "failed"
+                EXECUTIONS[run_id]["error"] = err_msg
+                await publish_execution_event(run_id, "log", {"message": f"[ERRO NA EXECUÇÃO] {err_msg}"})
+                await publish_execution_event(run_id, "error", {"error": err_msg})
+
+        bus.subscribe(_on_event)
+        options.event_bus = bus
 
         report = await service.run(options)
-        await _emit_step_events(run_id, report, scenario)
-        await _emit_checkpoint_events(run_id, report)
 
-        result_data = {
-            "success": report.success,
-            "total_issues": report.total_issues,
-            "duration_seconds": report.duration_seconds,
-        }
-        EXECUTIONS[run_id]["status"] = "completed"
-        EXECUTIONS[run_id]["result"] = result_data
-        EXECUTIONS[run_id]["logs"].append("Execução concluída com sucesso.")
+        # Fallback de emissão para passos e checkpoints caso mockados sem disparo no bus
+        if "step" not in events_emitted:
+            await _emit_step_events(run_id, report, scenario)
+        if "checkpoint" not in events_emitted:
+            await _emit_checkpoint_events(run_id, report)
 
-        await publish_execution_event(run_id, "log", {"message": "Execução concluída com sucesso."})
-        await publish_execution_event(run_id, "completed", result_data)
+        if report.error_message:
+            EXECUTIONS[run_id]["status"] = "failed"
+            EXECUTIONS[run_id]["error"] = report.error_message
+            if f"[ERRO NA EXECUÇÃO] {report.error_message}" not in EXECUTIONS[run_id].get("logs", []):
+                EXECUTIONS[run_id]["logs"].append(f"[ERRO NA EXECUÇÃO] {report.error_message}")
+            await publish_execution_event(
+                run_id, "log", {"message": f"[ERRO NA EXECUÇÃO] {report.error_message}"}
+            )
+            await publish_execution_event(run_id, "error", {"error": report.error_message})
+        else:
+            result_data = {
+                "success": report.success,
+                "total_issues": report.total_issues,
+                "duration_seconds": report.duration_seconds,
+            }
+            EXECUTIONS[run_id]["status"] = "completed"
+            EXECUTIONS[run_id]["result"] = result_data
+            EXECUTIONS[run_id]["logs"].append("Execução concluída com sucesso.")
+
+            await publish_execution_event(run_id, "log", {"message": "Execução concluída com sucesso."})
+            await publish_execution_event(run_id, "completed", result_data)
     except Exception as ex:
         err_msg = str(ex)
         EXECUTIONS[run_id]["status"] = "failed"
         EXECUTIONS[run_id]["error"] = err_msg
-        EXECUTIONS[run_id]["logs"].append(f"Erro durante a execução: {err_msg}")
-        await publish_execution_event(run_id, "log", {"message": f"Erro durante a execução: {err_msg}"})
+        EXECUTIONS[run_id]["logs"].append(f"[ERRO NA EXECUÇÃO] {err_msg}")
+        await publish_execution_event(run_id, "log", {"message": f"[ERRO NA EXECUÇÃO] {err_msg}"})
         await publish_execution_event(run_id, "error", {"error": err_msg})
     finally:
         execution = EXECUTIONS.get(run_id, {})
@@ -629,6 +813,15 @@ async def run_execution(
 ) -> dict[str, str]:
     """Inicia a execução de auditoria em segundo plano via ExecutionService."""
     project_dir = get_project_dir(request)
+
+    # Validação mandatória de IA ativa conectada/configurada
+    ai_status = _check_ai_status(project_dir)
+    if not ai_status.connected:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Nenhum provedor de IA conectado ou configurado. Configure as credenciais no menu Configurações antes de executar a análise.",
+        )
+
     scenario_path = ScenarioService().find_scenario_path(req.scenario_id, project_dir)
     if not scenario_path:
         raise HTTPException(
@@ -769,6 +962,16 @@ async def get_config(
     return service.get_safe_config(project_dir=project_dir)
 
 
+@router.get("/config/ai-status", response_model=AIStatusDTO)
+async def get_ai_status(
+    request: Request,
+    _: str = Depends(verify_studio_token),
+) -> AIStatusDTO:
+    """Verifica se o provedor de IA ativo está conectado e configurado para análises."""
+    project_dir = get_project_dir(request)
+    return _check_ai_status(project_dir)
+
+
 @router.post("/config")
 async def update_config(
     data: ConfigUpdateDTO,
@@ -798,6 +1001,39 @@ async def test_ai_connection(
     """Testa a conectividade com o modelo ou gateway de IA configurado."""
     service = ConfigService()
     return await service.test_ai_connection(provider=req.provider)
+
+
+@router.post("/config/login-sso")
+async def login_sso(
+    req: LoginSSORequest,
+    request: Request,
+    _: str = Depends(verify_studio_token),
+) -> dict[str, Any]:
+    """Inicia o fluxo de autenticação SSO no navegador para provedores suportados."""
+    from uxsentinel.cli import handle_login_sso
+    from uxsentinel.core.config import load_config
+
+    provider_name = (req.provider or "").strip()
+    if provider_name not in ("claude_sso", "gemini_sso"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Provedor SSO '{req.provider}' não é suportado para login via navegador. Provedores suportados: claude_sso, gemini_sso",
+        )
+
+    project_dir = get_project_dir(request)
+    config_file = (
+        str(project_dir / "uxsentinel.yaml")
+        if project_dir and (project_dir / "uxsentinel.yaml").is_file()
+        else None
+    )
+    cfg = load_config(config_file)
+
+    await asyncio.to_thread(handle_login_sso, cfg, provider_name)
+
+    return {
+        "success": True,
+        "message": f"Navegador aberto para autenticação SSO do provedor '{provider_name}'. Complete o login no navegador e depois teste a conexão.",
+    }
 
 
 # Resultados e Artefatos
@@ -839,7 +1075,7 @@ async def get_result_artifact(
     execution_id: str,
     artifact_name: str,
     request: Request,
-    _: str = Depends(verify_studio_token),
+    _: str = Depends(verify_studio_token_or_query),
 ) -> FileResponse:
     """Entrega de forma segura artefatos de auditoria (HTML, screenshots, vídeos)."""
     project_dir = get_project_dir(request)

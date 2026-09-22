@@ -29,6 +29,7 @@
         eventSource: null,
         executionLogs: [],
         checkpointsLive: [],
+        aiConnected: null,
     };
 
     // --- 2. Utilitários e Cliente HTTP Autenticado ---
@@ -50,6 +51,13 @@
         } else if (statusEl) {
             statusEl.textContent = "Modo Anônimo";
         }
+    }
+
+    function withAuthToken(url) {
+        if (!url || !state.token) return url;
+        if (url.includes("token=")) return url;
+        const separator = url.includes("?") ? "&" : "?";
+        return `${url}${separator}token=${encodeURIComponent(state.token)}`;
     }
 
     async function apiFetch(endpoint, options = {}) {
@@ -583,6 +591,12 @@
             return;
         }
 
+        if (state.aiConnected === false) {
+            showToast("⚠️ IA não conectada! Configure o provedor de IA antes de executar.", "warning");
+            switchMainTab("settings");
+            return;
+        }
+
         // Se houver alterações pendentes, salva primeiro
         if (state.isDirty) {
             await saveScenario();
@@ -611,6 +625,9 @@
         if (logsWindow) logsWindow.innerHTML = "";
         if (checkpointsList) checkpointsList.innerHTML = "";
 
+        const isHeadless = document.getElementById("editor-execution-headless")?.checked ?? true;
+
+        appendLogLine(`[CONFIG] Modo de exibição: ${isHeadless ? "Headless (Background)" : "Navegador Gráfico Visível (Headed)"}`, "info");
         appendLogLine(`[ORQUESTRAÇÃO] Disparando execução do cenário: ${state.activeScenarioId}...`, "info");
 
         try {
@@ -618,7 +635,10 @@
                 method: "POST",
                 body: JSON.stringify({
                     scenario_id: state.activeScenarioId,
-                    overrides: {},
+                    overrides: {
+                        headless: isHeadless,
+                        slowmo: isHeadless ? 200 : 450,
+                    },
                 }),
             });
 
@@ -679,7 +699,7 @@
         const reportLink = document.getElementById("btn-view-report-link");
 
         const eventType = eventObj.event;
-        const data = eventObj.data;
+        const data = eventObj.data || {};
 
         switch (eventType) {
             case "log": {
@@ -689,17 +709,32 @@
             }
             case "step": {
                 const stepIdx = data.step_index || "?";
+                const totalSteps = data.total_steps || 0;
                 const action = data.action || "";
-                const desc = data.description || "";
-                appendLogLine(`[PASSO ${stepIdx}] ${action.toUpperCase()} - ${desc}`, "success");
-                if (liveStatus) liveStatus.textContent = `Passo ${stepIdx}: ${action} (${desc})`;
-                if (liveProgressFill) liveProgressFill.style.width = "60%";
-                if (livePercentage) livePercentage.textContent = "60%";
+                const desc = data.description || action;
+                const status = data.status || "running";
+
+                if (liveStatus) {
+                    liveStatus.textContent = desc || `Executando passo ${stepIdx}: ${action}`;
+                }
+
+                if (totalSteps > 0 && typeof data.step_index === "number") {
+                    const pct = Math.min(90, Math.round(10 + (data.step_index / totalSteps) * 80));
+                    if (liveProgressFill) liveProgressFill.style.width = `${pct}%`;
+                    if (livePercentage) livePercentage.textContent = `${pct}%`;
+                }
+
+                if (status === "failed") {
+                    appendLogLine(`[PASSO ${stepIdx}] ❌ FALHA: ${data.error || desc}`, "error");
+                }
                 break;
             }
             case "checkpoint": {
                 appendCheckpointLive(data);
-                appendLogLine(`[CHECKPOINT] ${data.name} - Status: ${data.status} (Inconformidades: ${data.issues_count})`, data.issues_count > 0 ? "error" : "success");
+                appendLogLine(
+                    `[CHECKPOINT] ${data.name || "Auditoria"} - Status: ${data.status} (Inconformidades: ${data.issues_count || 0})`,
+                    (data.issues_count > 0 || data.status === "failed") ? "error" : "success"
+                );
                 break;
             }
             case "completed": {
@@ -707,16 +742,19 @@
                     liveBadge.className = "live-badge completed";
                     liveBadge.textContent = "CONCLUÍDO";
                 }
-                if (liveStatus) liveStatus.textContent = `Auditoria finalizada. Duração: ${data.duration_seconds}s | Issues: ${data.total_issues}`;
+                if (liveStatus) {
+                    liveStatus.textContent = `Auditoria finalizada. Duração: ${data.duration_seconds || 0}s | Issues: ${data.total_issues || 0}`;
+                }
                 if (liveProgressFill) liveProgressFill.style.width = "100%";
                 if (livePercentage) livePercentage.textContent = "100%";
 
-                appendLogLine(`[FINALIZADO] Auditoria concluída com sucesso! Total de inconformidades: ${data.total_issues}`, "success");
+                appendLogLine(`[FINALIZADO] Auditoria concluída com sucesso! Total de inconformidades: ${data.total_issues || 0}`, "success");
                 showToast("Execução da auditoria finalizada com sucesso!", "success");
 
                 if (liveFooter && reportLink) {
                     liveFooter.style.display = "block";
-                    reportLink.href = `/api/results/${state.activeScenarioId}/artifacts/${state.activeScenarioId}_report.html`;
+                    const reportUrl = `/api/results/${state.activeScenarioId}/artifacts/${state.activeScenarioId}_report.html`;
+                    reportLink.href = withAuthToken(reportUrl);
                 }
 
                 if (state.eventSource) {
@@ -730,10 +768,12 @@
                     liveBadge.className = "live-badge failed";
                     liveBadge.textContent = "FALHOU";
                 }
-                const errText = data.error || "Erro desconhecido";
-                if (liveStatus) liveStatus.textContent = `Erro na execução: ${errText}`;
-                appendLogLine(`[ERRO CRÍTICO] ${errText}`, "error");
-                showToast(`Execução interrompida com erro: ${errText}`, "error");
+                const errText = data.error || (typeof data === "string" ? data : "Erro na execução");
+                if (liveStatus) {
+                    liveStatus.textContent = `Erro na execução: ${errText}`;
+                }
+                appendLogLine(`[ERRO NA EXECUÇÃO] ${errText}`, "error");
+                showToast(`Erro na execução: ${errText}`, "error");
 
                 if (state.eventSource) {
                     state.eventSource.close();
@@ -803,7 +843,8 @@
                 .map((r) => {
                     const statusClass = r.status === "passed" ? "passed" : r.status === "failed" ? "failed" : "error";
                     const statusLabel = r.status === "passed" ? "✓ Aprovado" : r.status === "failed" ? "✕ Falhas" : "⚠️ Erro";
-                    const htmlUrl = r.report_html_url || `/api/results/${r.scenario_id}/artifacts/${r.scenario_id}_report.html`;
+                    const rawHtmlUrl = r.report_html_url || `/api/results/${r.scenario_id}/artifacts/${r.scenario_id}_report.html`;
+                    const htmlUrl = withAuthToken(rawHtmlUrl);
 
                     return `
                     <tr>
@@ -902,6 +943,7 @@
             if (provSelect && cfg.active_provider) {
                 provSelect.value = cfg.active_provider;
             }
+            updateSSOButtonVisibility();
 
             // Jira
             if (cfg.jira) {
@@ -972,11 +1014,70 @@
 
             if (res.ok) {
                 showToast("Configurações atualizadas com sucesso!", "success");
+                await checkAIStatus();
             } else {
                 showToast("Erro ao persistir configurações.", "error");
             }
         } catch (err) {
             showToast(`Falha de comunicação: ${err.message}`, "error");
+        }
+    }
+
+    function updateSSOButtonVisibility() {
+        const provider = document.getElementById("cfg-active-provider")?.value || "";
+        const ssoBtn = document.getElementById("btn-login-sso");
+        if (!ssoBtn) return;
+        if (provider === "claude_sso" || provider === "gemini_sso") {
+            ssoBtn.style.display = "inline-flex";
+        } else {
+            ssoBtn.style.display = "none";
+        }
+    }
+
+    async function loginSSO() {
+        const provider = document.getElementById("cfg-active-provider")?.value || "claude_sso";
+        const feedbackBox = document.getElementById("ai-test-feedback");
+        const btn = document.getElementById("btn-login-sso");
+
+        if (btn) btn.disabled = true;
+        if (feedbackBox) {
+            feedbackBox.style.display = "block";
+            feedbackBox.className = "connection-feedback-box";
+            feedbackBox.textContent = `Iniciando autenticação SSO (${provider}) no navegador...`;
+        }
+
+        try {
+            const res = await apiFetch("/api/config/login-sso", {
+                method: "POST",
+                body: JSON.stringify({ provider }),
+            });
+            const data = await res.json();
+
+            if (res.ok && data.success) {
+                if (feedbackBox) {
+                    feedbackBox.className = "connection-feedback-box success";
+                    feedbackBox.textContent = `ℹ️ ${data.message}`;
+                }
+                showToast(data.message, "info");
+                setTimeout(async () => {
+                    await checkAIStatus();
+                }, 1500);
+            } else {
+                const errMsg = data.detail || data.message || "Erro ao iniciar login SSO.";
+                if (feedbackBox) {
+                    feedbackBox.className = "connection-feedback-box error";
+                    feedbackBox.textContent = `✕ Falha: ${errMsg}`;
+                }
+                showToast(`Falha no login SSO: ${errMsg}`, "error");
+            }
+        } catch (err) {
+            if (feedbackBox) {
+                feedbackBox.className = "connection-feedback-box error";
+                feedbackBox.textContent = `✕ Erro: ${err.message}`;
+            }
+            showToast(`Erro ao conectar com servidor: ${err.message}`, "error");
+        } finally {
+            if (btn) btn.disabled = false;
         }
     }
 
@@ -1003,6 +1104,7 @@
                 feedbackBox.className = "connection-feedback-box success";
                 feedbackBox.textContent = `✓ ${data.message} (Latência: ${data.latency_ms}ms)`;
                 showToast("Conexão com IA validada com sucesso!", "success");
+                await checkAIStatus();
             } else {
                 feedbackBox.className = "connection-feedback-box error";
                 feedbackBox.textContent = `✕ Falha: ${data.message}`;
@@ -1188,6 +1290,30 @@ steps:
         if (tabName === "settings") loadGlobalConfig();
     }
 
+    function switchGlobalTab(tabName) {
+        switchMainTab(tabName);
+    }
+
+    async function checkAIStatus() {
+        try {
+            const res = await apiFetch("/api/config/ai-status");
+            if (res.ok) {
+                const data = await res.json();
+                state.aiConnected = Boolean(data.connected);
+                const banner = document.getElementById("ai-status-banner");
+                const bannerText = document.getElementById("ai-banner-text");
+                if (!data.connected) {
+                    if (banner) banner.style.display = "flex";
+                    if (bannerText && data.message) bannerText.textContent = data.message;
+                } else {
+                    if (banner) banner.style.display = "none";
+                }
+            }
+        } catch (err) {
+            console.error("Erro ao verificar status da IA:", err);
+        }
+    }
+
     function switchInspectorTab(inspTabName) {
         state.activeInspTab = inspTabName;
         document.querySelectorAll(".insp-tab").forEach((btn) => {
@@ -1277,6 +1403,31 @@ steps:
         });
 
         // Botões do Editor
+        const headlessToggle = document.getElementById("editor-execution-headless");
+        const headlessLabel = document.getElementById("editor-execution-headless-label");
+        const headlessContainer = headlessToggle?.closest(".toolbar-headless-toggle");
+
+        function updateHeadlessToggleUI() {
+            if (!headlessToggle || !headlessLabel) return;
+            const isHeadless = headlessToggle.checked;
+            if (isHeadless) {
+                headlessLabel.textContent = "Headless";
+                if (headlessContainer) {
+                    headlessContainer.classList.remove("headed-active");
+                    headlessContainer.title = "Alternar entre modo invisível (background) e janela do navegador visível na tela";
+                }
+            } else {
+                headlessLabel.textContent = "🖥️ Navegador Visível";
+                if (headlessContainer) {
+                    headlessContainer.classList.add("headed-active");
+                    headlessContainer.title = "Navegador Gráfico Visível na tela (Headed). Clique para rodar em segundo plano (Headless).";
+                }
+            }
+        }
+
+        headlessToggle?.addEventListener("change", updateHeadlessToggleUI);
+        updateHeadlessToggleUI();
+
         document.getElementById("btn-run-scenario")?.addEventListener("click", runScenarioExecution);
         document.getElementById("btn-save-scenario")?.addEventListener("click", saveScenario);
         document.getElementById("btn-delete-scenario")?.addEventListener("click", () => {
@@ -1453,7 +1604,10 @@ steps:
         // Configurações
         document.getElementById("btn-save-config")?.addEventListener("click", saveGlobalConfig);
         document.getElementById("btn-test-ai")?.addEventListener("click", testAIConnection);
+        document.getElementById("btn-login-sso")?.addEventListener("click", loginSSO);
+        document.getElementById("cfg-active-provider")?.addEventListener("change", updateSSOButtonVisibility);
         document.getElementById("btn-test-jira")?.addEventListener("click", testJiraConnection);
+        document.getElementById("btn-banner-configure-ai")?.addEventListener("click", () => switchGlobalTab("settings"));
 
         // Terminal
         document.getElementById("btn-clear-logs")?.addEventListener("click", () => {
@@ -1481,6 +1635,7 @@ steps:
         initSessionToken();
         initEventListeners();
         loadVersionStatus();
+        await checkAIStatus();
         await loadProjects();
         await loadScenarios();
     }

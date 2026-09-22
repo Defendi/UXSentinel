@@ -29,6 +29,7 @@ from uxsentinel.core.config import (
     resolve_video_mode,
     resolve_viewports,
 )
+from uxsentinel.core.events import EventBus
 from uxsentinel.core.models import (
     ExecutionResult,
     Scenario,
@@ -240,6 +241,7 @@ class ScenarioRunnerService:
         self,
         scenario: Scenario | str | Path,
         options: ScenarioRunOptions | None = None,
+        event_bus: EventBus | None = None,
     ) -> TestReport:
         """Executa um cenário individual orquestrando configurações, arquivamento e agente."""
         opts = options or ScenarioRunOptions()
@@ -271,6 +273,7 @@ class ScenarioRunnerService:
             archive_override=opts.archive,
             archive_dir_override=opts.archive_dir,
             fail_fast_override=opts.fail_fast,
+            event_bus=event_bus,
         )
 
         report = await agent.run_scenario(
@@ -288,6 +291,7 @@ class ScenarioRunnerService:
             archive_override=opts.archive,
             archive_dir_override=opts.archive_dir,
             fail_fast_override=opts.fail_fast,
+            event_bus=event_bus,
         )
 
         return report

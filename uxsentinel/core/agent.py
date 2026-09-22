@@ -1247,6 +1247,24 @@ class UXSentinelAgent:
                     },
                 )
             )
+            await bus.publish(
+                ExecutionEvent(
+                    event_type=EventType.CHECKPOINT_COMPLETED,
+                    scenario_id=report.scenario_id,
+                    viewport=vp_label,
+                    step_index=step_index,
+                    action="checkpoint",
+                    data={
+                        "name": cp_name,
+                        "status": cp_result.status,
+                        "issues_count": len(cp_result.issues),
+                        "expected_behavior": expected,
+                        "screenshot_path": str(screenshot_file)
+                        if screenshot_file and screenshot_file.is_file()
+                        else (str(screenshot_file) if screenshot_file else None),
+                    },
+                )
+            )
 
         if cp_result.status == "ok":
             p_console.print("    [bold green]✓ Checkpoint aprovado sem inconformidades![/bold green]")
