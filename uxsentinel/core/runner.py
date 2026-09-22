@@ -244,7 +244,11 @@ class ScenarioRunnerService:
         """Executa um cenário individual orquestrando configurações, arquivamento e agente."""
         opts = options or ScenarioRunOptions()
 
-        loaded_sc = load_scenario(str(scenario)) if isinstance(scenario, (str, Path)) else scenario
+        loaded_sc = (
+            load_scenario(str(scenario), auto_register=True)
+            if isinstance(scenario, (str, Path))
+            else scenario
+        )
 
         effective_cfg = self.prepare_config(loaded_sc, opts)
 

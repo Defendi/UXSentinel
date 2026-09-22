@@ -132,13 +132,16 @@ class GenerateScenarioRequest(BaseModel):
 # --- Helpers Utilitários ---
 
 
-def get_project_dir(request: Request) -> Path:
+def get_project_dir(request: Request) -> Path | None:
     """Recupera o diretório do projeto configurado no estado da aplicação."""
-    return getattr(request.app.state, "project_dir", Path.cwd())
+    p = getattr(request.app.state, "project_dir", None)
+    return Path(p).resolve() if p is not None else None
 
 
-def get_output_dir(project_dir: Path) -> Path:
+def get_output_dir(project_dir: Path | None) -> Path:
     """Localiza o diretório de relatórios de auditoria dentro do projeto."""
+    if project_dir is None:
+        return Path.cwd() / "report"
     candidates = [
         project_dir / "report",
         project_dir / "scenarios" / "report",
@@ -279,7 +282,7 @@ async def get_status(request: Request) -> dict[str, str]:
         "status": "ok",
         "studio_version": studio_version,
         "core_version": core_version,
-        "project_dir": str(project_dir),
+        "project_dir": str(project_dir) if project_dir is not None else "",
     }
 
 
@@ -293,16 +296,13 @@ async def list_projects(
 ) -> list[ProjectSummaryDTO]:
     """Lista todos os projetos cadastrados no catálogo global com status de ativação."""
     catalog = list_registered_projects()
-    current_proj_dir = get_project_dir(request).resolve()
+    current_proj_dir = get_project_dir(request)
 
     result: list[ProjectSummaryDTO] = []
-    has_active = False
 
     for p_id, entry in catalog.items():
         entry_root = Path(entry.root_path).resolve()
-        is_active = entry_root == current_proj_dir
-        if is_active:
-            has_active = True
+        is_active = (entry_root == current_proj_dir) if current_proj_dir is not None else False
 
         result.append(
             ProjectSummaryDTO(
@@ -314,23 +314,6 @@ async def list_projects(
                 is_active=is_active,
             )
         )
-
-    if not has_active:
-        active_id = (
-            re.sub(r"[^a-zA-Z0-9]+", "-", current_proj_dir.name.lower().strip()).strip("-") or "default"
-        )
-        if not any(p.id == active_id for p in result):
-            result.insert(
-                0,
-                ProjectSummaryDTO(
-                    id=active_id,
-                    name=current_proj_dir.name,
-                    path=str(current_proj_dir),
-                    scenarios_count=len(ScenarioService().list_scenarios(current_proj_dir)),
-                    last_used="",
-                    is_active=True,
-                ),
-            )
 
     return sorted(result, key=lambda p: (not p.is_active, p.name.lower()))
 
@@ -447,7 +430,8 @@ async def delete_project(
     p_id, entry = match
     remove_project_from_catalog(p_id)
 
-    was_active = Path(entry.root_path).resolve() == get_project_dir(request).resolve()
+    current_dir = get_project_dir(request)
+    was_active = current_dir is not None and Path(entry.root_path).resolve() == current_dir
     remaining_catalog = list_registered_projects()
 
     active_id: str | None = None
@@ -457,21 +441,22 @@ async def delete_project(
             request.app.state.project_dir = Path(next_entry.root_path).resolve()
             active_id = next_id
         else:
-            request.app.state.project_dir = Path.cwd()
+            request.app.state.project_dir = None
             active_id = None
     else:
-        current_dir = get_project_dir(request).resolve()
-        for r_id, r_entry in remaining_catalog.items():
-            if Path(r_entry.root_path).resolve() == current_dir:
-                active_id = r_id
-                break
+        if current_dir is not None:
+            for r_id, r_entry in remaining_catalog.items():
+                if Path(r_entry.root_path).resolve() == current_dir:
+                    active_id = r_id
+                    break
 
+    active_dir = get_project_dir(request)
     return {
         "success": True,
         "message": f"Projeto '{entry.name}' removido do catálogo com sucesso.",
         "project_id": p_id,
         "active_project_id": active_id,
-        "active_project_dir": str(get_project_dir(request)),
+        "active_project_dir": str(active_dir) if active_dir is not None else "",
     }
 
 
@@ -484,7 +469,7 @@ async def list_scenarios(
     project_id: str | None = None,
     _: str = Depends(verify_studio_token),
 ) -> list[ScenarioSummaryDTO]:
-    """Lista todos os cenários disponíveis no projeto e na biblioteca embutida."""
+    """Lista todos os cenários disponíveis no projeto ativo ou selecionado."""
     project_dir = get_project_dir(request)
     if project_id and project_id != "library":
         with contextlib.suppress(Exception):
@@ -494,8 +479,11 @@ async def list_scenarios(
                 if cand_dir.is_dir():
                     project_dir = cand_dir
 
+    if project_dir is None:
+        return []
+
     service = ScenarioService()
-    return service.list_scenarios(project_dir, project_id=project_id)
+    return service.list_scenarios(project_dir, project_id=project_id, include_library=False)
 
 
 @router.get("/scenarios/{scenario_id}", response_model=ScenarioDetailDTO)
@@ -523,6 +511,11 @@ async def create_scenario(
 ) -> dict[str, Any]:
     """Grava um novo arquivo de cenário após validação de sintaxe e semântica."""
     project_dir = get_project_dir(request)
+    if not project_dir:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Nenhum projeto selecionado.",
+        )
     service = ScenarioService()
     try:
         saved_path = service.save_scenario(req.yaml_content, req.filename, project_dir)
@@ -543,6 +536,11 @@ async def update_scenario(
 ) -> dict[str, Any]:
     """Atualiza o conteúdo de um cenário existente."""
     project_dir = get_project_dir(request)
+    if not project_dir:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Nenhum projeto selecionado.",
+        )
     service = ScenarioService()
     filename = req.filename or f"{scenario_id}.yaml"
     try:
@@ -563,9 +561,25 @@ async def delete_scenario(
 ) -> dict[str, bool]:
     """Exclui um cenário pertencente ao projeto (bloqueia exclusão da biblioteca)."""
     project_dir = get_project_dir(request)
+    if not project_dir:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Nenhum projeto selecionado.",
+        )
+
+    # Identifica o project_id ativo se houver
+    active_project_id: str | None = None
+    with contextlib.suppress(Exception):
+        catalog = list_registered_projects()
+        resolved_proj = project_dir.resolve()
+        for p_id, p_entry in catalog.items():
+            if p_entry.root_path and Path(p_entry.root_path).resolve() == resolved_proj:
+                active_project_id = p_id
+                break
+
     service = ScenarioService()
     try:
-        deleted = service.delete_scenario(scenario_id, project_dir)
+        deleted = service.delete_scenario(scenario_id, project_dir, project_id=active_project_id)
         if not deleted:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,

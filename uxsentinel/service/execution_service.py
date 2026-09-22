@@ -47,7 +47,7 @@ class ExecutionService:
 
     async def run(self, options: ExecutionOptions) -> TestReport:
         """Executa um cenário a partir das opções fornecidas."""
-        scenario = load_scenario(str(options.scenario_path))
+        scenario = load_scenario(str(options.scenario_path), auto_register=True)
 
         runner_options = ScenarioRunOptions(
             provider=options.provider,

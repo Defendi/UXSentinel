@@ -12,6 +12,7 @@ from uxsentinel.core.config import (
     list_registered_projects,
     register_project_scenario,
     remove_project_from_catalog,
+    remove_scenario_from_catalog,
 )
 from uxsentinel.scenarios.parser import load_scenario
 
@@ -224,7 +225,7 @@ def test_load_scenario_triggers_auto_registration(tmp_path: Path, monkeypatch):
         encoding="utf-8",
     )
 
-    loaded = load_scenario(str(scenario_file))
+    loaded = load_scenario(str(scenario_file), auto_register=True)
     assert loaded.id == "fluxo_auth"
 
     cfg_file = tmp_path / "config" / "uxsentinel" / "config.yaml"
@@ -369,3 +370,123 @@ def test_remove_project_from_catalog_empty_or_invalid_id(tmp_path: Path):
 
     assert remove_project_from_catalog("", cfg_file) is False
     assert remove_project_from_catalog("   ", cfg_file) is False
+
+
+def test_remove_scenario_from_catalog_with_project_id(tmp_path: Path):
+    cfg_file = tmp_path / "config.yaml"
+    cfg_file.write_text(
+        """projects:
+  meu-projeto:
+    name: "Meu Projeto"
+    root_path: "/opt/app"
+    scenarios:
+      login:
+        id: "login"
+        name: "Login"
+        path: "/opt/app/scenarios/login.yaml"
+      checkout:
+        id: "checkout"
+        name: "Checkout"
+        path: "/opt/app/scenarios/checkout.yaml"
+""",
+        encoding="utf-8",
+    )
+
+    removed = remove_scenario_from_catalog("login", project_id="meu-projeto", config_path=cfg_file)
+    assert removed is True
+
+    catalog = list_registered_projects(cfg_file)
+    assert "meu-projeto" in catalog
+    assert "login" not in catalog["meu-projeto"].scenarios
+    assert "checkout" in catalog["meu-projeto"].scenarios
+
+    # Verifica permissões 0o600
+    file_mode = stat.S_IMODE(cfg_file.stat().st_mode)
+    assert file_mode == 0o600
+
+
+def test_remove_scenario_from_catalog_without_project_id_broadcast(tmp_path: Path):
+    cfg_file = tmp_path / "config.yaml"
+    cfg_file.write_text(
+        """projects:
+  proj1:
+    name: "Projeto 1"
+    root_path: "/opt/p1"
+    scenarios:
+      cenario-comum:
+        id: "cenario-comum"
+        name: "Comum"
+        path: "/opt/p1/comum.yaml"
+  proj2:
+    name: "Projeto 2"
+    root_path: "/opt/p2"
+    scenarios:
+      cenario-comum:
+        id: "cenario-comum"
+        name: "Comum"
+        path: "/opt/p2/comum.yaml"
+      outro:
+        id: "outro"
+        name: "Outro"
+        path: "/opt/p2/outro.yaml"
+""",
+        encoding="utf-8",
+    )
+
+    removed = remove_scenario_from_catalog("cenario-comum", project_id=None, config_path=cfg_file)
+    assert removed is True
+
+    catalog = list_registered_projects(cfg_file)
+    assert "cenario-comum" not in catalog["proj1"].scenarios
+    assert "cenario-comum" not in catalog["proj2"].scenarios
+    assert "outro" in catalog["proj2"].scenarios
+
+
+def test_remove_scenario_from_catalog_nonexistent(tmp_path: Path):
+    cfg_file = tmp_path / "config.yaml"
+    cfg_file.write_text(
+        """projects:
+  proj1:
+    name: "Projeto 1"
+    root_path: "/opt/p1"
+    scenarios:
+      login:
+        id: "login"
+        name: "Login"
+        path: "/opt/p1/login.yaml"
+""",
+        encoding="utf-8",
+    )
+
+    assert remove_scenario_from_catalog("fantasma", project_id="proj1", config_path=cfg_file) is False
+    assert remove_scenario_from_catalog("fantasma", project_id=None, config_path=cfg_file) is False
+    assert remove_scenario_from_catalog("", project_id="proj1", config_path=cfg_file) is False
+
+    non_existent = tmp_path / "nao_existe" / "config.yaml"
+    assert remove_scenario_from_catalog("login", project_id="proj1", config_path=non_existent) is False
+
+
+def test_load_scenario_default_does_not_auto_register(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    cfg_file = tmp_path / "config.yaml"
+    cfg_file.write_text("projects: {}\n", encoding="utf-8")
+    monkeypatch.setattr("uxsentinel.core.config.get_user_config_path", lambda: cfg_file)
+    monkeypatch.setattr("uxsentinel.core.config.ensure_user_config", lambda: cfg_file)
+
+    proj_dir = tmp_path / "app_teste"
+    proj_dir.mkdir()
+    scen_path = proj_dir / "cenario.yaml"
+    scen_path.write_text("id: teste_load\ntitle: Teste Load\nsteps: []\n", encoding="utf-8")
+
+    # load_scenario por padrão não registra
+    sc = load_scenario(str(scen_path))
+    assert sc.id == "teste_load"
+
+    catalog = list_registered_projects(cfg_file)
+    assert len(catalog) == 0
+
+    # load_scenario com auto_register=True registra
+    sc2 = load_scenario(str(scen_path), auto_register=True)
+    assert sc2.id == "teste_load"
+
+    catalog_after = list_registered_projects(cfg_file)
+    assert len(catalog_after) > 0

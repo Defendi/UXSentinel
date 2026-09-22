@@ -924,7 +924,7 @@ async def async_main() -> int:
             )
             return EXIT_ERRO_EXECUCAO
         try:
-            load_scenario(str(sp), project_name=args.project_name)
+            load_scenario(str(sp), project_name=args.project_name, auto_register=True)
         except (yaml.YAMLError, ValueError, OSError) as err:
             console.print(f"[bold red]Erro ao ler o cenário '{sp.name}':[/bold red] {err}")
             return EXIT_ERRO_EXECUCAO

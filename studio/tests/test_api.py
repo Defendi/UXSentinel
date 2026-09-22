@@ -653,15 +653,30 @@ def test_list_projects_endpoint(
     """Valida retorno da lista de projetos cadastrados no catálogo global."""
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
 
+    # Sem projetos cadastrados, lista é estritamente vazia (sem projetos fantasmas)
+    resp = client.get("/api/projects", headers=auth_headers)
+    assert resp.status_code == 200
+    assert resp.json() == []
+
+    # Cadastra um projeto
+    proj_dir = tmp_path / "meu_projeto"
+    proj_dir.mkdir(parents=True)
+    resp_create = client.post(
+        "/api/projects",
+        json={"name": "Meu Projeto", "path": str(proj_dir)},
+        headers=auth_headers,
+    )
+    assert resp_create.status_code == 201
+
     resp = client.get("/api/projects", headers=auth_headers)
     assert resp.status_code == 200
     data = resp.json()
     assert isinstance(data, list)
-    assert len(data) >= 1
-    active_proj = next((p for p in data if p["is_active"]), None)
-    assert active_proj is not None
+    assert len(data) == 1
+    active_proj = data[0]
+    assert active_proj["is_active"] is True
+    assert active_proj["name"] == "Meu Projeto"
     assert "id" in active_proj
-    assert "name" in active_proj
     assert "path" in active_proj
     assert "scenarios_count" in active_proj
 
@@ -790,12 +805,11 @@ steps:
     assert data2[0]["id"] == "proj2_checkout"
     assert data2[0]["project_id"] == "projeto-beta"
 
-    # 3. Busca cenários com project_id=library
+    # 3. Busca cenários com project_id=library (removida da exibição do Studio)
     resp_lib = client.get("/api/scenarios?project_id=library", headers=auth_headers)
     assert resp_lib.status_code == 200
     data_lib = resp_lib.json()
-    assert len(data_lib) > 0
-    assert all(sc["project_id"] == "library" for sc in data_lib)
+    assert len(data_lib) == 0
 
 
 def test_delete_project_unauthorized(client: TestClient) -> None:
@@ -881,3 +895,69 @@ def test_delete_project_active_fallback(
     assert data_b["success"] is True
     assert data_b["project_id"] == "proj-beta"
     assert data_b["active_project_id"] is None
+
+
+def test_delete_scenario_removes_physical_file_and_catalog_link(
+    client: TestClient, auth_headers: dict[str, str], tmp_path: Path, monkeypatch
+) -> None:
+    """Garante que DELETE /api/scenarios/{id} remove o arquivo físico e desvincula do config.yaml."""
+    cfg_dir = tmp_path / "config" / "uxsentinel"
+    cfg_dir.mkdir(parents=True)
+    cfg_file = cfg_dir / "config.yaml"
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+
+    proj_dir = tmp_path / "meu_projeto_crud"
+    (proj_dir / "scenarios").mkdir(parents=True)
+
+    # Cadastra projeto
+    resp = client.post(
+        "/api/projects",
+        json={"name": "Projeto Crud", "path": str(proj_dir)},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 201
+
+    # Cria cenário
+    yaml_content = """version: "1.0"
+id: cenario_para_deletar
+title: Cenário Para Deletar
+steps:
+  - action: goto
+    url: "https://example.com"
+"""
+    create_resp = client.post(
+        "/api/scenarios",
+        json={"filename": "cenario_para_deletar.yaml", "yaml_content": yaml_content},
+        headers=auth_headers,
+    )
+    assert create_resp.status_code == 201
+
+    scen_file = proj_dir / "scenarios" / "cenario_para_deletar.yaml"
+    assert scen_file.is_file()
+
+    # Registra no catálogo config.yaml
+    from uxsentinel.core.config import register_project_scenario
+
+    register_project_scenario(
+        scenario_path=scen_file,
+        scenario_data={"id": "cenario_para_deletar", "name": "Cenário Para Deletar"},
+        project_name="Projeto Crud",
+        config_path=cfg_file,
+    )
+
+    import yaml
+
+    cfg_data = yaml.safe_load(cfg_file.read_text(encoding="utf-8"))
+    assert "cenario_para_deletar" in cfg_data["projects"]["projeto-crud"]["scenarios"]
+
+    # Exclui o cenário via API
+    del_resp = client.delete("/api/scenarios/cenario_para_deletar", headers=auth_headers)
+    assert del_resp.status_code == 200
+    assert del_resp.json()["success"] is True
+
+    # 1. Arquivo físico deve ter sido removido
+    assert not scen_file.exists()
+
+    # 2. Link no config.yaml deve ter sido removido
+    cfg_after = yaml.safe_load(cfg_file.read_text(encoding="utf-8"))
+    assert "cenario_para_deletar" not in cfg_after["projects"]["projeto-crud"]["scenarios"]

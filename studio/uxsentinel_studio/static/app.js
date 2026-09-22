@@ -141,6 +141,13 @@
         const selectEl = document.getElementById("select-active-project");
         if (!selectEl) return;
 
+        if (!state.projects || state.projects.length === 0) {
+            selectEl.innerHTML = '<option value="" disabled selected>Nenhum projeto cadastrado</option>';
+            state.activeProjectId = "";
+            updateDeleteProjectButtonVisibility();
+            return;
+        }
+
         selectEl.innerHTML = '<option value="">🌐 Todos os Projetos</option>';
 
         let foundActive = false;
@@ -148,7 +155,10 @@
             const opt = document.createElement("option");
             opt.value = p.id;
             opt.textContent = `📁 ${p.name} (${p.scenarios_count})`;
-            if (p.is_active && !foundActive) {
+            if (state.activeProjectId && p.id === state.activeProjectId) {
+                opt.selected = true;
+                foundActive = true;
+            } else if (!state.activeProjectId && p.is_active && !foundActive) {
                 opt.selected = true;
                 state.activeProjectId = p.id;
                 foundActive = true;
@@ -156,7 +166,7 @@
             selectEl.appendChild(opt);
         });
 
-        if (!foundActive && state.activeProjectId) {
+        if (foundActive && selectEl.value !== state.activeProjectId) {
             selectEl.value = state.activeProjectId;
         }
 
@@ -166,11 +176,35 @@
     function updateDeleteProjectButtonVisibility() {
         const btnDelete = document.getElementById("btn-open-delete-project-modal");
         if (!btnDelete) return;
-        if (state.activeProjectId) {
+        if (state.projects && state.projects.length > 0 && state.activeProjectId) {
             btnDelete.style.display = "inline-flex";
         } else {
             btnDelete.style.display = "none";
         }
+    }
+
+    function clearEditor() {
+        state.activeScenarioId = null;
+        state.activeScenarioData = null;
+        state.isDirty = false;
+
+        const filenameEl = document.getElementById("current-filename");
+        const sourceBadge = document.getElementById("current-source-badge");
+        const codeEditor = document.getElementById("yaml-code-editor");
+        const btnDelete = document.getElementById("btn-delete-scenario");
+        const stepsContainer = document.getElementById("preview-steps-container");
+
+        if (filenameEl) filenameEl.textContent = "Nenhum cenário selecionado";
+        if (sourceBadge) sourceBadge.textContent = "-";
+        if (codeEditor) {
+            codeEditor.value = "";
+            updateLineNumbers();
+        }
+        if (btnDelete) btnDelete.style.display = "none";
+        if (stepsContainer) {
+            stepsContainer.innerHTML = '<div class="empty-state-text" style="padding: 24px; text-align: center; color: var(--text-muted);">Nenhum cenário selecionado</div>';
+        }
+        setSaveStatus("saved");
     }
 
     async function loadScenarios() {
@@ -186,6 +220,8 @@
             // Se nenhum cenário estiver ativo, seleciona o primeiro
             if (!state.activeScenarioId && state.scenarios.length > 0) {
                 selectScenario(state.scenarios[0].id);
+            } else if (state.scenarios.length === 0 || !state.scenarios.some((s) => s.id === state.activeScenarioId)) {
+                clearEditor();
             }
         } catch (err) {
             console.error("Falha ao listar cenários:", err);
@@ -225,35 +261,44 @@
                 return false;
             }
 
-            if (state.activeFilter === "project") return sc.source === "project";
-            if (state.activeFilter === "library") return sc.source === "library";
-
             return true;
         });
 
         const treeContainer = document.getElementById("project-scenarios-tree");
-        const libraryList = document.getElementById("library-scenarios-list");
-        if (!treeContainer || !libraryList) return;
+        if (!treeContainer) return;
 
         treeContainer.innerHTML = "";
-        libraryList.innerHTML = "";
 
-        // Agrupa cenários de projeto por nome de projeto
+        if (!state.projects || state.projects.length === 0) {
+            treeContainer.innerHTML = `
+                <div class="empty-state-card" style="padding: 32px 16px; text-align: center; color: var(--text-muted);">
+                    <div style="font-size: 2.2rem; margin-bottom: 10px;">📂</div>
+                    <p style="font-weight: 600; color: var(--text-main); margin-bottom: 6px; font-size: 0.95rem;">Nenhum projeto cadastrado</p>
+                    <p style="font-size: 0.82rem; line-height: 1.4;">Cadastre um novo projeto para visualizar e gerenciar seus cenários de teste.</p>
+                </div>
+            `;
+            return;
+        }
+
+        if (state.filteredScenarios.length === 0) {
+            treeContainer.innerHTML = `
+                <div class="empty-state-card" style="padding: 32px 16px; text-align: center; color: var(--text-muted);">
+                    <div style="font-size: 2.2rem; margin-bottom: 10px;">📝</div>
+                    <p style="font-weight: 600; color: var(--text-main); margin-bottom: 6px; font-size: 0.95rem;">Nenhum cenário encontrado</p>
+                    <p style="font-size: 0.82rem; line-height: 1.4;">Crie um novo cenário no projeto ativo ou ajuste a busca.</p>
+                </div>
+            `;
+            return;
+        }
+
+        // Agrupa cenários por nome de projeto
         const projectGroups = {};
-        let libraryCount = 0;
-
         state.filteredScenarios.forEach((sc) => {
-            if (sc.source === "library") {
-                const li = createScenarioItemElement(sc);
-                libraryList.appendChild(li);
-                libraryCount++;
-            } else {
-                const grpKey = sc.project_name || sc.project_id || "Projeto Atual";
-                if (!projectGroups[grpKey]) {
-                    projectGroups[grpKey] = [];
-                }
-                projectGroups[grpKey].push(sc);
+            const grpKey = sc.project_name || sc.project_id || "Projeto Atual";
+            if (!projectGroups[grpKey]) {
+                projectGroups[grpKey] = [];
             }
+            projectGroups[grpKey].push(sc);
         });
 
         // Renderiza cada grupo de projeto
@@ -289,14 +334,6 @@
             groupDiv.appendChild(ul);
             treeContainer.appendChild(groupDiv);
         });
-
-        const libraryContainer = document.getElementById("library-group-container");
-        if (libraryContainer) {
-            libraryContainer.style.display = libraryCount > 0 ? "block" : "none";
-        }
-
-        const lCountEl = document.getElementById("library-count");
-        if (lCountEl) lCountEl.textContent = libraryCount;
     }
 
     async function selectScenario(scenarioId) {
@@ -329,8 +366,8 @@
 
             if (filenameEl) filenameEl.textContent = data.filename;
             if (sourceBadge) {
-                sourceBadge.textContent = data.source === "library" ? "Biblioteca" : "Projeto";
-                sourceBadge.style.color = data.source === "library" ? "var(--accent-purple)" : "var(--accent-cyan)";
+                sourceBadge.textContent = "Projeto";
+                sourceBadge.style.color = "var(--accent-cyan)";
             }
             if (profileSelect) profileSelect.value = data.profile || "generic";
             if (codeEditor) {
@@ -338,9 +375,8 @@
                 updateLineNumbers();
             }
 
-            // Biblioteca é read-only para exclusão
             if (btnDelete) {
-                btnDelete.style.display = data.source === "library" ? "none" : "inline-flex";
+                btnDelete.style.display = "inline-flex";
             }
 
             setSaveStatus("saved");
@@ -422,17 +458,13 @@
 
     async function saveScenario() {
         if (!state.activeScenarioId || !state.activeScenarioData) return;
-        if (state.activeScenarioData.source === "library") {
-            showToast("Cenários da biblioteca embutida são somente leitura.", "warning");
-            return;
-        }
 
         const codeEditor = document.getElementById("yaml-code-editor");
         if (!codeEditor) return;
 
         setSaveStatus("saving");
         try {
-            const res = await apiFetch(`/api/scenarios/${state.activeScenarioId}`, {
+            const res = await apiFetch(`/api/scenarios/${encodeURIComponent(state.activeScenarioId)}`, {
                 method: "PUT",
                 body: JSON.stringify({
                     yaml_content: codeEditor.value,
@@ -459,24 +491,18 @@
 
     async function deleteScenario() {
         if (!state.activeScenarioId || !state.activeScenarioData) return;
-        if (state.activeScenarioData.source === "library") {
-            showToast("Não é permitido excluir cenários da biblioteca interna.", "warning");
-            return;
-        }
 
         const confirmDel = confirm(`Tem certeza que deseja excluir o cenário '${state.activeScenarioData.title || state.activeScenarioId}'?`);
         if (!confirmDel) return;
 
         try {
-            const res = await apiFetch(`/api/scenarios/${state.activeScenarioId}`, {
+            const res = await apiFetch(`/api/scenarios/${encodeURIComponent(state.activeScenarioId)}`, {
                 method: "DELETE",
             });
 
             if (res.ok) {
                 showToast("Cenário excluído com sucesso!", "info");
-                state.activeScenarioId = null;
-                state.activeScenarioData = null;
-                state.isDirty = false;
+                clearEditor();
                 await loadScenarios();
             } else {
                 showToast("Erro ao excluir cenário.", "error");
@@ -1334,6 +1360,7 @@ steps:
                 showToast(data.message || "Projeto removido com sucesso!", "success");
 
                 state.activeProjectId = data.active_project_id || "";
+                clearEditor();
                 await loadProjects();
                 await loadScenarios();
             } catch (err) {

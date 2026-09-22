@@ -64,26 +64,13 @@
                         <input type="text" id="scenario-search" placeholder="Buscar cenários ou projetos...">
                     </div>
                     <div class="filter-tags" id="tag-filters">
-                        <button class="tag-pill active" data-filter="all">Todos</button>
-                        <button class="tag-pill" data-filter="project">📁 Projeto</button>
-                        <button class="tag-pill" data-filter="library">📚 Biblioteca</button>
+                        <button class="tag-pill active" data-filter="all">Todos os Cenários</button>
                     </div>
                 </div>
 
                 <div class="sidebar-content" id="sidebar-scenarios-container">
                     <!-- Árvore hierárquica por projetos inserida dinamicamente -->
                     <div id="project-scenarios-tree"></div>
-
-                    <!-- Seção Biblioteca Interna (Read-Only) -->
-                    <div class="scenario-group" id="library-group-container">
-                        <div class="group-title group-collapsible" id="library-group-header">
-                            <span>📚 Biblioteca Embutida (Read-Only)</span>
-                            <span class="group-count" id="library-count">0</span>
-                        </div>
-                        <ul class="scenario-list" id="library-scenarios-list">
-                            <!-- Inserido dinamicamente via app.js -->
-                        </ul>
-                    </div>
                 </div>
 
                 <div class="sidebar-actions">

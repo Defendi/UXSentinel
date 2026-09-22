@@ -1118,6 +1118,82 @@ def remove_project_from_catalog(
         return False
 
 
+def remove_scenario_from_catalog(
+    scenario_id: str,
+    project_id: str | None = None,
+    config_path: Path | None = None,
+) -> bool:
+    """Remove o registro de um cenário de um ou todos os projetos no config.yaml."""
+    clean_sid = scenario_id.strip()
+    if not clean_sid:
+        return False
+
+    cfg_file = config_path if config_path is not None else get_user_config_path()
+    if not cfg_file.is_file():
+        return False
+
+    try:
+        content = cfg_file.read_text(encoding="utf-8")
+        data = yaml.safe_load(content)
+    except Exception:
+        return False
+
+    if not isinstance(data, dict) or "projects" not in data or not isinstance(data["projects"], dict):
+        return False
+
+    removed = False
+
+    def _purge_scenario_from_project(proj_dict: dict[str, Any]) -> bool:
+        scenarios_map = proj_dict.get("scenarios")
+        if not isinstance(scenarios_map, dict):
+            return False
+        keys_to_del = []
+        for k, s_val in scenarios_map.items():
+            if k == clean_sid:
+                keys_to_del.append(k)
+            elif isinstance(s_val, dict):
+                s_id = str(s_val.get("id", ""))
+                s_path = str(s_val.get("path", ""))
+                if s_id == clean_sid or Path(s_path).name == clean_sid or Path(s_path).stem == clean_sid:
+                    keys_to_del.append(k)
+        for k in keys_to_del:
+            del scenarios_map[k]
+        return len(keys_to_del) > 0
+
+    if project_id:
+        clean_pid = project_id.strip()
+        target_proj_key: str | None = None
+        if clean_pid in data["projects"]:
+            target_proj_key = clean_pid
+        else:
+            match = find_project_in_catalog(clean_pid, cfg_file)
+            if match and match[0] in data["projects"]:
+                target_proj_key = match[0]
+
+        if (
+            target_proj_key
+            and isinstance(data["projects"][target_proj_key], dict)
+            and _purge_scenario_from_project(data["projects"][target_proj_key])
+        ):
+            removed = True
+    else:
+        for _p_key, proj_data in data["projects"].items():
+            if isinstance(proj_data, dict) and _purge_scenario_from_project(proj_data):
+                removed = True
+
+    if not removed:
+        return False
+
+    try:
+        cfg_file.parent.mkdir(parents=True, exist_ok=True)
+        cfg_file.write_text(yaml.safe_dump(data, sort_keys=False, allow_unicode=True), encoding="utf-8")
+        with contextlib.suppress(Exception):
+            cfg_file.chmod(0o600)
+        return True
+    except Exception:
+        return False
+
+
 __all__ = [
     "BUILTIN_PROVIDERS",
     "CANONICAL_VIEWPORTS",
@@ -1145,6 +1221,7 @@ __all__ = [
     "parse_viewports",
     "register_project_scenario",
     "remove_project_from_catalog",
+    "remove_scenario_from_catalog",
     "resolve_axe_mode",
     "resolve_devtools_mode",
     "resolve_display_mode",

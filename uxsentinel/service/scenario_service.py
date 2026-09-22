@@ -7,7 +7,11 @@ from pathlib import Path
 import yaml
 from pydantic import BaseModel, Field
 
-from uxsentinel.core.config import infer_project_metadata, list_registered_projects
+from uxsentinel.core.config import (
+    infer_project_metadata,
+    list_registered_projects,
+    remove_scenario_from_catalog,
+)
 from uxsentinel.scenarios.parser import load_scenario
 
 
@@ -75,23 +79,36 @@ class ScenarioService:
         """Localiza o diretório da biblioteca de cenários embutida do UXSentinel."""
         return Path(__file__).resolve().parent.parent / "scenarios" / "library"
 
-    def list_scenarios(self, base_dir: Path | str, project_id: str | None = None) -> list[ScenarioSummaryDTO]:
-        """Lista cenários do projeto local e da biblioteca interna."""
-        base_path = Path(base_dir).resolve()
+    def list_scenarios(
+        self,
+        base_dir: Path | str | None = None,
+        project_id: str | None = None,
+        include_library: bool = True,
+    ) -> list[ScenarioSummaryDTO]:
+        """Lista cenários do projeto local e opcionalmente da biblioteca interna."""
         scenarios: list[ScenarioSummaryDTO] = []
         seen_ids: set[str] = set()
+
+        search_dirs: list[tuple[Path, str]] = []
+        if base_dir is not None:
+            base_path = Path(base_dir).resolve()
+            search_dirs.extend(
+                [
+                    (base_path / "scenarios", "project"),
+                    (base_path / ".uxsentinel" / "scenarios", "project"),
+                    (base_path / "tests" / "scenarios", "project"),
+                    (base_path, "project"),
+                ]
+            )
+        if include_library:
+            search_dirs.append((self.get_library_dir(), "library"))
+
+        if not search_dirs:
+            return scenarios
 
         catalog = {}
         with contextlib.suppress(Exception):
             catalog = list_registered_projects()
-
-        search_dirs = [
-            (base_path / "scenarios", "project"),
-            (base_path / ".uxsentinel" / "scenarios", "project"),
-            (base_path / "tests" / "scenarios", "project"),
-            (base_path, "project"),
-            (self.get_library_dir(), "library"),
-        ]
 
         for sdir, source in search_dirs:
             if not sdir.is_dir():
@@ -177,21 +194,29 @@ class ScenarioService:
 
         return sorted(scenarios, key=lambda s: s.title.lower())
 
-    def find_scenario_path(self, scenario_id: str, base_dir: Path | str) -> Path | None:
+    def find_scenario_path(self, scenario_id: str, base_dir: Path | str | None) -> Path | None:
         """Localiza o caminho físico de um cenário no projeto ou na biblioteca interna."""
         try:
             self._sanitize_path_component(scenario_id)
         except PermissionError:
             return None
 
-        base_path = Path(base_dir).resolve()
-        search_dirs = [
-            base_path / "scenarios",
-            base_path / ".uxsentinel" / "scenarios",
-            base_path / "tests" / "scenarios",
-            base_path,
-            self.get_library_dir(),
-        ]
+        clean_q = scenario_id.strip()
+        if not clean_q:
+            return None
+
+        search_dirs: list[Path] = []
+        if base_dir is not None:
+            base_path = Path(base_dir).resolve()
+            search_dirs.extend(
+                [
+                    base_path / "scenarios",
+                    base_path / ".uxsentinel" / "scenarios",
+                    base_path / "tests" / "scenarios",
+                    base_path,
+                ]
+            )
+        search_dirs.append(self.get_library_dir())
 
         for sdir in search_dirs:
             if not sdir.is_dir():
@@ -213,7 +238,7 @@ class ScenarioService:
                         continue
         return None
 
-    def get_scenario(self, scenario_id: str, base_dir: Path | str) -> ScenarioDetailDTO:
+    def get_scenario(self, scenario_id: str, base_dir: Path | str | None) -> ScenarioDetailDTO:
         """Obtém detalhes de um cenário específico preservando raw_yaml original."""
         self._sanitize_path_component(scenario_id)
         target_file = self.find_scenario_path(scenario_id, base_dir)
@@ -359,8 +384,16 @@ class ScenarioService:
         target_file.write_text(yaml_content, encoding="utf-8")
         return target_file
 
-    def delete_scenario(self, scenario_id: str, base_dir: Path | str) -> bool:
+    def delete_scenario(
+        self,
+        scenario_id: str,
+        base_dir: Path | str | None,
+        project_id: str | None = None,
+    ) -> bool:
         """Exclui um cenário pertencente ao projeto (nunca da biblioteca interna)."""
+        if base_dir is None:
+            return False
+
         self._sanitize_path_component(scenario_id)
         base_path = Path(base_dir).resolve()
         target_dir = base_path / "scenarios"
@@ -374,6 +407,9 @@ class ScenarioService:
                     sc = load_scenario(str(candidate))
                     if sc.id == scenario_id or candidate.stem == scenario_id or candidate.name == scenario_id:
                         candidate.unlink()
+                        remove_scenario_from_catalog(scenario_id, project_id=project_id)
+                        if sc.id != scenario_id:
+                            remove_scenario_from_catalog(sc.id, project_id=project_id)
                         return True
                 except Exception:
                     continue
