@@ -304,12 +304,19 @@ async def list_projects(
         entry_root = Path(entry.root_path).resolve()
         is_active = (entry_root == current_proj_dir) if current_proj_dir is not None else False
 
+        if entry_root.is_dir():
+            scenarios_count = len(
+                ScenarioService().list_scenarios(entry_root, project_id=p_id, include_library=False)
+            )
+        else:
+            scenarios_count = 0
+
         result.append(
             ProjectSummaryDTO(
                 id=p_id,
                 name=entry.name,
                 path=str(entry.root_path),
-                scenarios_count=len(entry.scenarios),
+                scenarios_count=scenarios_count,
                 last_used=entry.last_run or "",
                 is_active=is_active,
             )

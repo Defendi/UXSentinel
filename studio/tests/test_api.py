@@ -1107,3 +1107,92 @@ global_settings: {}
     assert "steps_vazio" not in returned_ids
     assert "docker-compose" not in returned_ids
     assert all(s["step_count"] > 0 for s in scenarios)
+
+
+def test_api_projects_scenarios_count_reflects_real_disk_scenarios(
+    client: TestClient, auth_headers: dict[str, str], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Valida que GET /api/projects calcula cenários reais no disco ignorando entradas órfãs (UXS-73)."""
+    cfg_dir = tmp_path / "config" / "uxsentinel"
+    cfg_dir.mkdir(parents=True, exist_ok=True)
+    cfg_file = cfg_dir / "config.yaml"
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+
+    from uxsentinel.core.config import register_project_scenario
+
+    # 1. Cria projeto com pasta vazia (sem cenários válidos no disco)
+    empty_proj_dir = tmp_path / "projeto_vazio"
+    empty_proj_dir.mkdir(parents=True, exist_ok=True)
+
+    # Registra no catálogo um cenário fantasma / órfão cujo arquivo físico foi apagado
+    ghost_scenario_path = empty_proj_dir / "scenarios" / "apagado.yaml"
+    register_project_scenario(
+        scenario_path=ghost_scenario_path,
+        scenario_data={"id": "cenario_fantasma", "name": "Cenário Fantasma"},
+        project_name="Projeto Vazio",
+        config_path=cfg_file,
+    )
+
+    # Garante que o arquivo físico não existe
+    assert not ghost_scenario_path.exists()
+
+    # Faz GET /api/projects -> scenarios_count deve ser 0 (não conta entrada órfã)
+    resp = client.get("/api/projects", headers=auth_headers)
+    assert resp.status_code == 200
+    projects = resp.json()
+    proj_vazio = next((p for p in projects if p["name"] == "Projeto Vazio"), None)
+    assert proj_vazio is not None
+    assert proj_vazio["scenarios_count"] == 0
+
+    # 2. Adiciona cenários válidos na pasta do projeto
+    scenarios_dir = empty_proj_dir / "scenarios"
+    scenarios_dir.mkdir(parents=True, exist_ok=True)
+
+    scenario_valid_1 = scenarios_dir / "fluxo_1.yaml"
+    scenario_valid_1.write_text(
+        """id: fluxo_1
+title: Fluxo 1
+steps:
+  - action: goto
+    url: https://example.com
+""",
+        encoding="utf-8",
+    )
+
+    scenario_valid_2 = scenarios_dir / "fluxo_2.yaml"
+    scenario_valid_2.write_text(
+        """id: fluxo_2
+title: Fluxo 2
+steps:
+  - action: goto
+    url: https://example.com
+""",
+        encoding="utf-8",
+    )
+
+    # Cria também um arquivo YAML inválido/sem steps que não deve ser contado
+    invalid_yaml = scenarios_dir / "docker-compose.yaml"
+    invalid_yaml.write_text("version: '3'\nservices: {}\n", encoding="utf-8")
+
+    # Faz novo GET /api/projects -> scenarios_count deve ser exatamente 2
+    resp2 = client.get("/api/projects", headers=auth_headers)
+    assert resp2.status_code == 200
+    projects2 = resp2.json()
+    proj_com_cenarios = next((p for p in projects2 if p["name"] == "Projeto Vazio"), None)
+    assert proj_com_cenarios is not None
+    assert proj_com_cenarios["scenarios_count"] == 2
+
+    # 3. Registra projeto com diretório inexistente no disco
+    non_existent_dir = tmp_path / "diretorio_inexistente"
+    register_project_scenario(
+        scenario_path=non_existent_dir / "scenarios" / "fantasma.yaml",
+        scenario_data={"id": "fantasma", "name": "Fantasma"},
+        project_name="Projeto Sem Pasta",
+        config_path=cfg_file,
+    )
+    resp3 = client.get("/api/projects", headers=auth_headers)
+    assert resp3.status_code == 200
+    projects3 = resp3.json()
+    proj_sem_pasta = next((p for p in projects3 if p["name"] == "Projeto Sem Pasta"), None)
+    assert proj_sem_pasta is not None
+    assert proj_sem_pasta["scenarios_count"] == 0

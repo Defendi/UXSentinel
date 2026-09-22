@@ -288,7 +288,7 @@
                 <div class="empty-state" style="padding: 24px 16px; text-align: center; color: var(--color-text-muted); font-size: 13px;">
                     <span style="font-size: 28px; display: block; margin-bottom: 8px;">📂</span>
                     Nenhum cenário cadastrado.<br>
-                    <span style="font-size: 12px; color: var(--color-text-dim);">Adicione uma pasta de projeto no botão ➕ acima.</span>
+                    <span style="font-size: 12px; color: var(--color-text-dim);">Adicione uma pasta de projeto no botão ➕ abaixo.</span>
                 </div>
             `;
             clearEditor();
@@ -300,7 +300,7 @@
                 <div class="empty-state" style="padding: 24px 16px; text-align: center; color: var(--color-text-muted); font-size: 13px;">
                     <span style="font-size: 28px; display: block; margin-bottom: 8px;">📂</span>
                     Nenhum cenário cadastrado.<br>
-                    <span style="font-size: 12px; color: var(--color-text-dim);">Adicione uma pasta de projeto no botão ➕ acima.</span>
+                    <span style="font-size: 12px; color: var(--color-text-dim);">Adicione uma pasta de projeto no botão ➕ abaixo.</span>
                 </div>
             `;
             clearEditor();
