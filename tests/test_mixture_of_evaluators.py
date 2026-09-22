@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from uxsentinel.core.config import GlobalConfig, VisionSettings
-from uxsentinel.core.models import Issue, IssueCategory, IssueSeverity
+from uxsentinel.core.models import Issue, IssueCategory, IssueSeverity, ScenarioExceptions
 from uxsentinel.vision.evaluators.base import BaseEvaluator, EvaluatorContext
 from uxsentinel.vision.evaluators.domain import DomainQAAgent
 from uxsentinel.vision.evaluators.layout import LayoutAgent
@@ -395,3 +395,267 @@ async def test_screen_inspector_mixture_critical_fallback(tmp_path):
     mock_mixture.evaluate.assert_awaited_once()
     inspector.client.analyze.assert_awaited_once()
     assert result.status == "ok"
+
+
+# ==============================================================================
+# Testes Especializados Adicionais (Validação Completa UXS-5)
+# ==============================================================================
+
+
+@pytest.mark.asyncio
+async def test_linguist_agent_ignores_terms_in_allowlist(mock_vision_client, sample_context):
+    """Garante que termos autorizados no glossário (ex: 'Status', 'Feedback') não geram falso positivo."""
+    mock_vision_client.analyze.return_value = """
+    {
+      "issues": [
+        {
+          "categoria": "traducao",
+          "severidade": "media",
+          "descricao": "Termo 'Status' em inglês encontrado no cabeçalho.",
+          "sugestao_correcao": "Substituir por 'Situação'.",
+          "elemento_alvo": "span.badge-status"
+        }
+      ]
+    }
+    """
+    agent = LinguistAgent(mock_vision_client, allowlist=["Status", "Feedback"])
+    issues = await agent.evaluate(sample_context)
+
+    # 'Status' está na allowlist, portanto deve ser descartado determinísticamente
+    assert issues == []
+
+
+@pytest.mark.asyncio
+async def test_leakage_sentinel_detects_literal_null_and_stacktrace(mock_vision_client, sample_context):
+    """Garante a detecção de literais nulos/undefined e fragmentos de stacktrace com severidade bloqueante."""
+    mock_vision_client.analyze.return_value = """
+    {
+      "issues": [
+        {
+          "categoria": "texto_tecnico",
+          "severidade": "alta",
+          "descricao": "Valor não tratado 'undefined' visível no campo de email.",
+          "sugestao_correcao": "Tratar valor vazio no frontend.",
+          "elemento_alvo": "input#email"
+        },
+        {
+          "categoria": "texto_tecnico",
+          "severidade": "bloqueante",
+          "descricao": "Fragmento de traceback 'KeyError: partner_id' exposto na área de erro.",
+          "sugestao_correcao": "Ocultar traceback em ambiente produtivo e exibir mensagem amigável.",
+          "elemento_alvo": "pre.stacktrace"
+        }
+      ]
+    }
+    """
+    sentinel = LeakageSentinel(mock_vision_client)
+    issues = await sentinel.evaluate(sample_context)
+
+    assert len(issues) == 2
+    assert issues[0].severidade == IssueSeverity.ALTA
+    assert "undefined" in issues[0].descricao
+    assert issues[1].severidade == IssueSeverity.BLOQUEANTE
+    assert "traceback" in issues[1].descricao
+
+
+@pytest.mark.asyncio
+async def test_layout_agent_detects_table_overflow_without_scroll(mock_vision_client, sample_context):
+    """Garante a auditoria de quebra de layout quando uma tabela rompe a viewport sem scroll horizontal."""
+    mock_vision_client.analyze.return_value = """
+    {
+      "issues": [
+        {
+          "categoria": "layout_modal",
+          "severidade": "alta",
+          "descricao": "Tabela ultrapassa a largura da viewport provocando quebra da grade e sumiço de botões.",
+          "sugestao_correcao": "Adicionar classe 'table-responsive' e overflow-x: auto no container da tabela.",
+          "elemento_alvo": "div.table-wrapper"
+        }
+      ]
+    }
+    """
+    layout = LayoutAgent(mock_vision_client)
+    issues = await layout.evaluate(sample_context)
+
+    assert len(issues) == 1
+    assert issues[0].categoria == IssueCategory.LAYOUT_MODAL
+    assert issues[0].severidade == IssueSeverity.ALTA
+    assert "ultrapassa a largura" in issues[0].descricao
+
+
+@pytest.mark.asyncio
+async def test_base_evaluator_resilience_to_malformed_json_and_list_format(
+    mock_vision_client, sample_context
+):
+    """Garante tolerância a JSON corrompido, markdown sem tag json e formato em lista de issues."""
+    agent = LinguistAgent(mock_vision_client)
+
+    # 1. JSON em formato de lista pura [...]
+    mock_vision_client.analyze.return_value = """
+    [
+      {
+        "categoria": "traducao",
+        "severidade": "baixa",
+        "descricao": "Palavra 'Next' não traduzida no botão.",
+        "elemento_alvo": "button.next"
+      }
+    ]
+    """
+    issues = await agent.evaluate(sample_context)
+    assert len(issues) == 1
+    assert issues[0].descricao == "Palavra 'Next' não traduzida no botão."
+
+    # 2. Resposta corrompida / texto não-JSON
+    mock_vision_client.analyze.return_value = (
+        "Erro interno no provedor: [Invalid Token Payload! Não há JSON aqui."
+    )
+    issues_corrupted = await agent.evaluate(sample_context)
+    assert issues_corrupted == []
+
+
+@pytest.mark.asyncio
+async def test_base_evaluator_and_mixture_respect_scenario_exceptions(mock_vision_client):
+    """Garante que cláusulas de exceção (ScenarioExceptions) desconsideram issues correspondentes."""
+    exceptions = ScenarioExceptions(
+        allowed_texts=["Terms of Service"],
+        ignored_selectors=["footer.legal-notes"],
+    )
+    context = EvaluatorContext(
+        checkpoint_name="cp_termos",
+        expected_behavior="Validar rodapé",
+        image_base64="dummy_b64",
+        exceptions=exceptions,
+    )
+
+    mock_vision_client.analyze.return_value = """
+    {
+      "issues": [
+        {
+          "categoria": "traducao",
+          "severidade": "media",
+          "descricao": "Texto em inglês 'Terms of Service' no rodapé.",
+          "elemento_alvo": "footer.legal-notes a"
+        },
+        {
+          "categoria": "traducao",
+          "severidade": "alta",
+          "descricao": "Botão 'Cancel' não traduzido.",
+          "elemento_alvo": "button.btn-cancel"
+        }
+      ]
+    }
+    """
+    agent = LinguistAgent(mock_vision_client)
+    issues = await agent.evaluate(context)
+
+    # 'Terms of Service' e 'footer.legal-notes' devem ser ignorados por ScenarioExceptions
+    assert len(issues) == 1
+    assert issues[0].descricao == "Botão 'Cancel' não traduzido."
+    assert issues[0].elemento_alvo == "button.btn-cancel"
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_real_parallel_execution(sample_context):
+    """Verifica se os avaliadores executam de forma concorrente em paralelo via asyncio.gather."""
+    import asyncio
+    import time
+
+    class SlowEvaluator(BaseEvaluator):
+        def __init__(self, name: str, desc: str, elem: str, delay: float):
+            self._name = name
+            self.desc = desc
+            self.elem = elem
+            self.delay = delay
+
+        @property
+        def name(self) -> str:
+            return self._name
+
+        @property
+        def system_prompt(self) -> str:
+            return ""
+
+        @property
+        def default_category(self) -> IssueCategory:
+            return IssueCategory.TRADUCAO
+
+        async def evaluate(self, context: EvaluatorContext) -> list[Issue]:
+            await asyncio.sleep(self.delay)
+            return [
+                Issue(
+                    categoria=IssueCategory.TRADUCAO,
+                    severidade=IssueSeverity.BAIXA,
+                    descricao=self.desc,
+                    elemento_alvo=self.elem,
+                    evaluator=self.name,
+                )
+            ]
+
+    # 4 avaliadores distintos com delay de 0.05s cada. Se sequencial: >= 0.20s. Em paralelo: ~0.05s.
+    evaluators = [
+        SlowEvaluator("Linguist", "Termo 'Close' em inglês no botão fechar", "button#btn-close", 0.05),
+        SlowEvaluator("Leakage", "Identificador 'user_id' exposto na coluna", "th#col-user", 0.05),
+        SlowEvaluator("Layout", "Modal sem rolagem vertical adequada", "div.modal-body", 0.05),
+        SlowEvaluator("Domain", "Status não mudou para confirmado após clique", "div.status-bar", 0.05),
+    ]
+
+    cfg = GlobalConfig()
+    orchestrator = MixtureOfEvaluators(cfg, evaluators=evaluators)
+
+    start_time = time.perf_counter()
+    results = await orchestrator.evaluate(sample_context)
+    elapsed = time.perf_counter() - start_time
+
+    assert len(results) == 4
+    # A execução paralela deve ser bem mais rápida que 0.18s
+    assert elapsed < 0.15
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_multi_agent_merge_highest_severity():
+    """Garante fusão de 3 avaliadores para o mesmo elemento, mantendo a maior severidade (BLOQUEANTE) e todos os agentes."""
+    cfg = GlobalConfig()
+    orchestrator = MixtureOfEvaluators(cfg, evaluators=[])
+
+    issue_linguist = Issue(
+        categoria=IssueCategory.TRADUCAO,
+        severidade=IssueSeverity.BAIXA,
+        descricao="Termo técnico 'Submit_Order' em inglês visível no botão",
+        elemento_alvo="button#btn-submit",
+        evaluator="Linguist Agent",
+    )
+    issue_leakage = Issue(
+        categoria=IssueCategory.TEXTO_TECNICO,
+        severidade=IssueSeverity.MEDIA,
+        descricao="Termo técnico 'Submit_Order' em snake_case exposto no botão",
+        elemento_alvo="button#btn-submit",
+        evaluator="Leakage Sentinel",
+    )
+    issue_layout = Issue(
+        categoria=IssueCategory.LAYOUT_MODAL,
+        severidade=IssueSeverity.BLOQUEANTE,
+        descricao="Termo técnico 'Submit_Order' cortado pela metade e sobreposto no botão",
+        elemento_alvo="button#btn-submit",
+        evaluator="Layout & Modal Agent",
+    )
+
+    consolidated = orchestrator.consolidate_and_deduplicate([issue_linguist, issue_leakage, issue_layout])
+
+    assert len(consolidated) == 1
+    merged = consolidated[0]
+    # Severidade máxima preservada: BLOQUEANTE
+    assert merged.severidade == IssueSeverity.BLOQUEANTE
+    # Rastreamento completo de todos os 3 agentes consolidado
+    assert "Layout & Modal Agent" in merged.evaluator
+    assert "Leakage Sentinel" in merged.evaluator
+    assert "Linguist Agent" in merged.evaluator
+    assert merged.elemento_alvo == "button#btn-submit"
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_empty_evaluators_list(sample_context):
+    """Garante que lista vazia de avaliadores é tratada de forma limpa e segura."""
+    cfg = GlobalConfig()
+    orchestrator = MixtureOfEvaluators(cfg, evaluators=[])
+    results = await orchestrator.evaluate(sample_context)
+    assert results == []
