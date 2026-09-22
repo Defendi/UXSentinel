@@ -43,9 +43,22 @@
             <!-- COLUNA 1: Sidebar de Cenários e Navegação -->
             <aside class="sidebar" id="sidebar-col">
                 <div class="sidebar-header">
+                    <!-- Seletor de Projetos -->
+                    <div class="project-selector-container">
+                        <div class="project-selector-header">
+                            <span class="project-label">PROJETO</span>
+                            <button class="btn-icon-add" id="btn-open-add-project-modal" title="Adicionar Pasta de Projeto">➕</button>
+                        </div>
+                        <div class="project-select-wrapper">
+                            <select id="select-active-project" class="select-project-dropdown">
+                                <option value="">🌐 Todos os Projetos</option>
+                            </select>
+                        </div>
+                    </div>
+
                     <div class="search-box">
                         <span class="search-icon">🔍</span>
-                        <input type="text" id="scenario-search" placeholder="Buscar cenários por nome ou id...">
+                        <input type="text" id="scenario-search" placeholder="Buscar cenários ou projetos...">
                     </div>
                     <div class="filter-tags" id="tag-filters">
                         <button class="tag-pill active" data-filter="all">Todos</button>
@@ -54,21 +67,13 @@
                     </div>
                 </div>
 
-                <div class="sidebar-content">
-                    <!-- Seção Projeto -->
-                    <div class="scenario-group">
-                        <div class="group-title">
-                            <span>📁 Cenários do Projeto</span>
-                            <span class="group-count" id="project-count">0</span>
-                        </div>
-                        <ul class="scenario-list" id="project-scenarios-list">
-                            <!-- Inserido dinamicamente via app.js -->
-                        </ul>
-                    </div>
+                <div class="sidebar-content" id="sidebar-scenarios-container">
+                    <!-- Árvore hierárquica por projetos inserida dinamicamente -->
+                    <div id="project-scenarios-tree"></div>
 
-                    <!-- Seção Biblioteca Interna -->
-                    <div class="scenario-group">
-                        <div class="group-title">
+                    <!-- Seção Biblioteca Interna (Read-Only) -->
+                    <div class="scenario-group" id="library-group-container">
+                        <div class="group-title group-collapsible" id="library-group-header">
                             <span>📚 Biblioteca Embutida (Read-Only)</span>
                             <span class="group-count" id="library-count">0</span>
                         </div>
@@ -477,6 +482,33 @@
                     <button class="btn btn-primary" id="btn-apply-ai-yaml" style="display: none;">
                         <span>📥</span> Inserir no Editor
                     </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Modal: Adicionar Projeto -->
+        <div class="modal-overlay" id="modal-add-project">
+            <div class="modal-card">
+                <div class="modal-header">
+                    <h3>📁 Adicionar Pasta de Projeto</h3>
+                    <button class="modal-close" data-close-modal>&times;</button>
+                </div>
+                <div class="modal-body">
+                    <p class="modal-desc">
+                        Cadastre o diretório de um projeto existente contendo cenários YAML para gerenciá-lo no Studio.
+                    </p>
+                    <div class="form-group">
+                        <label for="new-project-name">Nome do Projeto:</label>
+                        <input type="text" id="new-project-name" placeholder="ex: Portal de Vendas">
+                    </div>
+                    <div class="form-group">
+                        <label for="new-project-path">Caminho da Pasta no Disco:</label>
+                        <input type="text" id="new-project-path" placeholder="ex: /mnt/home/alexandre/Projetos/MeuApp">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" data-close-modal>Cancelar</button>
+                    <button class="btn btn-primary" id="btn-confirm-add-project">Adicionar Projeto</button>
                 </div>
             </div>
         </div>

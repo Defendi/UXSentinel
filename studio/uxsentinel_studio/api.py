@@ -1,17 +1,25 @@
 """Rotas REST da API do UXSentinel Studio (UXS-50 / STU-03 / STU-04)."""
 
 import asyncio
+import contextlib
 import json
+import re
 import secrets
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+import yaml
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from uxsentinel import __version__ as core_version
+from uxsentinel.core.config import (
+    ensure_user_config,
+    find_project_in_catalog,
+    list_registered_projects,
+)
 from uxsentinel.scenarios.parser import load_scenario
 from uxsentinel.service import (
     ConfigService,
@@ -47,6 +55,30 @@ def _register_execution(run_id: str, data: dict[str, Any]) -> None:
 
 
 # --- DTOs de Entrada ---
+
+
+class ProjectSummaryDTO(BaseModel):
+    """Resumo de um projeto cadastrado no catálogo para o Studio."""
+
+    id: str
+    name: str
+    path: str
+    scenarios_count: int
+    last_used: str
+    is_active: bool
+
+
+class ProjectSelectRequest(BaseModel):
+    """Payload para alternar o projeto ativo no Studio."""
+
+    project_id: str
+
+
+class ProjectCreateRequest(BaseModel):
+    """Payload para registrar um novo projeto no catálogo."""
+
+    name: str
+    path: str
 
 
 class ScenarioCreateRequest(BaseModel):
@@ -247,6 +279,153 @@ async def get_status(request: Request) -> dict[str, str]:
         "studio_version": studio_version,
         "core_version": core_version,
         "project_dir": str(project_dir),
+    }
+
+
+# --- Projetos ---
+
+
+@router.get("/projects", response_model=list[ProjectSummaryDTO])
+async def list_projects(
+    request: Request,
+    _: str = Depends(verify_studio_token),
+) -> list[ProjectSummaryDTO]:
+    """Lista todos os projetos cadastrados no catálogo global com status de ativação."""
+    catalog = list_registered_projects()
+    current_proj_dir = get_project_dir(request).resolve()
+
+    result: list[ProjectSummaryDTO] = []
+    has_active = False
+
+    for p_id, entry in catalog.items():
+        entry_root = Path(entry.root_path).resolve()
+        is_active = entry_root == current_proj_dir
+        if is_active:
+            has_active = True
+
+        result.append(
+            ProjectSummaryDTO(
+                id=p_id,
+                name=entry.name,
+                path=str(entry.root_path),
+                scenarios_count=len(entry.scenarios),
+                last_used=entry.last_run or "",
+                is_active=is_active,
+            )
+        )
+
+    if not has_active:
+        active_id = (
+            re.sub(r"[^a-zA-Z0-9]+", "-", current_proj_dir.name.lower().strip()).strip("-") or "default"
+        )
+        if not any(p.id == active_id for p in result):
+            result.insert(
+                0,
+                ProjectSummaryDTO(
+                    id=active_id,
+                    name=current_proj_dir.name,
+                    path=str(current_proj_dir),
+                    scenarios_count=len(ScenarioService().list_scenarios(current_proj_dir)),
+                    last_used="",
+                    is_active=True,
+                ),
+            )
+
+    return sorted(result, key=lambda p: (not p.is_active, p.name.lower()))
+
+
+@router.post("/projects/select")
+async def select_project(
+    payload: ProjectSelectRequest,
+    request: Request,
+    _: str = Depends(verify_studio_token),
+) -> dict[str, Any]:
+    """Seleciona o projeto ativo no Studio alterando o workspace em memória."""
+    match = find_project_in_catalog(payload.project_id)
+    if not match:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Projeto '{payload.project_id}' não encontrado no catálogo.",
+        )
+
+    p_id, entry = match
+    target_path = Path(entry.root_path).resolve()
+    request.app.state.project_dir = target_path
+
+    return {
+        "success": True,
+        "project_id": p_id,
+        "project_name": entry.name,
+        "project_dir": str(target_path),
+    }
+
+
+@router.post("/projects", status_code=status.HTTP_201_CREATED)
+async def create_project(
+    payload: ProjectCreateRequest,
+    request: Request,
+    _: str = Depends(verify_studio_token),
+) -> dict[str, Any]:
+    """Cadastra um novo diretório de projeto no catálogo e o ativa no Studio."""
+    proj_path = Path(payload.path).resolve()
+    if not proj_path.is_dir():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"O caminho '{payload.path}' não é um diretório válido existente.",
+        )
+
+    clean_name = payload.name.strip()
+    if not clean_name:
+        clean_name = proj_path.name
+
+    slug = re.sub(r"[^a-zA-Z0-9]+", "-", clean_name.lower().strip()).strip("-") or "default"
+
+    cfg_file = ensure_user_config()
+    try:
+        content = cfg_file.read_text(encoding="utf-8")
+        data = yaml.safe_load(content) or {}
+    except Exception:
+        data = {}
+
+    if not isinstance(data, dict):
+        data = {}
+
+    projects_map = data.setdefault("projects", {})
+    if slug not in projects_map or not isinstance(projects_map[slug], dict):
+        projects_map[slug] = {
+            "name": clean_name,
+            "root_path": str(proj_path),
+            "scenarios": {},
+            "last_run": None,
+        }
+    else:
+        projects_map[slug]["name"] = clean_name
+        projects_map[slug]["root_path"] = str(proj_path)
+
+    scen_service = ScenarioService()
+    found_scenarios = scen_service.list_scenarios(proj_path)
+    for sc in found_scenarios:
+        if sc.source == "project":
+            p = scen_service.find_scenario_path(sc.id, proj_path)
+            if p:
+                projects_map[slug]["scenarios"][sc.id] = {
+                    "id": sc.id,
+                    "name": sc.title,
+                    "path": str(p),
+                    "last_run": None,
+                }
+
+    cfg_file.write_text(yaml.safe_dump(data, sort_keys=False, allow_unicode=True), encoding="utf-8")
+    with contextlib.suppress(Exception):
+        cfg_file.chmod(0o600)
+
+    request.app.state.project_dir = proj_path
+
+    return {
+        "success": True,
+        "project_id": slug,
+        "project_name": clean_name,
+        "project_dir": str(proj_path),
     }
 
 

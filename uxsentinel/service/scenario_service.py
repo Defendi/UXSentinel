@@ -1,11 +1,13 @@
 """Serviço de gerenciamento, CRUD e validação segura de cenários YAML."""
 
+import contextlib
 from datetime import UTC, datetime
 from pathlib import Path
 
 import yaml
 from pydantic import BaseModel, Field
 
+from uxsentinel.core.config import infer_project_metadata, list_registered_projects
 from uxsentinel.scenarios.parser import load_scenario
 
 
@@ -33,6 +35,8 @@ class ScenarioSummaryDTO(BaseModel):
     source: str = "project"  # 'project' ou 'library'
     step_count: int = 0
     modified_at: datetime
+    project_id: str | None = None
+    project_name: str | None = None
 
 
 class ScenarioDetailDTO(ScenarioSummaryDTO):
@@ -77,6 +81,10 @@ class ScenarioService:
         scenarios: list[ScenarioSummaryDTO] = []
         seen_ids: set[str] = set()
 
+        catalog = {}
+        with contextlib.suppress(Exception):
+            catalog = list_registered_projects()
+
         search_dirs = [
             (base_path / "scenarios", "project"),
             (base_path / ".uxsentinel" / "scenarios", "project"),
@@ -104,6 +112,15 @@ class ScenarioService:
                         seen_ids.add(sc.id)
                         stat = yml.stat()
                         mod_time = datetime.fromtimestamp(stat.st_mtime, tz=UTC)
+
+                        if source == "library":
+                            p_id = "library"
+                            p_name = "Biblioteca Embutida"
+                        else:
+                            p_id, p_name, _ = infer_project_metadata(yml)
+                            if p_id in catalog:
+                                p_name = catalog[p_id].name
+
                         scenarios.append(
                             ScenarioSummaryDTO(
                                 id=sc.id,
@@ -114,6 +131,8 @@ class ScenarioService:
                                 source=source,
                                 step_count=len(sc.steps),
                                 modified_at=mod_time,
+                                project_id=p_id,
+                                project_name=p_name,
                             )
                         )
                     except Exception:

@@ -640,3 +640,98 @@ def test_executions_api_endpoint_respects_cap(client: TestClient, auth_headers: 
     assert len(EXECUTIONS) == 50
     assert oldest_id not in EXECUTIONS
     assert new_run_id in EXECUTIONS
+
+
+# ==============================================================================
+# 9. Gerenciamento e Seletor de Projetos (UXS-66)
+# ==============================================================================
+
+
+def test_list_projects_endpoint(
+    client: TestClient, auth_headers: dict[str, str], tmp_path: Path, monkeypatch
+) -> None:
+    """Valida retorno da lista de projetos cadastrados no catálogo global."""
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+
+    resp = client.get("/api/projects", headers=auth_headers)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert isinstance(data, list)
+    assert len(data) >= 1
+    active_proj = next((p for p in data if p["is_active"]), None)
+    assert active_proj is not None
+    assert "id" in active_proj
+    assert "name" in active_proj
+    assert "path" in active_proj
+    assert "scenarios_count" in active_proj
+
+
+def test_select_project_endpoint(
+    client: TestClient, auth_headers: dict[str, str], tmp_path: Path, monkeypatch
+) -> None:
+    """Valida alternância do projeto ativo no Studio via /api/projects/select."""
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+
+    # Cria diretório de outro projeto
+    other_proj = tmp_path / "outro_projeto"
+    other_proj.mkdir(parents=True, exist_ok=True)
+    (other_proj / "scenarios").mkdir()
+    (other_proj / "scenarios" / "login.yaml").write_text("title: Login\nsteps: []\n", encoding="utf-8")
+
+    # Cadastra o projeto
+    create_resp = client.post(
+        "/api/projects",
+        json={"name": "Outro Projeto", "path": str(other_proj)},
+        headers=auth_headers,
+    )
+    assert create_resp.status_code == 201
+
+    # Seleciona o projeto
+    sel_resp = client.post(
+        "/api/projects/select",
+        json={"project_id": "outro-projeto"},
+        headers=auth_headers,
+    )
+    assert sel_resp.status_code == 200
+    sel_data = sel_resp.json()
+    assert sel_data["success"] is True
+    assert sel_data["project_id"] == "outro-projeto"
+    assert sel_data["project_name"] == "Outro Projeto"
+
+    # Seleciona projeto inexistente
+    err_resp = client.post(
+        "/api/projects/select",
+        json={"project_id": "projeto-fantasma"},
+        headers=auth_headers,
+    )
+    assert err_resp.status_code == 404
+
+
+def test_create_project_validation(
+    client: TestClient, auth_headers: dict[str, str], tmp_path: Path, monkeypatch
+) -> None:
+    """Valida erros ao tentar cadastrar diretório inválido de projeto."""
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+
+    resp = client.post(
+        "/api/projects",
+        json={"name": "Inválido", "path": str(tmp_path / "pasta_inexistente")},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 400
+
+
+def test_list_scenarios_includes_project_fields(
+    client: TestClient, auth_headers: dict[str, str], tmp_path: Path, monkeypatch
+) -> None:
+    """Valida se /api/scenarios retorna project_id e project_name preenchidos."""
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+
+    resp = client.get("/api/scenarios", headers=auth_headers)
+    assert resp.status_code == 200
+    scenarios = resp.json()
+    assert len(scenarios) > 0
+    sc = scenarios[0]
+    assert "project_id" in sc
+    assert "project_name" in sc
+    assert sc["project_name"] is not None

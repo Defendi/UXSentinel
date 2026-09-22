@@ -9,8 +9,11 @@
     // --- 1. Estado Central da Aplicação ---
     const state = {
         token: "",
+        projects: [],
+        activeProjectId: "",
         scenarios: [],
         filteredScenarios: [],
+        collapsedGroups: {},
         activeScenarioId: null,
         activeScenarioData: null,
         isDirty: false,
@@ -122,7 +125,42 @@
         }
     }
 
-    // --- 3. Carregamento e Gerenciamento de Cenários ---
+    // --- 3. Carregamento e Gerenciamento de Projetos e Cenários ---
+    async function loadProjects() {
+        try {
+            const res = await apiFetch("/api/projects");
+            if (!res.ok) return;
+            state.projects = await res.json();
+            renderProjectsDropdown();
+        } catch (err) {
+            console.error("Falha ao carregar catálogo de projetos:", err);
+        }
+    }
+
+    function renderProjectsDropdown() {
+        const selectEl = document.getElementById("select-active-project");
+        if (!selectEl) return;
+
+        selectEl.innerHTML = '<option value="">🌐 Todos os Projetos</option>';
+
+        let foundActive = false;
+        state.projects.forEach((p) => {
+            const opt = document.createElement("option");
+            opt.value = p.id;
+            opt.textContent = `📁 ${p.name} (${p.scenarios_count})`;
+            if (p.is_active && !foundActive) {
+                opt.selected = true;
+                state.activeProjectId = p.id;
+                foundActive = true;
+            }
+            selectEl.appendChild(opt);
+        });
+
+        if (!foundActive && state.activeProjectId) {
+            selectEl.value = state.activeProjectId;
+        }
+    }
+
     async function loadScenarios() {
         try {
             const res = await apiFetch("/api/scenarios");
@@ -139,57 +177,105 @@
         }
     }
 
+    function createScenarioItemElement(sc) {
+        const li = document.createElement("li");
+        li.className = `scenario-item ${sc.id === state.activeScenarioId ? "active" : ""}`;
+        li.innerHTML = `
+            <div class="scenario-item-header">
+                <span class="scenario-item-title" title="${escapeHtml(sc.title || sc.id)}">${escapeHtml(sc.title || sc.id)}</span>
+                <span class="scenario-item-steps">${sc.step_count || 0} passos</span>
+            </div>
+            <div class="scenario-item-meta">
+                <span class="scenario-item-profile">${escapeHtml(sc.profile || "generic")}</span>
+                <span>•</span>
+                <span>${escapeHtml(sc.filename)}</span>
+            </div>
+        `;
+        li.addEventListener("click", () => selectScenario(sc.id));
+        return li;
+    }
+
     function filterAndRenderScenarios() {
         const query = state.searchQuery.toLowerCase().trim();
         state.filteredScenarios = state.scenarios.filter((sc) => {
             const matchesQuery =
                 sc.id.toLowerCase().includes(query) ||
-                (sc.title && sc.title.toLowerCase().includes(query));
+                (sc.title && sc.title.toLowerCase().includes(query)) ||
+                (sc.project_name && sc.project_name.toLowerCase().includes(query)) ||
+                (sc.project_id && sc.project_id.toLowerCase().includes(query));
             if (!matchesQuery) return false;
 
             if (state.activeFilter === "project") return sc.source === "project";
             if (state.activeFilter === "library") return sc.source === "library";
+
+            // Se um projeto específico estiver selecionado no dropdown
+            if (state.activeProjectId && sc.source === "project") {
+                return sc.project_id === state.activeProjectId;
+            }
+
             return true;
         });
 
-        const projectList = document.getElementById("project-scenarios-list");
+        const treeContainer = document.getElementById("project-scenarios-tree");
         const libraryList = document.getElementById("library-scenarios-list");
-        if (!projectList || !libraryList) return;
+        if (!treeContainer || !libraryList) return;
 
-        projectList.innerHTML = "";
+        treeContainer.innerHTML = "";
         libraryList.innerHTML = "";
 
-        let projectCount = 0;
+        // Agrupa cenários de projeto por nome de projeto
+        const projectGroups = {};
         let libraryCount = 0;
 
         state.filteredScenarios.forEach((sc) => {
-            const li = document.createElement("li");
-            li.className = `scenario-item ${sc.id === state.activeScenarioId ? "active" : ""}`;
-            li.innerHTML = `
-                <div class="scenario-item-header">
-                    <span class="scenario-item-title" title="${escapeHtml(sc.title || sc.id)}">${escapeHtml(sc.title || sc.id)}</span>
-                    <span class="scenario-item-steps">${sc.step_count || 0} passos</span>
-                </div>
-                <div class="scenario-item-meta">
-                    <span class="scenario-item-profile">${escapeHtml(sc.profile || "generic")}</span>
-                    <span>•</span>
-                    <span>${escapeHtml(sc.filename)}</span>
-                </div>
-            `;
-            li.addEventListener("click", () => selectScenario(sc.id));
-
             if (sc.source === "library") {
+                const li = createScenarioItemElement(sc);
                 libraryList.appendChild(li);
                 libraryCount++;
             } else {
-                projectList.appendChild(li);
-                projectCount++;
+                const grpKey = sc.project_name || sc.project_id || "Projeto Atual";
+                if (!projectGroups[grpKey]) {
+                    projectGroups[grpKey] = [];
+                }
+                projectGroups[grpKey].push(sc);
             }
         });
 
-        const pCountEl = document.getElementById("project-count");
+        // Renderiza cada grupo de projeto
+        const sortedGroupKeys = Object.keys(projectGroups).sort((a, b) => a.localeCompare(b));
+        sortedGroupKeys.forEach((grpName) => {
+            const scenariosInGroup = projectGroups[grpName];
+            const isCollapsed = !!state.collapsedGroups[grpName];
+
+            const groupDiv = document.createElement("div");
+            groupDiv.className = `scenario-group ${isCollapsed ? "collapsed" : ""}`;
+
+            const titleDiv = document.createElement("div");
+            titleDiv.className = "group-title group-collapsible";
+            titleDiv.innerHTML = `
+                <span><span class="group-arrow">▾</span>📁 ${escapeHtml(grpName)}</span>
+                <span class="group-count">${scenariosInGroup.length}</span>
+            `;
+
+            titleDiv.addEventListener("click", () => {
+                state.collapsedGroups[grpName] = !state.collapsedGroups[grpName];
+                groupDiv.classList.toggle("collapsed", state.collapsedGroups[grpName]);
+            });
+
+            const ul = document.createElement("ul");
+            ul.className = "scenario-list";
+
+            scenariosInGroup.forEach((sc) => {
+                const li = createScenarioItemElement(sc);
+                ul.appendChild(li);
+            });
+
+            groupDiv.appendChild(titleDiv);
+            groupDiv.appendChild(ul);
+            treeContainer.appendChild(groupDiv);
+        });
+
         const lCountEl = document.getElementById("library-count");
-        if (pCountEl) pCountEl.textContent = projectCount;
         if (lCountEl) lCountEl.textContent = libraryCount;
     }
 
@@ -1133,6 +1219,69 @@ steps:
         document.getElementById("btn-save-scenario")?.addEventListener("click", saveScenario);
         document.getElementById("btn-delete-scenario")?.addEventListener("click", deleteScenario);
 
+        // Seletor de Projetos
+        document.getElementById("select-active-project")?.addEventListener("change", async (e) => {
+            const selectedId = e.target.value;
+            state.activeProjectId = selectedId;
+            if (selectedId) {
+                try {
+                    const res = await apiFetch("/api/projects/select", {
+                        method: "POST",
+                        body: JSON.stringify({ project_id: selectedId }),
+                    });
+                    if (res.ok) {
+                        const data = await res.json();
+                        showToast(`Projeto ativo alterado para '${data.project_name}'.`, "success");
+                    }
+                } catch (err) {
+                    console.error("Falha ao selecionar projeto:", err);
+                }
+            }
+            await loadScenarios();
+        });
+
+        // Modal: Adicionar Projeto
+        document.getElementById("btn-open-add-project-modal")?.addEventListener("click", () => {
+            openModal("modal-add-project");
+            document.getElementById("new-project-name")?.focus();
+        });
+
+        document.getElementById("btn-confirm-add-project")?.addEventListener("click", async () => {
+            const name = document.getElementById("new-project-name")?.value.trim() || "";
+            const path = document.getElementById("new-project-path")?.value.trim() || "";
+
+            if (!path) {
+                showToast("Informe o caminho absoluto da pasta do projeto.", "warning");
+                return;
+            }
+
+            try {
+                const res = await apiFetch("/api/projects", {
+                    method: "POST",
+                    body: JSON.stringify({ name, path }),
+                });
+
+                if (!res.ok) {
+                    const err = await res.json();
+                    showToast(err.detail || "Erro ao adicionar pasta de projeto.", "error");
+                    return;
+                }
+
+                const data = await res.json();
+                closeModals();
+                const nameInput = document.getElementById("new-project-name");
+                const pathInput = document.getElementById("new-project-path");
+                if (nameInput) nameInput.value = "";
+                if (pathInput) pathInput.value = "";
+                showToast(`Projeto '${data.project_name}' cadastrado com sucesso!`, "success");
+
+                await loadProjects();
+                await loadScenarios();
+            } catch (err) {
+                showToast(`Falha de comunicação: ${err.message}`, "error");
+            }
+        });
+
         // Modais de Criação e IA
         document.getElementById("btn-open-create-modal")?.addEventListener("click", () => openModal("modal-create-scenario"));
         document.getElementById("btn-open-ai-modal")?.addEventListener("click", () => openModal("modal-ai-assistant"));
@@ -1178,6 +1327,7 @@ steps:
         initSessionToken();
         initEventListeners();
         loadVersionStatus();
+        await loadProjects();
         await loadScenarios();
     }
 

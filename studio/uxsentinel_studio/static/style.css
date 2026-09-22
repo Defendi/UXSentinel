@@ -187,6 +187,102 @@ body {
     gap: 0.6rem;
 }
 
+/* Seletor de Projetos na Sidebar */
+.project-selector-container {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid var(--border-subtle);
+}
+
+.project-selector-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.project-label {
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    color: var(--text-muted);
+}
+
+.btn-icon-add {
+    background: transparent;
+    border: 1px solid var(--border-subtle);
+    border-radius: 4px;
+    color: var(--accent-purple);
+    font-size: 0.75rem;
+    cursor: pointer;
+    padding: 0.15rem 0.4rem;
+    transition: all 0.15s ease;
+}
+
+.btn-icon-add:hover {
+    background-color: var(--bg-card);
+    border-color: var(--accent-purple);
+    box-shadow: 0 0 6px var(--accent-purple-glow);
+}
+
+.project-select-wrapper {
+    position: relative;
+    width: 100%;
+}
+
+.select-project-dropdown {
+    width: 100%;
+    background-color: var(--bg-base);
+    border: 1px solid var(--border-subtle);
+    border-radius: 6px;
+    color: var(--text-primary);
+    padding: 0.45rem 0.65rem;
+    font-size: 0.82rem;
+    font-weight: 500;
+    outline: none;
+    cursor: pointer;
+    transition: border-color 0.15s ease;
+}
+
+.select-project-dropdown:focus {
+    border-color: var(--accent-purple);
+}
+
+.select-project-dropdown option {
+    background-color: var(--bg-surface);
+    color: var(--text-primary);
+}
+
+/* Árvore Hierárquica e Grupos Colapsáveis */
+.group-collapsible {
+    cursor: pointer;
+    user-select: none;
+    padding: 0.25rem 0.2rem;
+    border-radius: 4px;
+    transition: background-color 0.15s ease;
+}
+
+.group-collapsible:hover {
+    background-color: var(--bg-base);
+    color: var(--text-primary);
+}
+
+.group-arrow {
+    display: inline-block;
+    transition: transform 0.2s ease;
+    margin-right: 0.35rem;
+    font-size: 0.75rem;
+}
+
+.scenario-group.collapsed .group-arrow {
+    transform: rotate(-90deg);
+}
+
+.scenario-group.collapsed .scenario-list {
+    display: none;
+}
+
 .search-box {
     position: relative;
     display: flex;
