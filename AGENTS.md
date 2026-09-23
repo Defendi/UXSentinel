@@ -4,20 +4,86 @@ Este documento estabelece as regras mandatórias que TODOS os agentes de IA, sub
 
 ---
 
-## 🚦 0. Gate Mandatório Pré-Implementação
+## 🚦 0. Ciclo de Vida Mandatório de Toda Tarefa
 
 > [!CAUTION]
 >
-> ### REGRA INEGOCIÁVEL: NENHUMA IMPLEMENTAÇÃO SEM CARD JIRA COMPLETO E AUTORIZAÇÃO EXPRESSA
+> ### REGRA INEGOCIÁVEL: TODA TAREFA SEGUE 5 FASES DISTINTAS, CADA UMA COM GATE DE AUTORIZAÇÃO HUMANA
 >
-> É **terminantemente proibido** iniciar qualquer implementação de código (feature, bugfix, refatoração ou melhoria) sem que as seguintes etapas tenham sido concluídas **nesta ordem exata**:
->
-> 1. 📋 **Card Jira criado**: O card da tarefa deve existir no projeto `UXS` com título, descrição clara do problema/objetivo e critérios de aceitação mínimos.
-> 2. 📐 **Specs documentadas no card**: Todas as especificações técnicas, características da feature, comportamentos esperados e restrições devem estar descritas na descrição do card Jira **antes de qualquer linha de código ser escrita**.
-> 3. ✋ **Gate de Aprovação Humana**: O agente deve apresentar o card e as specs ao usuário e **aguardar autorização explícita por escrito** antes de iniciar qualquer implementação.
-> 4. 🚫 **Proibição de implementação antecipada**: O agente **NÃO DEVE** começar a escrever, ler arquivos para implementar, delegar a subagentes ou executar qualquer ação de implementação enquanto aguarda aprovação. Pesquisa e leitura de arquivos para elaborar as specs são permitidas.
+> Toda e qualquer tarefa (feature, bugfix, refatoração, melhoria ou release) deve obrigatoriamente passar pelas **5 fases abaixo, nesta ordem exata**. O agente **NÃO DEVE avançar para a próxima fase sem autorização explícita por escrito do usuário**, exceto quando o usuário indicar expressamente que determinada fase deve ser executada sem necessidade de aprovação.
 
 ---
+
+### Fase 1 — 📋 Especificação
+
+> [!IMPORTANT]
+> **Bloqueada até: autorização do usuário para iniciar a implementação.**
+
+- Criar (ou atualizar) o card no Jira projeto `UXS` com título, descrição do problema/objetivo e contexto.
+- Documentar no card todas as **características**, **comportamentos esperados**, **restrições técnicas** e **critérios de aceitação**.
+- Apresentar o card ao usuário com um resumo claro das specs.
+- ✋ **PARAR e aguardar aprovação** antes de qualquer ação de implementação.
+- 🚫 É **proibido** ler arquivos com intenção de implementar, escrever código, delegar a subagentes de implementação ou executar qualquer ação técnica antes da aprovação desta fase.
+
+---
+
+### Fase 2 — 🛠️ Implementação
+
+> [!IMPORTANT]
+> **Bloqueada até: autorização do usuário para iniciar os testes.**
+
+- Somente iniciar após aprovação da Fase 1.
+- Toda implementação deve ser executada por **subagentes especializados** (nunca diretamente pelo agente principal).
+- Seguir rigorosamente as specs aprovadas no card Jira.
+- Ao concluir, apresentar ao usuário o resumo das alterações realizadas.
+- ✋ **PARAR e aguardar aprovação** antes de executar a bateria de testes.
+
+---
+
+### Fase 3 — 🧪 Testes
+
+> [!IMPORTANT]
+> **Bloqueada até: autorização do usuário para publicar.**
+
+- Somente iniciar após aprovação da Fase 2.
+- Executar **100% da bateria de testes**: `ambiente/bin/pytest tests studio/tests`.
+- Executar a **tríade de qualidade**: `ruff check .` e `ruff format --check .` sem erros.
+- Todos os testes devem ser **100% herméticos** (sem chamadas a redes externas reais ou credenciais de produção).
+- Exibir claramente ao usuário o sumário completo dos resultados.
+- ✋ **PARAR e aguardar aprovação** antes de publicar qualquer versão.
+
+---
+
+### Fase 4 — 🚀 Publicação
+
+> [!IMPORTANT]
+> **Bloqueada até: autorização do usuário para finalizar.**
+
+- Somente iniciar após aprovação da Fase 3.
+- É **terminantemente proibido** de forma autônoma:
+  - Alterar versão em `pyproject.toml` ou `uxsentinel/__init__.py`;
+  - Criar tags Git de versão (`git tag vX.Y.Z`);
+  - Criar ou publicar Releases no GitHub;
+  - Publicar ou disparar deploys para o PyPI.
+- Executar: bump de versão → commit semântico → tag git → push → release GitHub → pipeline PyPI.
+- ✋ **PARAR e aguardar aprovação** antes de finalizar o card.
+
+---
+
+### Fase 5 — ✅ Finalização
+
+> [!IMPORTANT]
+> **Bloqueada até: autorização do usuário.**
+
+- Somente iniciar após aprovação da Fase 4.
+- Atualizar o card Jira com o status final, versão publicada e links da release.
+- Atualizar o `UXSentinel_Studio_Manual_do_Usuario.pdf` se houver mudanças de funcionalidade ou interface.
+- Fazer commit e push final de qualquer documentação pendente.
+- Fechar o card no Jira.
+
+---
+
+
 
 ## 🛑 1. Gate Mandatório de Nova Versão e Deploy
 
