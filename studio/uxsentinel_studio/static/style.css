@@ -2072,6 +2072,7 @@ body.is-resizing {
     border: 1px solid rgba(255, 255, 255, 0.09);
     border-radius: 8px;
     padding: 0.7rem 0.9rem;
+    min-height: 58px;
     cursor: pointer !important;
     transition: all 0.2s ease;
     display: flex;
@@ -2088,6 +2089,11 @@ body.is-resizing {
 }
 
 .card-step-pipeline.checkpoint-card {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    min-height: 58px;
     border-color: rgba(139, 92, 246, 0.35);
     background-color: rgba(46, 16, 101, 0.15);
 }
@@ -2238,6 +2244,7 @@ body.is-resizing {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    max-width: 650px;
 }
 
 .step-param-text {
@@ -2247,6 +2254,7 @@ body.is-resizing {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    max-width: 650px;
 }
 
 .step-comment-text {
@@ -2256,6 +2264,7 @@ body.is-resizing {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    max-width: 650px;
 }
 
 .step-card-actions {

@@ -2230,8 +2230,8 @@ def test_studio_static_index_html_uxs82_structure() -> None:
     assert index_html_path.is_file(), f"index.html não encontrado em {index_html_path}"
     content = index_html_path.read_text(encoding="utf-8")
 
-    # 1. Bump de versão para 0.1.7
-    assert 'id="version-display">v0.1.7</span>' in content
+    # 1. Bump de versão para 0.1.8
+    assert 'id="version-display">v0.1.8</span>' in content
 
     # 2. Barra Geral Superior: analyze-toolbar
     assert 'class="analyze-toolbar"' in content
@@ -2423,6 +2423,10 @@ def test_studio_static_uxs84_css_rules() -> None:
     assert "z-index: 1200 !important;" in content
     assert "cursor: pointer !important;" in content
 
+    # UXS-84: layout robusto e altura mínima para cards e checkpoint
+    assert ".card-step-pipeline.checkpoint-card" in content
+    assert "max-width: 650px;" in content
+
 
 def test_scenario_multiline_yaml_api_roundtrip(client: TestClient, auth_headers: dict[str, str]) -> None:
     """Valida gravação e análise estática de cenário contendo blocos multilinhas (UXS-84)."""
@@ -2482,3 +2486,30 @@ steps:
     detail = resp_detail.json()
     assert detail["id"] == "cenario_multilinha_uxs84"
     assert len(detail["steps"]) == 3
+
+
+def test_studio_static_uxs84_html_dom_balance_and_checkpoint_rendering() -> None:
+    """Valida o fechamento estrito de tags do DOM em index.html e formatação de checkpoints em app.js."""
+    index_html_path = Path(__file__).resolve().parent.parent / "uxsentinel_studio" / "static" / "index.html"
+    html_content = index_html_path.read_text(encoding="utf-8")
+
+    # Balanço estrito de divs no index.html (UXS-84)
+    import re
+
+    open_divs = len(re.findall(r"<div\b", html_content))
+    close_divs = len(re.findall(r"</div\b", html_content))
+    assert open_divs == close_divs, f"Balanço de divs inválido: open={open_divs}, close={close_divs}"
+
+    # Garante que modal-scenario-metadata NÃO está contido dentro de modal-delete-scenario
+    delete_modal_idx = html_content.find('id="modal-delete-scenario"')
+    metadata_modal_idx = html_content.find('id="modal-scenario-metadata"')
+    assert delete_modal_idx != -1 and metadata_modal_idx != -1
+    delete_modal_slice = html_content[delete_modal_idx:metadata_modal_idx]
+    # Deve haver fechamento do modal-card e do modal-overlay antes do modal seguinte
+    assert delete_modal_slice.count("</div>") >= 2
+
+    # Validação da lógica de checkpoint no app.js
+    js_path = Path(__file__).resolve().parent.parent / "uxsentinel_studio" / "static" / "app.js"
+    js_content = js_path.read_text(encoding="utf-8")
+    assert 'step.name || step.description || "Auditoria Visual (Checkpoint)"' in js_content
+    assert 'step.expected_behavior || step.instructions || step.focus || "Validação visual"' in js_content
