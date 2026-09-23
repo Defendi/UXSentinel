@@ -153,6 +153,42 @@ class AIStatusDTO(BaseModel):
     message: str
 
 
+class CrawlStartRequest(BaseModel):
+    """Payload para iniciar job assíncrono de crawling (UXS-12)."""
+
+    url: str
+    max_depth: int = 3
+    max_pages: int = 50
+    generate_scenarios: bool = True
+    output_dir: str | None = None
+    headless: bool = True
+    profile: str = "generic"
+
+
+class CrawlStatusDTO(BaseModel):
+    """Status estruturado em tempo real do crawling (UXS-12)."""
+
+    job_id: str
+    status: str
+    start_url: str
+    current_url: str | None = None
+    current_depth: int = 0
+    visited_count: int = 0
+    queued_count: int = 0
+    visited_pages: list[str] = Field(default_factory=list)
+    queued_pages: list[str] = Field(default_factory=list)
+    errors: list[dict[str, Any]] = Field(default_factory=list)
+    generated_scenarios: list[str] = Field(default_factory=list)
+    nodes_count: int = 0
+    started_at: str | None = None
+    finished_at: str | None = None
+
+
+# Armazenamento em memória para jobs de crawling
+CRAWL_JOBS: dict[str, Any] = {}
+CRAWL_TASKS: dict[str, asyncio.Task] = {}
+
+
 # --- Helpers Utilitários ---
 
 
@@ -1200,3 +1236,92 @@ steps:
     expected_behavior: "A tela deve estar totalmente renderizada conforme o objetivo: {clean_prompt}"
 """
     return {"yaml_content": yaml_content}
+
+
+# Modo Exploratório Autônomo (UXS-12)
+
+
+@router.post("/crawl/start")
+async def start_crawl(
+    req: CrawlStartRequest,
+    request: Request,
+    _: str = Depends(verify_studio_token),
+) -> dict[str, Any]:
+    """Inicia um job assíncrono de crawling exploratório em background."""
+    raw_url = req.url.strip()
+    if not raw_url or not (raw_url.startswith("http://") or raw_url.startswith("https://")):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="A URL informada deve iniciar com http:// ou https://.",
+        )
+
+    project_dir = get_project_dir(request)
+    if req.output_dir:
+        out_dir = Path(req.output_dir)
+    elif project_dir:
+        out_dir = project_dir / "scenarios" / "generated"
+    else:
+        out_dir = Path.cwd() / "scenarios" / "generated"
+
+    from uxsentinel.crawler import Crawler, CrawlOptions
+
+    options = CrawlOptions(
+        start_url=raw_url,
+        max_depth=req.max_depth,
+        max_pages=req.max_pages,
+        generate_scenarios=req.generate_scenarios,
+        output_dir=str(out_dir),
+        headless=req.headless,
+        profile=req.profile,
+    )
+
+    crawler = Crawler(options)
+    job_id = f"crawl_{secrets.token_hex(6)}"
+    CRAWL_JOBS[job_id] = crawler
+
+    task = asyncio.create_task(crawler.run())
+    CRAWL_TASKS[job_id] = task
+
+    return {
+        "job_id": job_id,
+        "status": "running",
+        "message": "Crawling iniciado com sucesso",
+    }
+
+
+@router.get("/crawl/status/{job_id}", response_model=CrawlStatusDTO)
+async def get_crawl_status(
+    job_id: str,
+    _: str = Depends(verify_studio_token),
+) -> CrawlStatusDTO:
+    """Retorna o status em tempo real de um job de crawling."""
+    crawler = CRAWL_JOBS.get(job_id)
+    if crawler is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Job de crawling '{job_id}' não encontrado.",
+        )
+
+    st = crawler.get_status()
+    return CrawlStatusDTO(job_id=job_id, **st)
+
+
+@router.post("/crawl/cancel/{job_id}")
+async def cancel_crawl(
+    job_id: str,
+    _: str = Depends(verify_studio_token),
+) -> dict[str, Any]:
+    """Cancela a execução de um job de crawling."""
+    crawler = CRAWL_JOBS.get(job_id)
+    if crawler is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Job de crawling '{job_id}' não encontrado.",
+        )
+
+    crawler.cancel()
+    return {
+        "job_id": job_id,
+        "status": "cancelled",
+        "message": "Crawling cancelado com sucesso",
+    }

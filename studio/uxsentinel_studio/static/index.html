@@ -14,7 +14,7 @@
             <div class="topbar-brand">
                 <span class="brand-icon">🛡️</span>
                 <span class="brand-name">UXSentinel <span class="brand-badge">Studio</span></span>
-                <span class="version-badge" id="version-display">v0.1.4</span>
+                <span class="version-badge" id="version-display">v0.1.8</span>
             </div>
 
             <!-- Navegação Superior / Abas Globais -->
@@ -89,6 +89,9 @@
                     <button class="btn btn-ai btn-block" id="btn-open-ai-modal">
                         <span>✨</span> Criar com IA
                     </button>
+                    <button class="btn btn-secondary btn-block" id="btn-open-crawl-modal" title="Modo Exploratório Autônomo">
+                        <span>🕷️</span> Modo Crawl
+                    </button>
                 </div>
             </aside>
 
@@ -96,68 +99,117 @@
             <section class="main-column" id="main-content-col">
                 <!-- Visão 1: Editor de Cenários (Padrão) -->
                 <div class="view-panel active" id="view-editor">
-                    <!-- Toolbar acima de tudo (editor + inspector) -->
-                    <div class="editor-toolbar">
+                    <!-- Toolbar de Análise e Execução (ocupa toda a largura: editor-pane + inspector) -->
+                    <div class="analyze-toolbar">
                         <div class="editor-file-info">
                             <span class="file-icon">📝</span>
                             <span class="file-name" id="current-filename">nenhum_cenario.yaml</span>
-                            <span class="file-source-badge" id="current-source-badge">Projeto</span>
-                            <span class="save-status" id="save-status-indicator">● Salvo</span>
                         </div>
 
-                        <div class="editor-controls">
-                            <div class="profile-selector">
-                                <label for="editor-profile-select">Perfil:</label>
-                                <select id="editor-profile-select">
-                                    <option value="generic">generic (Universal)</option>
-                                    <option value="odoo">odoo (Enterprise ERP)</option>
-                                </select>
-                            </div>
-                            <div class="toolbar-toggle-item toolbar-headless-toggle" id="toggle-container-headless" title="Alternar entre modo invisível (background) e janela do navegador visível na tela">
-                                <label class="toggle-switch toggle-sm">
-                                    <input type="checkbox" id="editor-execution-headless" checked>
-                                    <span class="toggle-slider"></span>
-                                </label>
-                                <span class="toggle-label" id="editor-execution-headless-label">Headless</span>
-                            </div>
-                            <div class="toolbar-toggle-item" id="toggle-container-devtools" title="DevTools: Abre o painel DevTools do Chromium">
-                                <label class="toggle-switch toggle-sm">
-                                    <input type="checkbox" id="editor-execution-devtools">
-                                    <span class="toggle-slider"></span>
-                                </label>
-                                <span class="toggle-label" id="editor-execution-devtools-label">DevTools</span>
-                            </div>
-                            <div class="toolbar-toggle-item" id="toggle-container-console" title="Console: Captura logs e erros de console JS">
-                                <label class="toggle-switch toggle-sm">
-                                    <input type="checkbox" id="editor-execution-console" checked>
-                                    <span class="toggle-slider"></span>
-                                </label>
-                                <span class="toggle-label" id="editor-execution-console-label">Console</span>
-                            </div>
-                            <div class="toolbar-toggle-item" id="toggle-container-inspect" title="Inspect: Modo de inspeção visual de seletores">
-                                <label class="toggle-switch toggle-sm">
-                                    <input type="checkbox" id="editor-execution-inspect">
-                                    <span class="toggle-slider"></span>
-                                </label>
-                                <span class="toggle-label" id="editor-execution-inspect-label">Inspect</span>
-                            </div>
-                            <button class="btn btn-primary" id="btn-run-scenario" title="Dispara a execução do cenário no background">
-                                <span>▶️</span> Executar Agora
-                            </button>
-                            <button class="btn btn-secondary" id="btn-save-scenario" title="Salva as alterações (Ctrl+S)">
-                                <span>💾</span> Salvar
-                            </button>
-                            <button class="btn btn-danger" id="btn-delete-scenario" title="Excluir este cenário do projeto">
-                                <span>🗑️</span> Excluir
-                            </button>
+                        <div class="toolbar-divider"></div>
+
+                        <div class="toolbar-toggle-item toolbar-headless-toggle" id="toggle-container-headless" title="Alternar entre modo invisível (background) e janela do navegador visível na tela">
+                            <label class="toggle-switch toggle-sm">
+                                <input type="checkbox" id="editor-execution-headless" checked>
+                                <span class="toggle-slider"></span>
+                            </label>
+                            <span class="toggle-label" id="editor-execution-headless-label">Headless</span>
                         </div>
+                        <div class="toolbar-toggle-item" id="toggle-container-devtools" title="DevTools: Abre o painel DevTools do Chromium">
+                            <label class="toggle-switch toggle-sm">
+                                <input type="checkbox" id="editor-execution-devtools">
+                                <span class="toggle-slider"></span>
+                            </label>
+                            <span class="toggle-label" id="editor-execution-devtools-label">DevTools</span>
+                        </div>
+                        <div class="toolbar-toggle-item" id="toggle-container-console" title="Console: Captura logs e erros de console JS">
+                            <label class="toggle-switch toggle-sm">
+                                <input type="checkbox" id="editor-execution-console" checked>
+                                <span class="toggle-slider"></span>
+                            </label>
+                            <span class="toggle-label" id="editor-execution-console-label">Console</span>
+                        </div>
+                        <div class="toolbar-toggle-item" id="toggle-container-inspect" title="Inspect: Modo de inspeção visual de seletores">
+                            <label class="toggle-switch toggle-sm">
+                                <input type="checkbox" id="editor-execution-inspect">
+                                <span class="toggle-slider"></span>
+                            </label>
+                            <span class="toggle-label" id="editor-execution-inspect-label">Inspect</span>
+                        </div>
+
+                        <div class="toolbar-divider"></div>
+
+                        <button class="btn btn-primary" id="btn-run-scenario" title="Dispara a execução do cenário no background">
+                            <span>▶️</span> Executar Agora
+                        </button>
                     </div>
 
                     <!-- Corpo: editor YAML e inspector lado a lado -->
                     <div class="editor-body">
-                        <!-- Painel do editor YAML -->
+                        <!-- Painel do editor YAML e visualizador -->
                         <div class="editor-pane">
-                            <div class="editor-container">
+                            <!-- Nova Toolbar do Editor no topo do painel -->
+                            <div class="editor-toolbar">
+                                <span class="file-source-badge" id="current-source-badge">Projeto</span>
+                                <span class="save-status" id="save-status-indicator">● Salvo</span>
+
+                                <div class="toolbar-divider"></div>
+
+                                <div class="profile-selector">
+                                    <label for="editor-profile-select">Perfil:</label>
+                                    <select id="editor-profile-select">
+                                        <option value="generic">generic (Universal)</option>
+                                        <option value="odoo">odoo (Enterprise ERP)</option>
+                                    </select>
+                                </div>
+
+                                <div class="toolbar-divider"></div>
+
+                                <button class="btn btn-secondary btn-sm" id="btn-edit-scenario-metadata" type="button" title="Editar propriedades e metadados do cenário (ID, Título, Tags, Env)">
+                                    <span>⚙️</span> Metadados
+                                </button>
+
+                                <div class="toolbar-divider"></div>
+
+                                <div class="view-mode-selector" id="view-mode-selector">
+                                    <button class="view-mode-btn active" id="btn-view-mode-visual" type="button" title="Visão Visual de Cards">👁️ Visual</button>
+                                    <button class="view-mode-btn" id="btn-view-mode-code" type="button" title="Editor de Código YAML">📝 Código YAML</button>
+                                </div>
+
+                                <div class="toolbar-divider"></div>
+
+                                <button class="btn btn-secondary btn-sm" id="btn-save-scenario" title="Salva as alterações (Ctrl+S)">
+                                    <span>💾</span> Salvar
+                                </button>
+                                <button class="btn btn-danger btn-sm" id="btn-delete-scenario" title="Excluir este cenário do projeto">
+                                    <span>🗑️</span> Excluir
+                                </button>
+                            </div>
+
+                            <!-- Visual Container (Visível por padrão) -->
+                            <div class="visual-container" id="visual-container">
+                                <div class="inspector-header">
+                                    <div class="pipeline-header-title">
+                                        <span class="insp-title">Esteira Sequencial de Ações</span>
+                                        <span class="step-count-badge" id="preview-step-count">0 passos</span>
+                                    </div>
+                                    <span class="pipeline-header-tip">Dica: Arraste para reordenar ou clique no card para editar parâmetros.</span>
+                                </div>
+                                <div class="step-card-stream" id="preview-steps-list">
+                                    <div class="empty-state">
+                                        <span class="empty-icon">👈</span>
+                                        <p>Selecione um cenário à esquerda para visualizar seus passos decompostos.</p>
+                                    </div>
+                                </div>
+                                <div class="pipeline-footer-action">
+                                    <button type="button" class="btn-add-step-dashed" id="btn-add-step-footer" title="Adicionar um novo passo ao final do pipeline">
+                                        <span>➕</span> Adicionar Passo à Pipeline
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- Editor Container (Código YAML - Oculto por padrão) -->
+                            <div class="editor-container hidden" id="editor-container">
                                 <div class="line-numbers" id="editor-line-numbers">1</div>
                                 <textarea id="yaml-code-editor" spellcheck="false" placeholder="# Carregando conteúdo YAML do cenário..."></textarea>
                             </div>
@@ -177,30 +229,13 @@
                         <!-- COLUNA 3: Inspector & Live Mission Control -->
                         <aside class="inspector-col" id="inspector-col">
                             <div class="inspector-tabs">
-                                <button class="insp-tab active" data-insp-tab="preview">
-                                    <span>📋</span> Passos do Cenário
-                                </button>
-                                <button class="insp-tab" data-insp-tab="live">
+                                <div class="insp-mission-tab">
                                     <span>⚡</span> Live Mission Control
-                                </button>
-                            </div>
-
-                            <!-- Visão Passos do Cenário Decompostos -->
-                            <div class="inspector-content active" id="insp-panel-preview">
-                                <div class="inspector-header">
-                                    <span class="insp-title">Roteiro Decomposto</span>
-                                    <span class="step-count-badge" id="preview-step-count">0 passos</span>
-                                </div>
-                                <div class="step-card-stream" id="preview-steps-list">
-                                    <div class="empty-state">
-                                        <span class="empty-icon">👈</span>
-                                        <p>Selecione um cenário à esquerda para visualizar seus passos decompostos.</p>
-                                    </div>
                                 </div>
                             </div>
 
                             <!-- Visão Live Mission Control (Streaming SSE) -->
-                            <div class="inspector-content" id="insp-panel-live">
+                            <div class="inspector-content active" id="insp-panel-live">
                                 <div class="live-header">
                                     <div class="live-title-row">
                                         <span class="live-badge" id="live-badge">AGUARDANDO</span>
@@ -530,6 +565,98 @@
             </div>
         </div>
 
+        <!-- Modal: Modo Exploratório Autônomo (Crawler - UXS-12) -->
+        <div class="modal-overlay" id="modal-crawler">
+            <div class="modal-card modal-lg">
+                <div class="modal-header">
+                    <h3>🕷️ Modo Exploratório Autônomo (Crawler)</h3>
+                    <button class="modal-close" data-close-modal>&times;</button>
+                </div>
+                <div class="modal-body">
+                    <p class="modal-desc">
+                        O crawler descobre rotas, links e telas na mesma origem da aplicação de forma autônoma com BFS, aplicando guardrails anti-destruição e gerando cenários YAML válidos.
+                    </p>
+
+                    <!-- Formulário de Configuração -->
+                    <div id="crawl-config-section">
+                        <div class="form-group">
+                            <label for="crawl-url-input">URL Inicial (Same-Origin):</label>
+                            <input type="url" id="crawl-url-input" class="form-control" placeholder="https://exemplo.com.br" required style="width: 100%; padding: 8px 12px; background: var(--bg-input, #222); border: 1px solid var(--border-color, #444); color: var(--text-color, #eee); border-radius: 4px;">
+                        </div>
+
+                        <div class="form-row" style="display: flex; gap: 15px; margin-top: 10px;">
+                            <div class="form-group" style="flex: 1;">
+                                <label for="crawl-max-depth">Profundidade Máxima:</label>
+                                <input type="number" id="crawl-max-depth" class="form-control" value="3" min="1" max="10" style="width: 100%; padding: 8px 12px; background: var(--bg-input, #222); border: 1px solid var(--border-color, #444); color: var(--text-color, #eee); border-radius: 4px;">
+                            </div>
+                            <div class="form-group" style="flex: 1;">
+                                <label for="crawl-max-pages">Limite de Páginas:</label>
+                                <input type="number" id="crawl-max-pages" class="form-control" value="50" min="1" max="500" style="width: 100%; padding: 8px 12px; background: var(--bg-input, #222); border: 1px solid var(--border-color, #444); color: var(--text-color, #eee); border-radius: 4px;">
+                            </div>
+                        </div>
+
+                        <div class="form-row" style="display: flex; gap: 20px; margin-top: 12px;">
+                            <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                                <input type="checkbox" id="crawl-generate-scenarios" checked>
+                                <span>Gerar Cenários YAML</span>
+                            </label>
+                            <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                                <input type="checkbox" id="crawl-headless" checked>
+                                <span>Executar em Headless</span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- Painel de Monitoramento em Tempo Real -->
+                    <div id="crawl-progress-section" style="display: none; margin-top: 15px; border-top: 1px solid var(--border-color, #333); padding-top: 15px;">
+                        <div class="crawl-stats-grid" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 12px;">
+                            <div class="crawl-stat-box" style="background: var(--bg-card, #1a1a1a); padding: 10px; border-radius: 6px; text-align: center; border: 1px solid var(--border-color, #333);">
+                                <div style="font-size: 1.4rem; font-weight: bold; color: var(--primary-color, #4facfe);" id="crawl-visited-count">0</div>
+                                <div style="font-size: 0.75rem; color: var(--text-muted, #888);">Visitadas</div>
+                            </div>
+                            <div class="crawl-stat-box" style="background: var(--bg-card, #1a1a1a); padding: 10px; border-radius: 6px; text-align: center; border: 1px solid var(--border-color, #333);">
+                                <div style="font-size: 1.4rem; font-weight: bold; color: #ffb703;" id="crawl-queued-count">0</div>
+                                <div style="font-size: 0.75rem; color: var(--text-muted, #888);">Na Fila BFS</div>
+                            </div>
+                            <div class="crawl-stat-box" style="background: var(--bg-card, #1a1a1a); padding: 10px; border-radius: 6px; text-align: center; border: 1px solid var(--border-color, #333);">
+                                <div style="font-size: 1.4rem; font-weight: bold; color: #e63946;" id="crawl-errors-count">0</div>
+                                <div style="font-size: 0.75rem; color: var(--text-muted, #888);">Erros</div>
+                            </div>
+                            <div class="crawl-stat-box" style="background: var(--bg-card, #1a1a1a); padding: 10px; border-radius: 6px; text-align: center; border: 1px solid var(--border-color, #333);">
+                                <div style="font-size: 1.4rem; font-weight: bold; color: #2a9d8f;" id="crawl-scenarios-count">0</div>
+                                <div style="font-size: 0.75rem; color: var(--text-muted, #888);">Cenários</div>
+                            </div>
+                        </div>
+
+                        <div class="crawl-current-info" style="font-size: 0.85rem; color: var(--text-muted, #888); margin-bottom: 10px; word-break: break-all;">
+                            <span>URL Atual: </span><strong id="crawl-current-url" style="color: var(--text-color, #eee);">-</strong>
+                        </div>
+
+                        <!-- Erros detectados com severidade -->
+                        <div id="crawl-errors-box" style="margin-top: 10px; display: none;">
+                            <label style="font-weight: bold; font-size: 0.85rem; color: #e63946; margin-bottom: 4px; display: block;">Erros e Backtracks:</label>
+                            <div id="crawl-errors-list" style="max-height: 120px; overflow-y: auto; background: var(--bg-card, #151515); padding: 8px; border-radius: 4px; font-size: 0.8rem;"></div>
+                        </div>
+
+                        <!-- Lista de Cenários Descobertos / Gerados -->
+                        <div id="crawl-results-box" style="margin-top: 12px; display: none;">
+                            <label style="font-weight: bold; font-size: 0.85rem; margin-bottom: 6px; display: block;">Cenários YAML Descobertos:</label>
+                            <div id="crawl-scenarios-list" style="max-height: 160px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px;"></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" data-close-modal id="btn-close-crawl-modal">Fechar</button>
+                    <button class="btn btn-danger" id="btn-cancel-crawl" style="display: none;">
+                        <span>🛑</span> Cancelar Crawl
+                    </button>
+                    <button class="btn btn-primary" id="btn-start-crawl">
+                        <span>🚀</span> Iniciar Crawling
+                    </button>
+                </div>
+            </div>
+        </div>
+
         <!-- Modal: Adicionar Projeto -->
         <div class="modal-overlay" id="modal-add-project">
             <div class="modal-card">
@@ -609,6 +736,223 @@
                 <div class="modal-footer">
                     <button class="btn btn-secondary" data-close-modal>Cancelar</button>
                     <button class="btn btn-danger" id="btn-confirm-delete-scenario">Confirmar Exclusão</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Modal: Metadados Iniciais do Cenário (UXS-83) -->
+        <div class="modal-overlay" id="modal-scenario-metadata">
+            <div class="modal-card modal-lg">
+                <div class="modal-header">
+                    <h3><span>⚙️</span> Propriedades do Cenário de Auditoria</h3>
+                    <button class="modal-close" data-close-modal>&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="form-group">
+                        <label for="scenario-meta-id">Identificador Único (id):</label>
+                        <input type="text" id="scenario-meta-id" class="input-mono" placeholder="ex: auditoria_jornada_gotryx">
+                    </div>
+                    <div class="form-group">
+                        <label for="scenario-meta-title">Título da Jornada (title):</label>
+                        <input type="text" id="scenario-meta-title" placeholder="ex: GoTryx - Auditoria de Usabilidade e UX">
+                    </div>
+                    <div class="form-group">
+                        <label for="scenario-meta-description">Descrição do Objetivo (description):</label>
+                        <textarea id="scenario-meta-description" rows="2" placeholder="Auditoria visual e cognitiva sob a ótica estrita do usuário cliente."></textarea>
+                    </div>
+                    <div class="form-row-2">
+                        <div class="form-group">
+                            <label for="scenario-meta-profile">Perfil de Aplicação (profile):</label>
+                            <select id="scenario-meta-profile">
+                                <option value="generic">generic (Universal)</option>
+                                <option value="odoo">odoo (Enterprise ERP)</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Etiquetas (tags):</label>
+                            <div class="tags-manager" id="scenario-meta-tags-wrapper">
+                                <div class="tags-pills-list" id="scenario-meta-tags-container"></div>
+                                <div class="tag-input-row">
+                                    <input type="text" id="scenario-meta-tag-input" placeholder="Nova tag...">
+                                    <button type="button" class="btn btn-secondary btn-xs" id="btn-add-tag" title="Adicionar Tag">➕</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- Gerenciador de Variáveis de Ambiente (env) -->
+                    <div class="env-manager-section">
+                        <div class="env-manager-header">
+                            <label class="form-label-with-icon"><span>🌐</span> Variáveis de Ambiente (env):</label>
+                            <button type="button" class="btn btn-primary btn-xs" id="btn-add-env-var" title="Adicionar Nova Variável">➕</button>
+                        </div>
+                        <div class="env-rows-container" id="scenario-meta-env-container"></div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" data-close-modal>❌ Cancelar</button>
+                    <button class="btn btn-primary" id="btn-save-scenario-metadata">💾 Salvar Metadados</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Modal: Edição de Passos/Ações (UXS-83) -->
+        <div class="modal-overlay" id="modal-step-editor">
+            <div class="modal-card modal-lg">
+                <div class="modal-header">
+                    <h3 id="step-modal-title"><span>✏️</span> Editar Parâmetros da Ação</h3>
+                    <button class="modal-close" data-close-modal>&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="form-row-3">
+                        <div class="form-group">
+                            <label for="step-modal-number">Nº do Passo (Posição):</label>
+                            <input type="number" id="step-modal-number" min="1" value="1" class="input-mono font-bold">
+                        </div>
+                        <div class="form-group col-span-2">
+                            <label for="step-modal-action">Tipo de Ação (action):</label>
+                            <select id="step-modal-action" class="input-mono">
+                                <option value="goto">goto (Navegar para URL)</option>
+                                <option value="click">click (Clicar no elemento)</option>
+                                <option value="fill">fill (Preencher campo de texto)</option>
+                                <option value="checkpoint">checkpoint (Auditoria Visual & IA)</option>
+                                <option value="wait">wait (Temporizador / Espera)</option>
+                                <option value="hover">hover (Passar o mouse)</option>
+                                <option value="press">press (Pressionar tecla)</option>
+                                <option value="scroll">scroll (Rolar página)</option>
+                                <option value="select">select (Selecionar opção dropdown)</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- Campos Condicionais Específicos por Ação -->
+                    <!-- 1. GOTO -->
+                    <div class="step-conditional-group hidden" id="step-group-goto">
+                        <div class="form-group">
+                            <label for="step-field-url">URL de Destino:</label>
+                            <input type="text" id="step-field-url" class="input-mono" placeholder="http://localhost:8069/web/login">
+                        </div>
+                        <div class="form-group">
+                            <label for="step-field-timeout-goto">Timeout de Navegação (ms):</label>
+                            <input type="number" id="step-field-timeout-goto" class="input-mono" placeholder="30000">
+                        </div>
+                    </div>
+
+                    <!-- 2. CLICK / HOVER -->
+                    <div class="step-conditional-group hidden" id="step-group-click-hover">
+                        <div class="form-group">
+                            <label for="step-field-selector-click">Seletor do Elemento (CSS ou XPath):</label>
+                            <input type="text" id="step-field-selector-click" class="input-mono" placeholder="button.btn-primary[type='submit']">
+                        </div>
+                        <div class="form-row-2">
+                            <div class="form-group">
+                                <label class="checkbox-label">
+                                    <input type="checkbox" id="step-field-wait-visible-click" checked>
+                                    <span>Aguardar elemento ficar visível</span>
+                                </label>
+                            </div>
+                            <div class="form-group">
+                                <label for="step-field-timeout-click">Timeout (ms):</label>
+                                <input type="number" id="step-field-timeout-click" class="input-mono" placeholder="10000">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 3. FILL -->
+                    <div class="step-conditional-group hidden" id="step-group-fill">
+                        <div class="form-group">
+                            <label for="step-field-selector-fill">Seletor do Elemento:</label>
+                            <input type="text" id="step-field-selector-fill" class="input-mono" placeholder="input#login">
+                        </div>
+                        <div class="form-group">
+                            <label for="step-field-value-fill">Valor a Preencher:</label>
+                            <input type="text" id="step-field-value-fill" placeholder="admin@gotryx.com">
+                        </div>
+                        <div class="form-group">
+                            <label class="checkbox-label">
+                                <input type="checkbox" id="step-field-clear-fill" checked>
+                                <span>Limpar campo antes de preencher</span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- 4. PRESS -->
+                    <div class="step-conditional-group hidden" id="step-group-press">
+                        <div class="form-group">
+                            <label for="step-field-selector-press">Seletor do Elemento Alvo (ou vazio para ativo):</label>
+                            <input type="text" id="step-field-selector-press" class="input-mono" placeholder="input#search">
+                        </div>
+                        <div class="form-group">
+                            <label for="step-field-key-press">Tecla a Pressionar:</label>
+                            <input type="text" id="step-field-key-press" class="input-mono" placeholder="ex: Enter, Escape, Tab, ArrowDown">
+                        </div>
+                    </div>
+
+                    <!-- 5. SELECT -->
+                    <div class="step-conditional-group hidden" id="step-group-select">
+                        <div class="form-group">
+                            <label for="step-field-selector-select">Seletor do Dropdown (&lt;select&gt;):</label>
+                            <input type="text" id="step-field-selector-select" class="input-mono" placeholder="select#country ou select[name='database']">
+                        </div>
+                        <div class="form-group">
+                            <label for="step-field-option-select">Opção a Selecionar (valor ou label):</label>
+                            <input type="text" id="step-field-option-select" placeholder="ex: gotryx_db">
+                        </div>
+                    </div>
+
+                    <!-- 6. CHECKPOINT -->
+                    <div class="step-conditional-group hidden" id="step-group-checkpoint">
+                        <div class="form-group">
+                            <label for="step-field-checkpoint-name">Nome do Ponto de Auditoria:</label>
+                            <input type="text" id="step-field-checkpoint-name" placeholder="ex: Auditoria Visual e Cognitiva do Dashboard">
+                        </div>
+                        <div class="form-group">
+                            <label for="step-field-checkpoint-instructions">Instruções de Usabilidade para a IA:</label>
+                            <textarea id="step-field-checkpoint-instructions" rows="3" placeholder="Valida ausência de 'Odoo' na tela e contraste das métricas"></textarea>
+                        </div>
+                        <div class="form-group">
+                            <label for="step-field-checkpoint-focus">Foco Visual Opcional (Seletor ou Região):</label>
+                            <input type="text" id="step-field-checkpoint-focus" class="input-mono" placeholder="ex: .o_action_manager">
+                        </div>
+                    </div>
+
+                    <!-- 7. WAIT -->
+                    <div class="step-conditional-group hidden" id="step-group-wait">
+                        <div class="form-group">
+                            <label for="step-field-wait-ms">Tempo de Espera (milissegundos):</label>
+                            <input type="number" id="step-field-wait-ms" class="input-mono" placeholder="ex: 2000">
+                        </div>
+                        <div class="form-group">
+                            <label for="step-field-wait-selector">Ou Aguardar Seletor / Condição:</label>
+                            <input type="text" id="step-field-wait-selector" class="input-mono" placeholder="ex: div.o_loading:not(.active)">
+                        </div>
+                    </div>
+
+                    <!-- 8. SCROLL -->
+                    <div class="step-conditional-group hidden" id="step-group-scroll">
+                        <div class="form-group">
+                            <label for="step-field-scroll-direction">Direção / Distância:</label>
+                            <input type="text" id="step-field-scroll-direction" class="input-mono" placeholder="ex: down, top, 500">
+                        </div>
+                        <div class="form-group">
+                            <label for="step-field-scroll-target">Ou Seletor Alvo para Scroll:</label>
+                            <input type="text" id="step-field-scroll-target" class="input-mono" placeholder="ex: footer">
+                        </div>
+                    </div>
+
+                    <!-- 9. CAMPO TRANSVERSAL: COMENTÁRIO PRESERVADO NO YAML -->
+                    <div class="step-comment-group">
+                        <label for="step-modal-comment">
+                            <span>💬</span> Comentário do Passo (Preservado no YAML):
+                        </label>
+                        <input type="text" id="step-modal-comment" placeholder="Adicione uma anotação técnica para documentar este passo...">
+                    </div>
+                </div>
+                <div class="modal-footer modal-footer-between">
+                    <button type="button" class="btn btn-danger" id="btn-step-modal-delete">🗑️ Excluir Passo</button>
+                    <div class="modal-footer-actions">
+                        <button type="button" class="btn btn-secondary" data-close-modal>❌ Cancelar</button>
+                        <button type="button" class="btn btn-primary" id="btn-step-modal-save">💾 Salvar Passo</button>
+                    </div>
                 </div>
             </div>
         </div>

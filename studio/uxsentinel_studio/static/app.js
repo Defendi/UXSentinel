@@ -22,7 +22,8 @@
         autosaveTimer: null,
         validationTimer: null,
         activeTab: "scenarios",
-        activeInspTab: "preview",
+        activeInspTab: "live",
+        editorViewMode: "visual",
         activeFilter: "all",
         searchQuery: "",
         currentRunId: null,
@@ -31,6 +32,11 @@
         checkpointsLive: [],
         aiConnected: null,
         globalConfig: null,
+        pipelineSteps: [],
+        metadataModalTags: [],
+        editingStepIndex: null,
+        draggedStepIndex: null,
+        congruenceWarnings: {},
     };
 
     // --- 2. Utilitários e Cliente HTTP Autenticado ---
@@ -203,7 +209,6 @@
         const sourceBadge = document.getElementById("current-source-badge");
         const codeEditor = document.getElementById("yaml-code-editor");
         const btnDelete = document.getElementById("btn-delete-scenario");
-        const stepsContainer = document.getElementById("preview-steps-container");
 
         if (filenameEl) filenameEl.textContent = "Nenhum cenário selecionado";
         if (sourceBadge) sourceBadge.textContent = "-";
@@ -212,9 +217,7 @@
             updateLineNumbers();
         }
         if (btnDelete) btnDelete.style.display = "none";
-        if (stepsContainer) {
-            stepsContainer.innerHTML = '<div class="empty-state-text" style="padding: 24px; text-align: center; color: var(--text-muted);">Nenhum cenário selecionado</div>';
-        }
+        renderPreviewSteps([]);
         setSaveStatus("saved");
 
         const browserCfg = state.globalConfig?.browser || {};
@@ -454,7 +457,15 @@
             }
 
             setSaveStatus("saved");
-            renderPreviewSteps(data.steps || []);
+            state.pipelineSteps = (data.steps || []).map((s, idx) => ({ ...s, index: idx + 1 }));
+            if (state.pipelineSteps.length === 0 && data.raw_yaml) {
+                const parsed = parseScenarioYaml(data.raw_yaml);
+                if (parsed.steps && parsed.steps.length > 0) {
+                    state.pipelineSteps = parsed.steps;
+                }
+            }
+            renderPipelineCards();
+            validatePipelineCongruence(state.pipelineSteps);
             validateYaml(codeEditor ? codeEditor.value : "");
 
             // Sincroniza os toggles de execução com o cenário ou com a configuração global (UXS-76)
@@ -497,7 +508,28 @@
         }
     }
 
-    // --- 4. YAML Studio Editor & Validação (STU-06) ---
+    // --- 4. YAML Studio Editor & Alternância de Visão (UXS-82 / STU-06) ---
+    function switchEditorViewMode(mode) {
+        state.editorViewMode = mode;
+        const visualContainer = document.getElementById("visual-container");
+        const editorContainer = document.getElementById("editor-container");
+        const btnVisual = document.getElementById("btn-view-mode-visual");
+        const btnCode = document.getElementById("btn-view-mode-code");
+
+        if (mode === "visual") {
+            visualContainer?.classList.remove("hidden");
+            editorContainer?.classList.add("hidden");
+            btnVisual?.classList.add("active");
+            btnCode?.classList.remove("active");
+        } else if (mode === "code") {
+            editorContainer?.classList.remove("hidden");
+            visualContainer?.classList.add("hidden");
+            btnCode?.classList.add("active");
+            btnVisual?.classList.remove("active");
+            updateLineNumbers();
+        }
+    }
+
     function updateLineNumbers() {
         const codeEditor = document.getElementById("yaml-code-editor");
         const lineNumbers = document.getElementById("editor-line-numbers");
@@ -551,9 +583,16 @@
 
             const result = await res.json();
             if (result.valid) {
-                valBar.className = "validation-bar valid";
-                valIcon.textContent = "✓";
-                valMsg.textContent = "Sintaxe YAML e semântica de passos em conformidade total.";
+                if (Object.keys(state.congruenceWarnings || {}).length > 0) {
+                    const firstWarn = Object.values(state.congruenceWarnings)[0];
+                    valBar.className = "validation-bar warning";
+                    valIcon.textContent = "⚠️";
+                    valMsg.textContent = `Aviso de Congruência: ${firstWarn}`;
+                } else {
+                    valBar.className = "validation-bar valid";
+                    valIcon.textContent = "✓";
+                    valMsg.textContent = "Sintaxe YAML e sequência determinística em conformidade total.";
+                }
             } else {
                 valBar.className = "validation-bar invalid";
                 valIcon.textContent = "✕";
@@ -622,19 +661,467 @@
         openModal("modal-delete-scenario");
     }
 
-    // --- 5. Renderização do Roteiro de Passos (Preview) ---
-    function renderPreviewSteps(steps) {
+    // --- 5. Motor do Pipeline Visual de Cenários (UXS-83) ---
+
+    // Parser Tolerante de YAML para Cenários do UXSentinel (Zero dependências externas)
+    function parseScenarioYaml(yamlText) {
+        const result = {
+            id: "",
+            title: "",
+            description: "",
+            profile: "generic",
+            tags: [],
+            env: {},
+            steps: [],
+            headless: null,
+            devtools: null,
+            capture_console: null,
+            inspect: null,
+        };
+
+        if (!yamlText || !yamlText.trim()) return result;
+
+        const lines = yamlText.split("\n");
+        let currentSection = null;
+        let currentStep = null;
+        let currentListKey = null;
+
+        // Estado para rastrear blocos escalares multilinhas (> ou |)
+        let inMultilineScalar = false;
+        let multilineType = ">";
+        let multilineIndent = 0;
+        let multilineLines = [];
+        let multilineTarget = null;
+        let multilineKey = "";
+
+        function finalizeMultilineScalar() {
+            if (inMultilineScalar && multilineTarget && multilineKey) {
+                if (multilineType === ">") {
+                    multilineTarget[multilineKey] = multilineLines.map((l) => l.trim()).filter(Boolean).join(" ");
+                } else {
+                    multilineTarget[multilineKey] = multilineLines.join("\n").trimEnd();
+                }
+            }
+            inMultilineScalar = false;
+            multilineTarget = null;
+            multilineLines = [];
+            multilineKey = "";
+        }
+
+        for (let i = 0; i < lines.length; i++) {
+            const rawLine = lines[i];
+            const trimmed = rawLine.trim();
+            const lineIndent = rawLine.search(/\S/);
+
+            // 1. Processamento de Bloco Escalar Multilinha ativo
+            if (inMultilineScalar) {
+                if (!trimmed) {
+                    multilineLines.push("");
+                    continue;
+                }
+                if (lineIndent > multilineIndent) {
+                    multilineLines.push(rawLine.trim());
+                    continue;
+                }
+                // Indentação menor ou igual à chave pai -> o bloco escalar encerrou!
+                finalizeMultilineScalar();
+            }
+
+            // 2. Linhas vazias e comentários puros (#) são solenemente ignorados e NUNCA criam steps
+            if (!trimmed || trimmed.startsWith("#")) continue;
+
+            const isIndent0 = lineIndent === 0;
+
+            if (isIndent0) {
+                if (currentStep) {
+                    result.steps.push(currentStep);
+                    currentStep = null;
+                }
+                currentListKey = null;
+
+                const colonIdx = trimmed.indexOf(":");
+                if (colonIdx > 0) {
+                    const key = trimmed.substring(0, colonIdx).trim();
+                    let val = trimmed.substring(colonIdx + 1).trim();
+
+                    if (val === ">" || val === "|" || val === ">-" || val === "|-") {
+                        inMultilineScalar = true;
+                        multilineType = val.startsWith("|") ? "|" : ">";
+                        multilineIndent = lineIndent;
+                        multilineTarget = result;
+                        multilineKey = key;
+                        multilineLines = [];
+                        currentSection = null;
+                        continue;
+                    }
+
+                    val = val.replace(/^["']|["']$/g, "");
+
+                    if (key === "tags") {
+                        currentSection = "tags";
+                    } else if (key === "env") {
+                        currentSection = "env";
+                    } else if (key === "steps") {
+                        currentSection = "steps";
+                    } else {
+                        currentSection = null;
+                        if (key === "id") result.id = val;
+                        else if (key === "title") result.title = val;
+                        else if (key === "description") result.description = val;
+                        else if (key === "profile") result.profile = val || "generic";
+                        else if (key === "headless") result.headless = val === "true";
+                        else if (key === "devtools") result.devtools = val === "true";
+                        else if (key === "capture_console") result.capture_console = val === "true";
+                        else if (key === "inspect") result.inspect = val === "true";
+                    }
+                }
+                continue;
+            }
+
+            if (currentSection === "tags") {
+                if (trimmed.startsWith("- ")) {
+                    const tagVal = trimmed.substring(2).trim().replace(/^["']|["']$/g, "");
+                    if (tagVal) result.tags.push(tagVal);
+                }
+            } else if (currentSection === "env") {
+                const colonIdx = trimmed.indexOf(":");
+                if (colonIdx > 0) {
+                    const envKey = trimmed.substring(0, colonIdx).trim();
+                    const envVal = trimmed.substring(colonIdx + 1).trim().replace(/^["']|["']$/g, "");
+                    if (envKey) result.env[envKey] = envVal;
+                }
+            } else if (currentSection === "steps") {
+                // Um passo de steps: só deve ser iniciado se a linha começar exatamente indentada como item da lista steps ('  - ' ou indentação 2 com '- ')
+                const isStepStart = rawLine.startsWith("  - ") || (lineIndent === 2 && trimmed.startsWith("- "));
+
+                if (isStepStart) {
+                    if (currentStep) {
+                        result.steps.push(currentStep);
+                    }
+                    currentStep = {
+                        index: result.steps.length + 1,
+                        action: "goto",
+                    };
+                    currentListKey = null;
+
+                    const rest = trimmed.substring(2).trim();
+                    if (rest) {
+                        const colonIdx = rest.indexOf(":");
+                        if (colonIdx > 0) {
+                            const k = rest.substring(0, colonIdx).trim();
+                            let v = rest.substring(colonIdx + 1).trim();
+
+                            if (v === ">" || v === "|" || v === ">-" || v === "|-") {
+                                inMultilineScalar = true;
+                                multilineType = v.startsWith("|") ? "|" : ">";
+                                multilineIndent = lineIndent;
+                                multilineTarget = currentStep;
+                                multilineKey = k;
+                                multilineLines = [];
+                            } else {
+                                v = v.replace(/^["']|["']$/g, "");
+                                currentStep[k] = v;
+                            }
+                        }
+                    }
+                } else if (currentStep) {
+                    // Sub-lista dentro do passo (ex: criteria de checkpoint)
+                    const isSubListItem = trimmed.startsWith("- ") && lineIndent > 2;
+
+                    if (isSubListItem) {
+                        if (currentListKey) {
+                            if (!Array.isArray(currentStep[currentListKey])) {
+                                currentStep[currentListKey] = [];
+                            }
+                            const itemVal = trimmed.substring(2).trim().replace(/^["']|["']$/g, "");
+                            if (itemVal) currentStep[currentListKey].push(itemVal);
+                        }
+                    } else {
+                        const colonIdx = trimmed.indexOf(":");
+                        if (colonIdx > 0) {
+                            const k = trimmed.substring(0, colonIdx).trim();
+                            let v = trimmed.substring(colonIdx + 1).trim();
+
+                            if (v === "" || v === "[]") {
+                                currentListKey = k;
+                                currentStep[k] = [];
+                                continue;
+                            }
+
+                            if (v === ">" || v === "|" || v === ">-" || v === "|-") {
+                                inMultilineScalar = true;
+                                multilineType = v.startsWith("|") ? "|" : ">";
+                                multilineIndent = lineIndent;
+                                multilineTarget = currentStep;
+                                multilineKey = k;
+                                multilineLines = [];
+                                currentListKey = null;
+                                continue;
+                            }
+
+                            currentListKey = null;
+                            v = v.replace(/^["']|["']$/g, "");
+                            if (k === "timeout" || k === "ms") {
+                                const parsedNum = parseInt(v, 10);
+                                if (!isNaN(parsedNum)) v = parsedNum;
+                            } else if (v === "true") {
+                                v = true;
+                            } else if (v === "false") {
+                                v = false;
+                            }
+                            currentStep[k] = v;
+                        }
+                    }
+                }
+            }
+        }
+
+        finalizeMultilineScalar();
+
+        if (currentStep) {
+            result.steps.push(currentStep);
+        }
+
+        // Filtro estrito: apenas itens válidos com action, url, selector ou name
+        result.steps = (result.steps || [])
+            .filter((s) => s && typeof s === "object" && (s.action || s.url || s.selector || s.name))
+            .map((s, idx) => ({ ...s, index: idx + 1 }));
+
+        return result;
+    }
+
+    // Serializador Limpo e Determinístico de Cenários para YAML
+    function serializeScenarioYaml(meta, steps) {
+        const out = [];
+        if (meta.id) out.push(`id: "${meta.id}"`);
+        if (meta.title) out.push(`title: "${meta.title}"`);
+        if (meta.description) {
+            if (meta.description.includes("\n")) {
+                out.push(`description: >`);
+                meta.description.split("\n").forEach((l) => {
+                    const tl = l.trim();
+                    if (tl) out.push(`  ${tl}`);
+                });
+            } else {
+                out.push(`description: "${meta.description.replace(/"/g, '\\"')}"`);
+            }
+        }
+        out.push(`profile: "${meta.profile || "generic"}"`);
+
+        if (meta.tags && meta.tags.length > 0) {
+            out.push("tags:");
+            meta.tags.forEach((t) => out.push(`  - "${t}"`));
+        }
+
+        if (meta.env && Object.keys(meta.env).length > 0) {
+            out.push("env:");
+            for (const [k, v] of Object.entries(meta.env)) {
+                out.push(`  ${k}: "${v}"`);
+            }
+        }
+
+        if (meta.headless !== null && meta.headless !== undefined) out.push(`headless: ${Boolean(meta.headless)}`);
+        if (meta.devtools !== null && meta.devtools !== undefined) out.push(`devtools: ${Boolean(meta.devtools)}`);
+        if (meta.capture_console !== null && meta.capture_console !== undefined) out.push(`capture_console: ${Boolean(meta.capture_console)}`);
+        if (meta.inspect !== null && meta.inspect !== undefined) out.push(`inspect: ${Boolean(meta.inspect)}`);
+
+        out.push("steps:");
+        (steps || []).forEach((step) => {
+            out.push(`  - action: "${step.action || "goto"}"`);
+            if (step.description) out.push(`    description: "${step.description.replace(/"/g, '\\"')}"`);
+            if (step.url) out.push(`    url: "${step.url}"`);
+            if (step.selector) out.push(`    selector: "${step.selector.replace(/"/g, '\\"')}"`);
+            if (step.value !== undefined && step.value !== null && step.value !== "") {
+                out.push(`    value: "${String(step.value).replace(/"/g, '\\"')}"`);
+            }
+            if (step.name) out.push(`    name: "${step.name.replace(/"/g, '\\"')}"`);
+            if (step.expected_behavior) {
+                if (typeof step.expected_behavior === "string" && step.expected_behavior.includes("\n")) {
+                    out.push(`    expected_behavior: >`);
+                    step.expected_behavior.split("\n").forEach((line) => {
+                        const tl = line.trim();
+                        if (tl) out.push(`      ${tl}`);
+                    });
+                } else {
+                    out.push(`    expected_behavior: "${String(step.expected_behavior).replace(/"/g, '\\"')}"`);
+                }
+            }
+            if (step.criteria && Array.isArray(step.criteria) && step.criteria.length > 0) {
+                out.push(`    criteria:`);
+                step.criteria.forEach((crit) => {
+                    out.push(`      - "${String(crit).replace(/"/g, '\\"')}"`);
+                });
+            }
+            if (step.timeout) out.push(`    timeout: ${parseInt(step.timeout, 10)}`);
+            if (step.key) out.push(`    key: "${step.key}"`);
+            if (step.option) out.push(`    option: "${step.option}"`);
+            if (step.direction) out.push(`    direction: "${step.direction}"`);
+            if (step.target) out.push(`    target: "${step.target}"`);
+            if (step.wait_visible !== undefined && step.wait_visible !== null && !step.wait_visible) {
+                out.push(`    wait_visible: false`);
+            }
+            if (step.clear !== undefined && step.clear !== null && !step.clear) {
+                out.push(`    clear: false`);
+            }
+            if (step.focus) out.push(`    focus: "${step.focus}"`);
+        });
+
+        return out.join("\n") + "\n";
+    }
+
+    // Sincronização Bidirecional: Pipeline -> YAML
+    function syncPipelineToYaml() {
+        const codeEditor = document.getElementById("yaml-code-editor");
+        if (!codeEditor) return;
+
+        const currentMeta = state.activeScenarioData || {};
+        const parsed = parseScenarioYaml(codeEditor.value);
+
+        const metaToUse = {
+            id: currentMeta.id || parsed.id || "cenario_sem_id",
+            title: currentMeta.title || parsed.title || "Cenário de Auditoria",
+            description: currentMeta.description !== undefined ? currentMeta.description : parsed.description,
+            profile: currentMeta.profile || parsed.profile || "generic",
+            tags: currentMeta.tags || parsed.tags || [],
+            env: currentMeta.env || parsed.env || {},
+            headless: currentMeta.headless !== undefined ? currentMeta.headless : parsed.headless,
+            devtools: currentMeta.devtools !== undefined ? currentMeta.devtools : parsed.devtools,
+            capture_console: currentMeta.capture_console !== undefined ? currentMeta.capture_console : parsed.capture_console,
+            inspect: currentMeta.inspect !== undefined ? currentMeta.inspect : parsed.inspect,
+        };
+
+        const newYaml = serializeScenarioYaml(metaToUse, state.pipelineSteps);
+        codeEditor.value = newYaml;
+        updateLineNumbers();
+
+        state.isDirty = true;
+        setSaveStatus("modified");
+
+        clearTimeout(state.validationTimer);
+        state.validationTimer = setTimeout(() => validateYaml(newYaml), 300);
+    }
+
+    // Sincronização Bidirecional: YAML -> Pipeline
+    function syncYamlToPipeline() {
+        const codeEditor = document.getElementById("yaml-code-editor");
+        if (!codeEditor) return;
+
+        const parsed = parseScenarioYaml(codeEditor.value);
+        if (parsed.steps) {
+            state.pipelineSteps = parsed.steps;
+            if (state.activeScenarioData) {
+                if (parsed.id) state.activeScenarioData.id = parsed.id;
+                if (parsed.title) state.activeScenarioData.title = parsed.title;
+                if (parsed.description !== undefined) state.activeScenarioData.description = parsed.description;
+                if (parsed.profile) state.activeScenarioData.profile = parsed.profile;
+                if (parsed.tags) state.activeScenarioData.tags = parsed.tags;
+                if (parsed.env) state.activeScenarioData.env = parsed.env;
+            }
+            renderPipelineCards();
+            validatePipelineCongruence(state.pipelineSteps);
+        }
+    }
+
+    // Verificador Determinístico de Congruência (UXS-83)
+    function validatePipelineCongruence(steps) {
+        state.congruenceWarnings = {};
+        const valBar = document.getElementById("validation-feedback-bar");
+        const valIcon = document.getElementById("val-icon");
+        const valMsg = document.getElementById("val-message");
+
+        if (!steps || steps.length === 0) {
+            return true;
+        }
+
+        let firstWarning = null;
+        let hasNavigation = false;
+
+        const interactiveActions = ["click", "fill", "hover", "press", "scroll", "select"];
+
+        for (let idx = 0; idx < steps.length; idx++) {
+            const step = steps[idx];
+            const action = (step.action || "").toLowerCase();
+
+            // 1. Regra de Navegação: interação antes de goto
+            if (action === "goto") {
+                hasNavigation = true;
+            } else if (interactiveActions.includes(action) && !hasNavigation) {
+                const msg = `Passo #${idx + 1} (${action}): Ação interativa posicionada antes de uma navegação 'goto' inicial!`;
+                state.congruenceWarnings[idx] = msg;
+                if (!firstWarning) firstWarning = msg;
+            }
+
+            // 2. Regra de Checkpoints Consecutivos ou Vazios
+            if (action === "checkpoint") {
+                if (!step.name && !step.expected_behavior && !step.description) {
+                    const msg = `Passo #${idx + 1} (checkpoint): Critérios de auditoria e nome do ponto estão vazios.`;
+                    state.congruenceWarnings[idx] = msg;
+                    if (!firstWarning) firstWarning = msg;
+                } else if (idx > 0 && steps[idx - 1].action === "checkpoint") {
+                    const prev = steps[idx - 1];
+                    if (prev.name && prev.name === step.name) {
+                        const msg = `Passo #${idx + 1} (checkpoint): Checkpoint redundante consecutivo com mesmo nome do passo anterior.`;
+                        state.congruenceWarnings[idx] = msg;
+                        if (!firstWarning) firstWarning = msg;
+                    }
+                }
+            }
+
+            // 3. Regra de Campos Obrigatórios
+            if (action === "goto" && (!step.url || !step.url.trim())) {
+                const msg = `Passo #${idx + 1} (goto): URL de destino é obrigatória.`;
+                state.congruenceWarnings[idx] = msg;
+                if (!firstWarning) firstWarning = msg;
+            } else if ((action === "click" || action === "hover") && (!step.selector || !step.selector.trim())) {
+                const msg = `Passo #${idx + 1} (${action}): Seletor do elemento alvo é obrigatório.`;
+                state.congruenceWarnings[idx] = msg;
+                if (!firstWarning) firstWarning = msg;
+            } else if (action === "fill") {
+                if (!step.selector || !step.selector.trim()) {
+                    const msg = `Passo #${idx + 1} (fill): Seletor do elemento é obrigatório.`;
+                    state.congruenceWarnings[idx] = msg;
+                    if (!firstWarning) firstWarning = msg;
+                }
+            } else if (action === "press" && (!step.key || !step.key.trim())) {
+                const msg = `Passo #${idx + 1} (press): Tecla a ser pressionada é obrigatória.`;
+                state.congruenceWarnings[idx] = msg;
+                if (!firstWarning) firstWarning = msg;
+            } else if (action === "select" && (!step.selector || !step.selector.trim())) {
+                const msg = `Passo #${idx + 1} (select): Seletor do dropdown é obrigatório.`;
+                state.congruenceWarnings[idx] = msg;
+                if (!firstWarning) firstWarning = msg;
+            }
+        }
+
+        // Atualiza a barra de feedback caso haja avisos de congruência
+        if (firstWarning && valBar && valIcon && valMsg) {
+            valBar.className = "validation-bar warning";
+            valIcon.textContent = "⚠️";
+            valMsg.textContent = `Aviso de Congruência: ${firstWarning}`;
+            return false;
+        }
+
+        return true;
+    }
+
+    // Renderização dos Cards do Pipeline Visual
+    function renderPipelineCards() {
         const container = document.getElementById("preview-steps-list");
         const countBadge = document.getElementById("preview-step-count");
         if (!container) return;
 
-        if (countBadge) countBadge.textContent = `${steps.length} passos`;
+        const rawSteps = state.pipelineSteps || [];
+        const steps = rawSteps.filter((s) => s && typeof s === "object" && (s.action || s.url || s.selector || s.name));
+        state.pipelineSteps = steps.map((s, idx) => ({ ...s, index: idx + 1 }));
 
-        if (!steps || steps.length === 0) {
+        if (countBadge) countBadge.textContent = `${steps.length} passo${steps.length === 1 ? "" : "s"}`;
+
+        if (steps.length === 0) {
             container.innerHTML = `
                 <div class="empty-state">
                     <span class="empty-icon">📝</span>
                     <p>Nenhum passo estruturado neste cenário.</p>
+                    <p style="font-size: 0.75rem; color: var(--text-muted); margin-top: 4px;">Clique no botão abaixo para adicionar a primeira ação.</p>
                 </div>
             `;
             return;
@@ -644,30 +1131,581 @@
             goto: "🌐",
             click: "🖱️",
             fill: "⌨️",
-            wait: "⏳",
-            wait_modal: "🪟",
             checkpoint: "📸",
+            wait: "⏳",
+            hover: "👆",
+            press: "⚡",
             scroll: "📜",
             select: "🔽",
         };
 
         container.innerHTML = steps
-            .map((step) => {
-                const icon = actionIcons[step.action] || "⚡";
-                const paramText = step.url || step.selector || step.name || "";
+            .map((step, idx) => {
+                const action = (step.action || "goto").toLowerCase();
+                const icon = actionIcons[action] || "⚡";
+                const badgeClass = `step-badge badge-${action}`;
+                const warningMsg = state.congruenceWarnings[idx];
+                const cardWarningClass = warningMsg ? " has-congruence-warning" : "";
+                const isCheckpoint = action === "checkpoint";
+                const checkpointClass = isCheckpoint ? " checkpoint-card" : "";
+
+                // Formatação de resumo
+                let paramSummary = "";
+                let mainTitle = step.description || "";
+
+                if (action === "goto") {
+                    paramSummary = step.url || "";
+                    if (!mainTitle) mainTitle = "Navegar para URL";
+                } else if (action === "fill") {
+                    paramSummary = `${step.selector || ""} ➔ "${step.value || ""}"`;
+                    if (!mainTitle) mainTitle = `Preencher ${step.selector || "campo"}`;
+                } else if (action === "click") {
+                    paramSummary = step.selector || "";
+                    if (!mainTitle) mainTitle = `Clicar em ${step.selector || "elemento"}`;
+                } else if (action === "hover") {
+                    paramSummary = step.selector || "";
+                    if (!mainTitle) mainTitle = `Passar mouse sobre ${step.selector || "elemento"}`;
+                } else if (action === "press") {
+                    paramSummary = `${step.key || ""}${step.selector ? ` em ${step.selector}` : ""}`;
+                    if (!mainTitle) mainTitle = `Pressionar tecla ${step.key || ""}`;
+                } else if (action === "select") {
+                    paramSummary = `${step.selector || ""} ➔ "${step.option || step.value || ""}"`;
+                    if (!mainTitle) mainTitle = `Selecionar opção em ${step.selector || "dropdown"}`;
+                } else if (action === "checkpoint") {
+                    mainTitle = step.name || step.description || "Auditoria Visual (Checkpoint)";
+                    paramSummary = step.expected_behavior || step.instructions || step.focus || "Validação visual";
+                } else if (action === "wait") {
+                    paramSummary = step.timeout || step.ms ? `${step.timeout || step.ms}ms` : (step.selector || "Aguardar condição");
+                    if (!mainTitle) mainTitle = "Pausa temporizada / Espera";
+                } else if (action === "scroll") {
+                    paramSummary = step.direction || step.target || "down";
+                    if (!mainTitle) mainTitle = "Rolar página";
+                }
+
                 return `
-                <div class="step-card">
-                    <div class="step-card-header">
-                        <span class="step-action-badge">${icon} ${escapeHtml(step.action)}</span>
-                        <span class="step-index-badge">#${step.index}</span>
+                <div class="card-step-pipeline${checkpointClass}${cardWarningClass}"
+                     draggable="true"
+                     data-step-index="${idx}"
+                     title="Clique para editar parâmetros do passo #${idx + 1}">
+                    <div class="step-card-left">
+                        <span class="drag-handle" title="Arraste para reordenar" data-drag-handle>⠿</span>
+                        <div class="step-card-details">
+                            <div class="step-card-meta-row">
+                                <span class="${badgeClass}">${icon} ${escapeHtml(action)}</span>
+                                <span class="step-summary-title">${escapeHtml(mainTitle)}</span>
+                                <span class="step-number-tag">#${idx + 1}</span>
+                                ${warningMsg ? `<span class="step-warning-icon" title="${escapeHtml(warningMsg)}">⚠️</span>` : ""}
+                            </div>
+                            ${paramSummary ? `<div class="step-param-text">${escapeHtml(paramSummary)}</div>` : ""}
+                            ${step.description && mainTitle !== step.description ? `<div class="step-comment-text">💬 ${escapeHtml(step.description)}</div>` : ""}
+                        </div>
                     </div>
-                    ${step.description ? `<div class="step-card-desc">${escapeHtml(step.description)}</div>` : ""}
-                    ${paramText ? `<div class="step-card-param">${escapeHtml(paramText)}</div>` : ""}
-                    ${step.expected_behavior ? `<div class="step-card-desc" style="color: var(--accent-cyan); font-size: 0.72rem;">Esperado: ${escapeHtml(step.expected_behavior)}</div>` : ""}
+                    <div class="step-card-actions">
+                        <button type="button" class="btn-step-quick btn-step-dup" data-dup-index="${idx}" title="Duplicar Passo">📋</button>
+                        <button type="button" class="btn-step-quick btn-step-del" data-del-index="${idx}" title="Excluir Passo">🗑️</button>
+                    </div>
                 </div>
             `;
             })
             .join("");
+
+        // Registra listeners de Drag and Drop e Ações Rápidas nos cards
+        attachPipelineCardsEvents(container);
+    }
+
+    function renderPreviewSteps(steps) {
+        if (steps) {
+            state.pipelineSteps = steps.map((s, idx) => ({ ...s, index: idx + 1 }));
+        }
+        renderPipelineCards();
+    }
+
+    function attachPipelineCardsEvents(container) {
+        const cards = container.querySelectorAll(".card-step-pipeline");
+
+        cards.forEach((card) => {
+            const idx = parseInt(card.dataset.stepIndex, 10);
+
+            // Clique no card abre o modal de edição de passos
+            card.addEventListener("click", (e) => {
+                if (e.target.closest(".btn-step-quick")) return;
+                openStepModal(idx);
+            });
+
+            // Botão Duplicar
+            card.querySelector(".btn-step-dup")?.addEventListener("click", (e) => {
+                e.stopPropagation();
+                duplicatePipelineStep(idx);
+            });
+
+            // Botão Excluir
+            card.querySelector(".btn-step-del")?.addEventListener("click", (e) => {
+                e.stopPropagation();
+                deletePipelineStep(idx);
+            });
+
+            // Drag and Drop nativo HTML5
+            card.addEventListener("dragstart", (e) => {
+                state.draggedStepIndex = idx;
+                card.classList.add("dragging");
+                e.dataTransfer.effectAllowed = "move";
+                e.dataTransfer.setData("text/plain", String(idx));
+            });
+
+            card.addEventListener("dragover", (e) => {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = "move";
+                card.classList.add("drag-over");
+            });
+
+            card.addEventListener("dragleave", () => {
+                card.classList.remove("drag-over");
+            });
+
+            card.addEventListener("drop", (e) => {
+                e.preventDefault();
+                card.classList.remove("drag-over");
+                document.querySelectorAll(".card-step-pipeline").forEach((c) => c.classList.remove("dragging", "drag-over"));
+
+                const targetIdx = idx;
+                const sourceIdx = state.draggedStepIndex !== null ? state.draggedStepIndex : parseInt(e.dataTransfer.getData("text/plain"), 10);
+
+                if (isNaN(sourceIdx) || sourceIdx === targetIdx) return;
+
+                // Reordena o array de passos
+                const movedItem = state.pipelineSteps.splice(sourceIdx, 1)[0];
+                state.pipelineSteps.splice(targetIdx, 0, movedItem);
+
+                // Reindexa
+                state.pipelineSteps = state.pipelineSteps.map((s, i) => ({ ...s, index: i + 1 }));
+
+                // Sincroniza em tempo real com o YAML
+                syncPipelineToYaml();
+                renderPipelineCards();
+                validatePipelineCongruence(state.pipelineSteps);
+                showToast(`Passo #${sourceIdx + 1} reposicionado para #${targetIdx + 1}`, "info");
+            });
+
+            card.addEventListener("dragend", () => {
+                state.draggedStepIndex = null;
+                document.querySelectorAll(".card-step-pipeline").forEach((c) => c.classList.remove("dragging", "drag-over"));
+            });
+        });
+    }
+
+    function duplicatePipelineStep(idx) {
+        if (idx < 0 || idx >= state.pipelineSteps.length) return;
+        const original = state.pipelineSteps[idx];
+        const cloned = JSON.parse(JSON.stringify(original));
+        if (cloned.name) cloned.name = `${cloned.name} (Cópia)`;
+        if (cloned.description) cloned.description = `${cloned.description} (Cópia)`;
+
+        state.pipelineSteps.splice(idx + 1, 0, cloned);
+        state.pipelineSteps = state.pipelineSteps.map((s, i) => ({ ...s, index: i + 1 }));
+
+        syncPipelineToYaml();
+        renderPipelineCards();
+        validatePipelineCongruence(state.pipelineSteps);
+        showToast(`Passo #${idx + 1} duplicado com sucesso!`, "success");
+    }
+
+    function deletePipelineStep(idx) {
+        if (idx < 0 || idx >= state.pipelineSteps.length) return;
+        state.pipelineSteps.splice(idx, 1);
+        state.pipelineSteps = state.pipelineSteps.map((s, i) => ({ ...s, index: i + 1 }));
+
+        syncPipelineToYaml();
+        renderPipelineCards();
+        validatePipelineCongruence(state.pipelineSteps);
+        showToast(`Passo #${idx + 1} removido da pipeline.`, "info");
+    }
+
+    // Modal de Metadados Iniciais do Cenário (UXS-83 / UXS-84)
+    function openScenarioMetadataModal() {
+        console.log("Abrindo modal de metadados do cenário");
+        const codeEditor = document.getElementById("yaml-code-editor");
+        let parsed = {};
+        try {
+            parsed = codeEditor && codeEditor.value ? parseScenarioYaml(codeEditor.value) : {};
+        } catch (err) {
+            console.warn("Aviso ao analisar YAML atual para metadados:", err);
+            parsed = {};
+        }
+
+        const meta = state.activeScenarioData || {};
+
+        const idField = document.getElementById("scenario-meta-id");
+        const titleField = document.getElementById("scenario-meta-title");
+        const descField = document.getElementById("scenario-meta-description");
+        const profileField = document.getElementById("scenario-meta-profile");
+
+        if (idField) idField.value = meta.id || parsed.id || "";
+        if (titleField) titleField.value = meta.title || parsed.title || "";
+        if (descField) descField.value = (meta.description !== undefined && meta.description !== null) ? meta.description : (parsed.description || "");
+        if (profileField) profileField.value = meta.profile || parsed.profile || "generic";
+
+        const rawTags = Array.isArray(meta.tags) ? meta.tags : (Array.isArray(parsed.tags) ? parsed.tags : []);
+        state.metadataModalTags = [...rawTags];
+        renderMetadataTags();
+
+        const envObj = (meta.env && typeof meta.env === "object" && !Array.isArray(meta.env))
+            ? meta.env
+            : ((parsed.env && typeof parsed.env === "object" && !Array.isArray(parsed.env)) ? parsed.env : {});
+        renderMetadataEnvRows(envObj);
+
+        openModal("modal-scenario-metadata");
+    }
+
+    function renderMetadataTags() {
+        const container = document.getElementById("scenario-meta-tags-container");
+        if (!container) return;
+
+        container.innerHTML = state.metadataModalTags
+            .map((tag, idx) => `
+                <span class="tag-pill">
+                    ${escapeHtml(tag)}
+                    <button type="button" class="tag-pill-remove" data-tag-remove="${idx}" title="Remover etiqueta">✕</button>
+                </span>
+            `)
+            .join("");
+
+        container.querySelectorAll(".tag-pill-remove").forEach((btn) => {
+            btn.addEventListener("click", () => {
+                const idx = parseInt(btn.dataset.tagRemove, 10);
+                state.metadataModalTags.splice(idx, 1);
+                renderMetadataTags();
+            });
+        });
+    }
+
+    function addMetadataTag() {
+        const input = document.getElementById("scenario-meta-tag-input");
+        if (!input) return;
+        const val = input.value.trim();
+        if (val && !state.metadataModalTags.includes(val)) {
+            state.metadataModalTags.push(val);
+            renderMetadataTags();
+            input.value = "";
+        }
+    }
+
+    function renderMetadataEnvRows(envObj) {
+        const container = document.getElementById("scenario-meta-env-container");
+        if (!container) return;
+        container.innerHTML = "";
+
+        const entries = Object.entries(envObj || {});
+        if (entries.length === 0) {
+            addMetadataEnvRow("", "");
+            return;
+        }
+
+        for (const [k, v] of entries) {
+            addMetadataEnvRow(k, v);
+        }
+    }
+
+    function addMetadataEnvRow(key = "", val = "") {
+        const container = document.getElementById("scenario-meta-env-container");
+        if (!container) return;
+
+        const row = document.createElement("div");
+        row.className = "env-row";
+        row.innerHTML = `
+            <input type="text" placeholder="CHAVE_VAR" class="env-key-input" value="${escapeHtml(key)}">
+            <span class="env-equal-sign">=</span>
+            <input type="text" placeholder="valor" class="env-val-input" value="${escapeHtml(val)}">
+            <button type="button" class="btn-remove-env" title="Excluir Variável">🗑️</button>
+        `;
+
+        row.querySelector(".btn-remove-env").addEventListener("click", () => {
+            row.remove();
+        });
+
+        container.appendChild(row);
+    }
+
+    function saveScenarioMetadataModal() {
+        const idField = document.getElementById("scenario-meta-id");
+        const titleField = document.getElementById("scenario-meta-title");
+        const descField = document.getElementById("scenario-meta-description");
+        const profileField = document.getElementById("scenario-meta-profile");
+
+        const newId = idField ? idField.value.trim() : "";
+        const newTitle = titleField ? titleField.value.trim() : "";
+        const newDesc = descField ? descField.value.trim() : "";
+        const newProfile = profileField ? profileField.value : "generic";
+
+        if (!newId) {
+            showToast("O identificador único (ID) do cenário é obrigatório.", "warning");
+            return;
+        }
+
+        const envObj = {};
+        const rows = document.querySelectorAll("#scenario-meta-env-container .env-row");
+        rows.forEach((r) => {
+            const k = r.querySelector(".env-key-input")?.value.trim();
+            const v = r.querySelector(".env-val-input")?.value.trim() || "";
+            if (k) envObj[k] = v;
+        });
+
+        if (!state.activeScenarioData) {
+            state.activeScenarioData = {};
+        }
+
+        state.activeScenarioData.id = newId;
+        state.activeScenarioData.title = newTitle || newId;
+        state.activeScenarioData.description = newDesc;
+        state.activeScenarioData.profile = newProfile;
+        state.activeScenarioData.tags = [...state.metadataModalTags];
+        state.activeScenarioData.env = envObj;
+
+        const profileSelect = document.getElementById("editor-profile-select");
+        if (profileSelect) profileSelect.value = newProfile;
+
+        syncPipelineToYaml();
+
+        closeModal("modal-scenario-metadata");
+        showToast("Metadados do cenário atualizados!", "success");
+    }
+
+    // Modal de Edição de Passos / Ações (UXS-83 / UXS-84)
+    function openStepModal(stepIdx) {
+        const step = (state.pipelineSteps && state.pipelineSteps[stepIdx]) ? state.pipelineSteps[stepIdx] : {};
+        console.log("Abrindo modal do passo", stepIdx, step);
+
+        state.editingStepIndex = stepIdx;
+        const modal = document.getElementById("modal-step-editor");
+        if (!modal) {
+            console.error("Elemento modal-step-editor não encontrado!");
+            return;
+        }
+
+        const titleEl = document.getElementById("step-modal-title");
+        const numInput = document.getElementById("step-modal-number");
+        const actionSelect = document.getElementById("step-modal-action");
+        const delBtn = document.getElementById("btn-step-modal-delete");
+        const commentInput = document.getElementById("step-modal-comment");
+
+        if (titleEl) titleEl.innerHTML = "<span>✏️</span> Editar Parâmetros da Ação";
+        if (delBtn) delBtn.style.display = "inline-flex";
+
+        if (numInput) numInput.value = stepIdx + 1;
+        if (actionSelect) actionSelect.value = step.action || "goto";
+        if (commentInput) commentInput.value = step.description || "";
+
+        populateStepModalFields(step);
+        updateStepModalFieldVisibility();
+        openModal("modal-step-editor");
+    }
+
+    function openNewStepModal() {
+        console.log("Abrindo modal para novo passo no pipeline");
+        clearStepModalFields();
+        state.editingStepIndex = null;
+
+        const titleEl = document.getElementById("step-modal-title");
+        const numInput = document.getElementById("step-modal-number");
+        const actionSelect = document.getElementById("step-modal-action");
+        const delBtn = document.getElementById("btn-step-modal-delete");
+        const commentInput = document.getElementById("step-modal-comment");
+
+        if (titleEl) titleEl.innerHTML = "<span>➕</span> Adicionar Passo à Pipeline";
+        if (delBtn) delBtn.style.display = "none";
+
+        const newIndex = (state.pipelineSteps ? state.pipelineSteps.length : 0) + 1;
+        if (numInput) numInput.value = newIndex;
+        if (actionSelect) actionSelect.value = "goto";
+        if (commentInput) commentInput.value = "";
+
+        updateStepModalFieldVisibility();
+        openModal("modal-step-editor");
+    }
+
+    function clearStepModalFields() {
+        const setVal = (id, v) => {
+            const el = document.getElementById(id);
+            if (el) el.value = v;
+        };
+        const setChk = (id, v) => {
+            const el = document.getElementById(id);
+            if (el) el.checked = v;
+        };
+
+        setVal("step-field-url", "");
+        setVal("step-field-timeout-goto", "");
+        setVal("step-field-selector-click", "");
+        setChk("step-field-wait-visible-click", true);
+        setVal("step-field-timeout-click", "");
+        setVal("step-field-selector-fill", "");
+        setVal("step-field-value-fill", "");
+        setChk("step-field-clear-fill", true);
+        setVal("step-field-selector-press", "");
+        setVal("step-field-key-press", "");
+        setVal("step-field-selector-select", "");
+        setVal("step-field-option-select", "");
+        setVal("step-field-checkpoint-name", "");
+        setVal("step-field-checkpoint-instructions", "");
+        setVal("step-field-checkpoint-focus", "");
+        setVal("step-field-wait-ms", "");
+        setVal("step-field-wait-selector", "");
+        setVal("step-field-scroll-direction", "");
+        setVal("step-field-scroll-target", "");
+    }
+
+    function populateStepModalFields(step) {
+        clearStepModalFields();
+        const action = (step.action || "").toLowerCase();
+        const setVal = (id, v) => {
+            const el = document.getElementById(id);
+            if (el) el.value = v;
+        };
+        const setChk = (id, v) => {
+            const el = document.getElementById(id);
+            if (el) el.checked = v;
+        };
+
+        if (action === "goto") {
+            setVal("step-field-url", step.url || "");
+            setVal("step-field-timeout-goto", step.timeout || "");
+        } else if (action === "click" || action === "hover") {
+            setVal("step-field-selector-click", step.selector || "");
+            setChk("step-field-wait-visible-click", step.wait_visible !== false);
+            setVal("step-field-timeout-click", step.timeout || "");
+        } else if (action === "fill") {
+            setVal("step-field-selector-fill", step.selector || "");
+            setVal("step-field-value-fill", step.value !== undefined ? step.value : "");
+            setChk("step-field-clear-fill", step.clear !== false);
+        } else if (action === "press") {
+            setVal("step-field-selector-press", step.selector || "");
+            setVal("step-field-key-press", step.key || "");
+        } else if (action === "select") {
+            setVal("step-field-selector-select", step.selector || "");
+            setVal("step-field-option-select", step.option || step.value || "");
+        } else if (action === "checkpoint") {
+            setVal("step-field-checkpoint-name", step.name || "");
+            setVal("step-field-checkpoint-instructions", step.expected_behavior || step.instructions || "");
+            setVal("step-field-checkpoint-focus", step.focus || step.target || "");
+        } else if (action === "wait") {
+            setVal("step-field-wait-ms", step.timeout || step.ms || "");
+            setVal("step-field-wait-selector", step.selector || "");
+        } else if (action === "scroll") {
+            setVal("step-field-scroll-direction", step.direction || "");
+            setVal("step-field-scroll-target", step.target || "");
+        }
+    }
+
+    function updateStepModalFieldVisibility() {
+        const actionSelect = document.getElementById("step-modal-action");
+        if (!actionSelect) return;
+        const action = actionSelect.value;
+
+        document.querySelectorAll(".step-conditional-group").forEach((g) => g.classList.add("hidden"));
+
+        if (action === "goto") {
+            document.getElementById("step-group-goto")?.classList.remove("hidden");
+        } else if (action === "click" || action === "hover") {
+            document.getElementById("step-group-click-hover")?.classList.remove("hidden");
+        } else if (action === "fill") {
+            document.getElementById("step-group-fill")?.classList.remove("hidden");
+        } else if (action === "press") {
+            document.getElementById("step-group-press")?.classList.remove("hidden");
+        } else if (action === "select") {
+            document.getElementById("step-group-select")?.classList.remove("hidden");
+        } else if (action === "checkpoint") {
+            document.getElementById("step-group-checkpoint")?.classList.remove("hidden");
+        } else if (action === "wait") {
+            document.getElementById("step-group-wait")?.classList.remove("hidden");
+        } else if (action === "scroll") {
+            document.getElementById("step-group-scroll")?.classList.remove("hidden");
+        }
+    }
+
+    function saveStepModal() {
+        const actionSelect = document.getElementById("step-modal-action");
+        const numInput = document.getElementById("step-modal-number");
+        const commentInput = document.getElementById("step-modal-comment");
+
+        const action = actionSelect ? actionSelect.value : "goto";
+        const comment = commentInput ? commentInput.value.trim() : "";
+        const targetNumber = numInput ? parseInt(numInput.value, 10) : 1;
+
+        const stepData = {
+            action: action,
+        };
+        if (comment) stepData.description = comment;
+
+        if (action === "goto") {
+            stepData.url = document.getElementById("step-field-url")?.value.trim() || "";
+            const to = document.getElementById("step-field-timeout-goto")?.value.trim();
+            if (to) stepData.timeout = parseInt(to, 10);
+        } else if (action === "click" || action === "hover") {
+            stepData.selector = document.getElementById("step-field-selector-click")?.value.trim() || "";
+            const wv = document.getElementById("step-field-wait-visible-click")?.checked;
+            if (!wv) stepData.wait_visible = false;
+            const to = document.getElementById("step-field-timeout-click")?.value.trim();
+            if (to) stepData.timeout = parseInt(to, 10);
+        } else if (action === "fill") {
+            stepData.selector = document.getElementById("step-field-selector-fill")?.value.trim() || "";
+            stepData.value = document.getElementById("step-field-value-fill")?.value || "";
+            const clr = document.getElementById("step-field-clear-fill")?.checked;
+            if (!clr) stepData.clear = false;
+        } else if (action === "press") {
+            const sel = document.getElementById("step-field-selector-press")?.value.trim();
+            if (sel) stepData.selector = sel;
+            stepData.key = document.getElementById("step-field-key-press")?.value.trim() || "";
+        } else if (action === "select") {
+            stepData.selector = document.getElementById("step-field-selector-select")?.value.trim() || "";
+            stepData.option = document.getElementById("step-field-option-select")?.value.trim() || "";
+        } else if (action === "checkpoint") {
+            stepData.name = document.getElementById("step-field-checkpoint-name")?.value.trim() || "";
+            const instructions = document.getElementById("step-field-checkpoint-instructions")?.value.trim();
+            if (instructions) stepData.expected_behavior = instructions;
+            const focus = document.getElementById("step-field-checkpoint-focus")?.value.trim();
+            if (focus) stepData.focus = focus;
+        } else if (action === "wait") {
+            const ms = document.getElementById("step-field-wait-ms")?.value.trim();
+            if (ms) stepData.timeout = parseInt(ms, 10);
+            const sel = document.getElementById("step-field-wait-selector")?.value.trim();
+            if (sel) stepData.selector = sel;
+        } else if (action === "scroll") {
+            const dir = document.getElementById("step-field-scroll-direction")?.value.trim();
+            if (dir) stepData.direction = dir;
+            const tgt = document.getElementById("step-field-scroll-target")?.value.trim();
+            if (tgt) stepData.target = tgt;
+        }
+
+        if (state.editingStepIndex === null) {
+            let insertPos = isNaN(targetNumber) ? state.pipelineSteps.length : Math.max(0, targetNumber - 1);
+            if (insertPos > state.pipelineSteps.length) insertPos = state.pipelineSteps.length;
+            state.pipelineSteps.splice(insertPos, 0, stepData);
+            showToast(`Novo passo adicionado à posição #${insertPos + 1}!`, "success");
+        } else {
+            const oldIdx = state.editingStepIndex;
+            const newPos = isNaN(targetNumber) ? oldIdx : Math.max(0, Math.min(state.pipelineSteps.length - 1, targetNumber - 1));
+
+            if (newPos === oldIdx) {
+                state.pipelineSteps[oldIdx] = stepData;
+            } else {
+                state.pipelineSteps.splice(oldIdx, 1);
+                state.pipelineSteps.splice(newPos, 0, stepData);
+            }
+            showToast(`Passo #${newPos + 1} atualizado com sucesso!`, "success");
+        }
+
+        state.pipelineSteps = state.pipelineSteps.map((s, i) => ({ ...s, index: i + 1 }));
+
+        syncPipelineToYaml();
+        renderPipelineCards();
+        validatePipelineCongruence(state.pipelineSteps);
+        closeModal("modal-step-editor");
+    }
+
+    function deleteStepFromModal() {
+        if (state.editingStepIndex === null) return;
+        const idx = state.editingStepIndex;
+        deletePipelineStep(idx);
+        closeModal("modal-step-editor");
     }
 
     // --- 5.1. Sincronização de Flags de Execução da Toolbar (UXS-74 / UXS-76) ---
@@ -1529,6 +2567,184 @@ steps:
         }
     }
 
+    // --- 10.5. Modo Exploratório Autônomo (Crawler - UXS-12) ---
+    let crawlPollInterval = null;
+    let activeCrawlJobId = null;
+
+    async function startCrawl() {
+        const urlInput = document.getElementById("crawl-url-input");
+        const url = urlInput ? urlInput.value.trim() : "";
+        if (!url) {
+            showToast("Informe a URL inicial para iniciar a exploração.", "warning");
+            return;
+        }
+        if (!url.startsWith("http://") && !url.startsWith("https://")) {
+            showToast("A URL inicial deve começar com http:// ou https://", "warning");
+            return;
+        }
+
+        const maxDepth = parseInt(document.getElementById("crawl-max-depth")?.value, 10) || 3;
+        const maxPages = parseInt(document.getElementById("crawl-max-pages")?.value, 10) || 50;
+        const generateScenarios = document.getElementById("crawl-generate-scenarios")?.checked ?? true;
+        const headless = document.getElementById("crawl-headless")?.checked ?? true;
+
+        try {
+            const res = await apiFetch("/api/crawl/start", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    url,
+                    max_depth: maxDepth,
+                    max_pages: maxPages,
+                    generate_scenarios: generateScenarios,
+                    headless,
+                }),
+            });
+
+            if (!res.ok) {
+                const errData = await res.json().catch(() => ({}));
+                showToast(`Falha ao iniciar crawl: ${errData.detail || "Erro no servidor"}`, "error");
+                return;
+            }
+
+            const data = await res.json();
+            activeCrawlJobId = data.job_id;
+
+            // UI: Alterna para painel de progresso
+            document.getElementById("crawl-progress-section").style.display = "block";
+            document.getElementById("btn-start-crawl").style.display = "none";
+            document.getElementById("btn-cancel-crawl").style.display = "inline-flex";
+
+            // Limpa dados anteriores
+            document.getElementById("crawl-visited-count").textContent = "0";
+            document.getElementById("crawl-queued-count").textContent = "0";
+            document.getElementById("crawl-errors-count").textContent = "0";
+            document.getElementById("crawl-scenarios-count").textContent = "0";
+            document.getElementById("crawl-current-url").textContent = url;
+            document.getElementById("crawl-errors-box").style.display = "none";
+            document.getElementById("crawl-errors-list").innerHTML = "";
+            document.getElementById("crawl-results-box").style.display = "none";
+            document.getElementById("crawl-scenarios-list").innerHTML = "";
+
+            if (crawlPollInterval) clearInterval(crawlPollInterval);
+            crawlPollInterval = setInterval(pollCrawlStatus, 1500);
+            showToast("Exploração autônoma iniciada com sucesso!", "info");
+        } catch (err) {
+            showToast(`Erro na comunicação: ${err.message}`, "error");
+        }
+    }
+
+    async function pollCrawlStatus() {
+        if (!activeCrawlJobId) return;
+
+        try {
+            const res = await apiFetch(`/api/crawl/status/${encodeURIComponent(activeCrawlJobId)}`);
+            if (!res.ok) return;
+
+            const st = await res.json();
+
+            // Atualiza contadores
+            document.getElementById("crawl-visited-count").textContent = String(st.visited_count || 0);
+            document.getElementById("crawl-queued-count").textContent = String(st.queued_count || 0);
+            document.getElementById("crawl-errors-count").textContent = String((st.errors || []).length);
+            document.getElementById("crawl-scenarios-count").textContent = String((st.generated_scenarios || []).length);
+            if (st.current_url) {
+                document.getElementById("crawl-current-url").textContent = `(Prof. ${st.current_depth}) ${st.current_url}`;
+            }
+
+            // Exibe erros detectados
+            if (st.errors && st.errors.length > 0) {
+                const errBox = document.getElementById("crawl-errors-box");
+                const errList = document.getElementById("crawl-errors-list");
+                if (errBox && errList) {
+                    errBox.style.display = "block";
+                    errList.innerHTML = st.errors
+                        .map((err) => {
+                            const isBlock = err.severity === "bloqueante";
+                            const badgeColor = isBlock ? "#e63946" : "#f4a261";
+                            const btText = err.backtrack_success ? "Recuo OK" : "Recuo Falhou";
+                            return `<div style="padding: 4px 0; border-bottom: 1px solid #222;">
+                                <span style="background: ${badgeColor}; color: #fff; font-size: 0.65rem; padding: 2px 5px; border-radius: 3px; font-weight: bold;">
+                                    ${err.severity.toUpperCase()}
+                                </span>
+                                <span style="color: #aaa; margin-left: 6px;">[${err.error_type} - ${btText}]</span>
+                                <div style="color: #eee; margin-top: 2px;">${err.url}: ${err.message}</div>
+                            </div>`;
+                        })
+                        .join("");
+                }
+            }
+
+            // Exibe cenários gerados
+            if (st.generated_scenarios && st.generated_scenarios.length > 0) {
+                const resBox = document.getElementById("crawl-results-box");
+                const resList = document.getElementById("crawl-scenarios-list");
+                if (resBox && resList) {
+                    resBox.style.display = "block";
+                    resList.innerHTML = st.generated_scenarios
+                        .map((scPath) => {
+                            const parts = scPath.split("/");
+                            const filename = parts[parts.length - 1];
+                            const scenarioId = filename.replace(/\.ya?ml$/, "");
+                            return `<div style="display: flex; align-items: center; justify-content: space-between; background: var(--bg-card, #1c1c1c); padding: 6px 10px; border-radius: 4px; border: 1px solid var(--border-color, #333);">
+                                <span style="font-size: 0.8rem; color: var(--text-color, #eee); font-family: monospace;">${filename}</span>
+                                <button class="btn btn-sm btn-primary btn-open-crawl-scenario" data-scenario-id="${scenarioId}" style="padding: 3px 8px; font-size: 0.75rem;">
+                                    Abrir no Editor
+                                </button>
+                            </div>`;
+                        })
+                        .join("");
+
+                    // Adiciona listeners para abrir cenários
+                    resList.querySelectorAll(".btn-open-crawl-scenario").forEach((btn) => {
+                        btn.addEventListener("click", async (e) => {
+                            const scId = e.currentTarget.dataset.scenarioId;
+                            closeModals();
+                            await loadScenarios();
+                            selectScenario(scId);
+                        });
+                    });
+                }
+            }
+
+            // Conclusão ou cancelamento
+            if (st.status === "completed" || st.status === "cancelled" || st.status === "failed") {
+                if (crawlPollInterval) {
+                    clearInterval(crawlPollInterval);
+                    crawlPollInterval = null;
+                }
+                document.getElementById("btn-start-crawl").style.display = "inline-flex";
+                document.getElementById("btn-start-crawl").textContent = "🚀 Reiniciar Crawl";
+                document.getElementById("btn-cancel-crawl").style.display = "none";
+                await loadScenarios();
+
+                if (st.status === "completed") {
+                    showToast("Crawling autônomo concluído!", "success");
+                } else if (st.status === "cancelled") {
+                    showToast("Crawling cancelado pelo usuário.", "warning");
+                } else {
+                    showToast("Crawling encerrado com falhas.", "error");
+                }
+            }
+        } catch (err) {
+            console.error("Erro no polling do crawl:", err);
+        }
+    }
+
+    async function cancelCrawl() {
+        if (!activeCrawlJobId) return;
+        try {
+            const res = await apiFetch(`/api/crawl/cancel/${encodeURIComponent(activeCrawlJobId)}`, {
+                method: "POST",
+            });
+            if (res.ok) {
+                showToast("Solicitação de cancelamento enviada.", "info");
+            }
+        } catch (err) {
+            showToast(`Falha ao cancelar: ${err.message}`, "error");
+        }
+    }
+
     // --- 11. Alternância de Abas e Modais ---
     function switchMainTab(tabName) {
         state.activeTab = tabName;
@@ -1593,13 +2809,27 @@ steps:
             btn.classList.toggle("active", btn.dataset.inspTab === inspTabName);
         });
 
-        document.getElementById("insp-panel-preview")?.classList.toggle("active", inspTabName === "preview");
         document.getElementById("insp-panel-live")?.classList.toggle("active", inspTabName === "live");
     }
 
     function openModal(modalId) {
         const modal = document.getElementById(modalId);
-        if (modal) modal.classList.add("active");
+        if (modal) {
+            modal.classList.add("active");
+        } else {
+            console.warn(`Modal com id '${modalId}' não encontrado no DOM.`);
+        }
+    }
+
+    function closeModal(modalId) {
+        if (modalId) {
+            const modal = document.getElementById(modalId);
+            if (modal) {
+                modal.classList.remove("active");
+                return;
+            }
+        }
+        closeModals();
     }
 
     function closeModals() {
@@ -1653,9 +2883,12 @@ steps:
                 setSaveStatus("modified");
                 updateLineNumbers();
 
-                // Debounce de Validação em Linha (300ms)
+                // Debounce de Sincronização YAML -> Pipeline e Validação em Linha (300ms)
                 clearTimeout(state.validationTimer);
-                state.validationTimer = setTimeout(() => validateYaml(codeEditor.value), 300);
+                state.validationTimer = setTimeout(() => {
+                    syncYamlToPipeline();
+                    validateYaml(codeEditor.value);
+                }, 300);
 
                 // Debounce de Autosave (1000ms)
                 clearTimeout(state.autosaveTimer);
@@ -1713,12 +2946,55 @@ steps:
 
         updateExecutionFlagsUI();
 
+        // Alternador de Visão: Visual vs Código YAML (UXS-82)
+        document.getElementById("btn-view-mode-visual")?.addEventListener("click", () => switchEditorViewMode("visual"));
+        document.getElementById("btn-view-mode-code")?.addEventListener("click", () => switchEditorViewMode("code"));
+
         document.getElementById("btn-run-scenario")?.addEventListener("click", runScenarioExecution);
         document.getElementById("btn-save-scenario")?.addEventListener("click", saveScenario);
         document.getElementById("btn-delete-scenario")?.addEventListener("click", () => {
             if (!state.activeScenarioId) return;
             const title = state.activeScenarioData?.title || state.activeScenarioId;
             openDeleteScenarioModal(state.activeScenarioId, title);
+        });
+
+        // UXS-83: Editor Visual de Pipeline e Modais
+        document.getElementById("btn-edit-scenario-metadata")?.addEventListener("click", openScenarioMetadataModal);
+        document.getElementById("btn-save-scenario-metadata")?.addEventListener("click", saveScenarioMetadataModal);
+        document.getElementById("btn-add-tag")?.addEventListener("click", addMetadataTag);
+        document.getElementById("scenario-meta-tag-input")?.addEventListener("keydown", (e) => {
+            if (e.key === "Enter") {
+                e.preventDefault();
+                addMetadataTag();
+            }
+        });
+        document.getElementById("btn-add-env-var")?.addEventListener("click", () => addMetadataEnvRow("", ""));
+
+        // Delegação de evento para os cards de steps do pipeline (UXS-84)
+        const previewList = document.getElementById("preview-steps-list");
+        if (previewList) {
+            previewList.addEventListener("click", (e) => {
+                if (e.target.closest(".btn-step-quick")) return;
+                const card = e.target.closest(".card-step-pipeline");
+                if (card && card.dataset.stepIndex !== undefined) {
+                    const idx = parseInt(card.dataset.stepIndex, 10);
+                    if (!isNaN(idx)) {
+                        openStepModal(idx);
+                    }
+                }
+            });
+        }
+
+        document.getElementById("btn-add-step-footer")?.addEventListener("click", openNewStepModal);
+        document.getElementById("step-modal-action")?.addEventListener("change", updateStepModalFieldVisibility);
+        document.getElementById("btn-step-modal-save")?.addEventListener("click", saveStepModal);
+        document.getElementById("btn-step-modal-delete")?.addEventListener("click", deleteStepFromModal);
+
+        document.getElementById("editor-profile-select")?.addEventListener("change", (e) => {
+            if (state.activeScenarioData) {
+                state.activeScenarioData.profile = e.target.value;
+                syncPipelineToYaml();
+            }
         });
 
         // Seletor de Projetos
@@ -1831,6 +3107,11 @@ steps:
         document.getElementById("btn-confirm-create-scenario")?.addEventListener("click", confirmCreateScenario);
         document.getElementById("btn-submit-ai-prompt")?.addEventListener("click", submitAiPrompt);
         document.getElementById("btn-apply-ai-yaml")?.addEventListener("click", applyAiGeneratedYaml);
+
+        // Modal de Crawling Autônomo (UXS-12)
+        document.getElementById("btn-open-crawl-modal")?.addEventListener("click", () => openModal("modal-crawler"));
+        document.getElementById("btn-start-crawl")?.addEventListener("click", startCrawl);
+        document.getElementById("btn-cancel-crawl")?.addEventListener("click", cancelCrawl);
 
         // Modal de Exclusão de Cenário
         document.querySelectorAll('input[name="delete-scenario-mode"]').forEach((radio) => {

@@ -42,6 +42,7 @@ class StepDTO(BaseModel):
     url: str | None = None
     name: str | None = None
     expected_behavior: str | None = None
+    timeout: int | None = None
 
     @field_validator(
         "value",
@@ -85,6 +86,8 @@ class ScenarioDetailDTO(ScenarioSummaryDTO):
 
     raw_yaml: str
     steps: list[StepDTO] = Field(default_factory=list)
+    description: str | None = None
+    env: dict[str, str] = Field(default_factory=dict)
 
 
 class StepError(BaseModel):
@@ -138,6 +141,7 @@ class ScenarioService:
                 if root.is_dir():
                     search_folders = [
                         root / "scenarios",
+                        root / "scenarios" / "generated",
                         root / ".uxsentinel" / "scenarios",
                         root / "tests" / "scenarios",
                         root,
@@ -274,6 +278,21 @@ class ScenarioService:
             # Retorne lista vazia para projetos!
             pass
 
+        # Se base_dir foi fornecido e possui pasta 'scenarios', também coleta seus cenários
+        if base_dir:
+            with contextlib.suppress(Exception):
+                base_p = Path(base_dir).resolve()
+                if base_p.is_dir() and (base_p / "scenarios").is_dir():
+                    from types import SimpleNamespace
+
+                    p_id = base_p.name.lower()
+                    dummy_entry = SimpleNamespace(
+                        root_path=str(base_p),
+                        name=base_p.name,
+                        scenarios={},
+                    )
+                    self._collect_project_scenarios(p_id, dummy_entry, scenarios, seen_ids)
+
         # Inclui biblioteca embutida se solicitado
         if include_library:
             self._collect_library_scenarios(scenarios, seen_ids)
@@ -296,6 +315,7 @@ class ScenarioService:
             base_path = Path(base_dir).resolve()
             for sdir in (
                 base_path / "scenarios",
+                base_path / "scenarios" / "generated",
                 base_path / ".uxsentinel" / "scenarios",
                 base_path / "tests" / "scenarios",
                 base_path,
@@ -334,6 +354,7 @@ class ScenarioService:
                     if r_path.is_dir():
                         for sdir in (
                             r_path / "scenarios",
+                            r_path / "scenarios" / "generated",
                             r_path / ".uxsentinel" / "scenarios",
                             r_path / "tests" / "scenarios",
                             r_path,
@@ -401,6 +422,7 @@ class ScenarioService:
                 url=step.url,
                 name=step.name,
                 expected_behavior=step.expected_behavior,
+                timeout=step.timeout,
             )
             for idx, step in enumerate(sc.steps)
         ]
@@ -409,8 +431,10 @@ class ScenarioService:
             id=sc.id,
             filename=target_file.name,
             title=sc.title,
+            description=sc.description,
             profile=sc.profile,
             tags=sc.tags,
+            env=sc.env,
             source=source_found,
             step_count=len(sc.steps),
             modified_at=mod_time,

@@ -181,4 +181,16 @@ Este documento estabelece as regras mandatórias que TODOS os agentes de IA, sub
 > - **Proibição de Descompasso**: É terminantemente proibido introduzir suporte a novas ações ou atributos no motor do CLI sem atualizar simultaneamente os formulários, modais, cards interativos e serializadores do editor visual no Studio.
 > - **Validação Hermética**: Testes herméticos no Studio devem cobrir a compatibilidade integral das novas regras de YAML tanto na importação (parsing) quanto na exportação (geração visual para código).
 
+---
 
+## 🏷️ 9. Versionamento Semântico e Bump Automático de Revisão (Patch)
+
+> [!CAUTION]
+> 
+> ### REGRA MANDATÓRIA: BUMP AUTOMÁTICO DE REVISÃO EM TODA ALTERAÇÃO SIGNIFICATIVA
+> 
+> - **Incremento de Revisão Obrigatório**: Sempre que houver uma alteração significativa no código — seja uma nova **feature**, **melhoria estrutural** ou **correção de bug** relevante —, deve-se obrigatoriamente gerar uma nova versão de revisão (*patch*), por exemplo: incrementando de `0.1.1` para `0.1.2`, de `0.1.6` para `0.1.7`, etc.
+> - **Sincronismo Total de Versão**: O bump de versão deve ser aplicado de forma coordenada em todos os pontos de declaração:
+>   - Para o core CLI: `pyproject.toml` e `uxsentinel/__init__.py`;
+>   - Para o Studio: `studio/pyproject.toml`, `studio/uxsentinel_studio/__init__.py` e no badge do cabeçalho em `studio/uxsentinel_studio/static/index.html`.
+> - **Build e Instalação do Pacote**: Sempre que a versão for incrementada localmente, o pacote deve ser recompilado (`ambiente/bin/python3 -m build <alvo>`) e disponibilizado para testes imediatos com a nova versão refletida.

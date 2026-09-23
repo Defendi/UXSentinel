@@ -34,6 +34,7 @@ def find_project_scenarios() -> list[Path]:
 
     search_dirs = [
         cwd / "scenarios",
+        cwd / "scenarios" / "generated",
         cwd / ".uxsentinel" / "scenarios",
         cwd / "tests" / "scenarios",
         cwd,
@@ -606,6 +607,46 @@ Documentação completa: https://github.com/Defendi/UXSentinel""",
         action="store_true",
         help="Remove as credenciais SSO em cache do provedor e encerra.",
     )
+    crawl_group = parser.add_argument_group("Modo Exploratório Autônomo (Crawling - UXS-12)")
+    crawl_group.add_argument(
+        "--crawl",
+        type=str,
+        default=None,
+        metavar="URL",
+        help="Inicia o modo exploratório autônomo (crawling) a partir da URL informada.",
+    )
+    crawl_group.add_argument(
+        "--max-depth",
+        type=int,
+        default=3,
+        help="Profundidade máxima de navegação no crawling (padrão: 3).",
+    )
+    crawl_group.add_argument(
+        "--max-pages",
+        type=int,
+        default=50,
+        help="Número máximo de páginas a serem visitadas no crawling (padrão: 50).",
+    )
+    gen_group = crawl_group.add_mutually_exclusive_group()
+    gen_group.add_argument(
+        "--generate-scenarios",
+        dest="generate_scenarios",
+        action="store_true",
+        default=True,
+        help="Gera arquivos YAML de cenários para as jornadas navegadas (padrão: ativado).",
+    )
+    gen_group.add_argument(
+        "--no-generate-scenarios",
+        dest="generate_scenarios",
+        action="store_false",
+        help="Desativa a geração automática de cenários YAML.",
+    )
+    crawl_group.add_argument(
+        "--crawl-output-dir",
+        type=str,
+        default="scenarios/generated",
+        help="Diretório onde os cenários gerados e evidências do crawler serão salvos (padrão: 'scenarios/generated').",
+    )
 
     return parser
 
@@ -808,6 +849,90 @@ async def handle_audit_css(target: str, cfg: GlobalConfig) -> int:
     return EXIT_INCONFORMIDADES if has_bloqueante or report.violations else EXIT_SUCESSO
 
 
+async def handle_crawl(args: argparse.Namespace, cfg: GlobalConfig) -> int:
+    """Executa o modo exploratório autônomo (crawling)."""
+    from uxsentinel.crawler import Crawler, CrawlOptions
+
+    console.print(
+        f"\n🕷️ [bold cyan]Iniciando Modo Exploratório Autônomo (UXS-12):[/bold cyan] [yellow]{args.crawl}[/yellow]"
+    )
+    console.print(
+        f"[dim]Profundidade Máxima: {args.max_depth} | Limite de Páginas: {args.max_pages} | Output: {args.crawl_output_dir}[/dim]\n"
+    )
+
+    headless = args.headless if args.headless is not None else cfg.browser.headless
+    options = CrawlOptions(
+        start_url=args.crawl,
+        max_depth=args.max_depth,
+        max_pages=args.max_pages,
+        generate_scenarios=args.generate_scenarios,
+        output_dir=args.crawl_output_dir,
+        headless=headless,
+        profile=args.profile or "generic",
+    )
+
+    crawler = Crawler(options)
+    result = await crawler.run()
+
+    # Exibe resumo no terminal
+    table = Table(title="Resultado da Exploração Autônoma")
+    table.add_column("Métrica", style="cyan")
+    table.add_column("Valor", style="bold white")
+
+    status_str = result.get("status", "unknown").upper()
+    status_fmt = (
+        f"[bold green]{status_str}[/bold green]"
+        if status_str == "COMPLETED"
+        else f"[bold yellow]{status_str}[/bold yellow]"
+    )
+    table.add_row("Status", status_fmt)
+    table.add_row("Páginas Visitadas", str(result.get("visited_count", 0)))
+    table.add_row("Páginas na Fila (Restantes)", str(result.get("queued_count", 0)))
+    table.add_row("Erros Detectados", str(len(result.get("errors", []))))
+    table.add_row("Cenários YAML Gerados", str(len(result.get("generated_scenarios", []))))
+
+    console.print(table)
+
+    errors = result.get("errors", [])
+    if errors:
+        err_table = Table(title="Inconformidades e Falhas Graves Detectadas")
+        err_table.add_column("Severidade", style="bold")
+        err_table.add_column("URL", style="cyan")
+        err_table.add_column("Tipo", style="magenta")
+        err_table.add_column("Detalhes")
+        err_table.add_column("Recuo (Backtrack)", justify="center")
+
+        for err in errors:
+            sev_label = (
+                "[bold white on red] BLOQUEANTE [/bold white on red]"
+                if err.get("severity") == "bloqueante"
+                else "[bold red]ALTA[/bold red]"
+            )
+            bt_label = "[green]Sucesso[/green]" if err.get("backtrack_success") else "[red]Falhou[/red]"
+            err_table.add_row(
+                sev_label,
+                err.get("url", "-"),
+                err.get("error_type", "-"),
+                err.get("message", "-"),
+                bt_label,
+            )
+
+        console.print(err_table)
+
+    gen_scenarios = result.get("generated_scenarios", [])
+    if gen_scenarios:
+        console.print("\n[bold green]✓ Cenários gerados prontos para execução:[/bold green]")
+        for sc_file in gen_scenarios:
+            console.print(f"  • [cyan]{sc_file}[/cyan]")
+
+    has_blocking = any(e.get("severity") == "bloqueante" for e in errors)
+    if has_blocking:
+        return EXIT_ERRO_EXECUCAO
+    if errors:
+        return EXIT_INCONFORMIDADES
+    return EXIT_SUCESSO
+
+
 async def async_main() -> int:
     """Ponto de entrada assíncrono principal da CLI do UXSentinel."""
     parser = build_arg_parser()
@@ -844,6 +969,9 @@ async def async_main() -> int:
 
     if args.audit_css:
         return await handle_audit_css(args.audit_css, cfg)
+
+    if args.crawl:
+        return await handle_crawl(args, cfg)
 
     cfg_path = Path(args.config) if args.config else None
 

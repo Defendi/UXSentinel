@@ -2222,3 +2222,263 @@ def test_studio_static_app_js_syntax_integrity() -> None:
         assert open_braces == close_braces, (
             f"Desbalanceamento de chaves em app.js: {open_braces} != {close_braces}"
         )
+
+
+def test_studio_static_index_html_uxs82_structure() -> None:
+    """Valida a estrutura HTML da nova arquitetura de toolbars e visual-container (UXS-82)."""
+    index_html_path = Path(__file__).resolve().parent.parent / "uxsentinel_studio" / "static" / "index.html"
+    assert index_html_path.is_file(), f"index.html não encontrado em {index_html_path}"
+    content = index_html_path.read_text(encoding="utf-8")
+
+    # 1. Bump de versão para 0.1.7
+    assert 'id="version-display">v0.1.7</span>' in content
+
+    # 2. Barra Geral Superior: analyze-toolbar
+    assert 'class="analyze-toolbar"' in content
+    assert 'id="current-filename"' in content
+    assert 'id="toggle-container-headless"' in content
+    assert 'id="toggle-container-devtools"' in content
+    assert 'id="toggle-container-console"' in content
+    assert 'id="toggle-container-inspect"' in content
+    assert 'id="btn-run-scenario"' in content
+
+    # 3. Nova Barra editor-toolbar no editor-pane
+    assert 'class="editor-toolbar"' in content
+    assert 'id="current-source-badge"' in content
+    assert 'id="save-status-indicator"' in content
+    assert 'id="editor-profile-select"' in content
+    assert 'id="view-mode-selector"' in content
+    assert 'id="btn-view-mode-visual"' in content
+    assert 'id="btn-view-mode-code"' in content
+    assert 'id="btn-save-scenario"' in content
+    assert 'id="btn-delete-scenario"' in content
+
+    # 4. Containers de Alternância: visual-container e editor-container
+    assert 'class="visual-container" id="visual-container"' in content
+    assert 'class="editor-container hidden" id="editor-container"' in content
+    assert 'id="preview-steps-list"' in content
+    assert 'id="yaml-code-editor"' in content
+
+    # Validação de contenção em editor-pane
+    assert '<div class="editor-pane">' in content
+    pane_idx = content.find('<div class="editor-pane">')
+    toolbar_idx = content.find('class="editor-toolbar"', pane_idx)
+    visual_idx = content.find('id="visual-container"', pane_idx)
+    editor_idx = content.find('id="editor-container"', pane_idx)
+    assert pane_idx < toolbar_idx < visual_idx < editor_idx
+
+    # 5. Live Mission Control na inspector-col (sem aba redundante de preview)
+    assert "Live Mission Control" in content
+    assert 'data-insp-tab="preview"' not in content
+    assert 'id="insp-panel-live"' in content
+
+
+def test_studio_static_uxs83_pipeline_editor_structure() -> None:
+    """Valida a estrutura HTML completa do Editor Visual de Pipeline e Modais (UXS-83)."""
+    index_html_path = Path(__file__).resolve().parent.parent / "uxsentinel_studio" / "static" / "index.html"
+    assert index_html_path.is_file(), f"index.html não encontrado em {index_html_path}"
+    content = index_html_path.read_text(encoding="utf-8")
+
+    # 1. Botão Metadados na Toolbar e Botão Adicionar Passo no Rodapé do Pipeline
+    assert 'id="btn-edit-scenario-metadata"' in content
+    assert 'id="btn-add-step-footer"' in content
+    assert "Adicionar Passo à Pipeline" in content
+
+    # 2. Modal de Metadados Iniciais (#modal-scenario-metadata) 100% em PT-BR
+    assert 'id="modal-scenario-metadata"' in content
+    assert 'id="scenario-meta-id"' in content
+    assert 'id="scenario-meta-title"' in content
+    assert 'id="scenario-meta-description"' in content
+    assert 'id="scenario-meta-profile"' in content
+    assert 'id="scenario-meta-tags-container"' in content
+    assert 'id="scenario-meta-tag-input"' in content
+    assert 'id="btn-add-tag"' in content
+    assert 'id="scenario-meta-env-container"' in content
+    assert 'id="btn-add-env-var"' in content
+    assert 'id="btn-save-scenario-metadata"' in content
+    assert "Propriedades do Cenário de Auditoria" in content
+    assert "Salvar Metadados" in content
+
+    # 3. Modal de Edição de Passos (#modal-step-editor) com Campos Condicionais
+    assert 'id="modal-step-editor"' in content
+    assert 'id="step-modal-title"' in content
+    assert 'id="step-modal-number"' in content
+    assert 'id="step-modal-action"' in content
+    assert 'id="step-group-goto"' in content
+    assert 'id="step-field-url"' in content
+    assert 'id="step-field-timeout-goto"' in content
+    assert 'id="step-group-click-hover"' in content
+    assert 'id="step-field-selector-click"' in content
+    assert 'id="step-field-wait-visible-click"' in content
+    assert 'id="step-field-timeout-click"' in content
+    assert 'id="step-group-fill"' in content
+    assert 'id="step-field-selector-fill"' in content
+    assert 'id="step-field-value-fill"' in content
+    assert 'id="step-field-clear-fill"' in content
+    assert 'id="step-group-press"' in content
+    assert 'id="step-field-selector-press"' in content
+    assert 'id="step-field-key-press"' in content
+    assert 'id="step-group-select"' in content
+    assert 'id="step-field-selector-select"' in content
+    assert 'id="step-field-option-select"' in content
+    assert 'id="step-group-checkpoint"' in content
+    assert 'id="step-field-checkpoint-name"' in content
+    assert 'id="step-field-checkpoint-instructions"' in content
+    assert 'id="step-field-checkpoint-focus"' in content
+    assert 'id="step-group-wait"' in content
+    assert 'id="step-field-wait-ms"' in content
+    assert 'id="step-field-wait-selector"' in content
+    assert 'id="step-group-scroll"' in content
+    assert 'id="step-field-scroll-direction"' in content
+    assert 'id="step-field-scroll-target"' in content
+    assert 'id="step-modal-comment"' in content
+    assert 'id="btn-step-modal-delete"' in content
+    assert 'id="btn-step-modal-save"' in content
+
+
+def test_studio_static_uxs83_app_js_engine() -> None:
+    """Valida funções do motor JS: parser/serializador YAML, drag & drop e congruência (UXS-83)."""
+    app_js_path = Path(__file__).resolve().parent.parent / "uxsentinel_studio" / "static" / "app.js"
+    assert app_js_path.is_file(), f"app.js não encontrado em {app_js_path}"
+    content = app_js_path.read_text(encoding="utf-8")
+
+    # Funções centrais do motor do pipeline
+    assert "function parseScenarioYaml" in content
+    assert "function serializeScenarioYaml" in content
+    assert "function syncPipelineToYaml" in content
+    assert "function syncYamlToPipeline" in content
+    assert "function validatePipelineCongruence" in content
+    assert "function renderPipelineCards" in content
+    assert "function duplicatePipelineStep" in content
+    assert "function deletePipelineStep" in content
+
+    # Modais e interações
+    assert "function openScenarioMetadataModal" in content
+    assert "function saveScenarioMetadataModal" in content
+    assert "function openStepModal" in content
+    assert "function openNewStepModal" in content
+    assert "function saveStepModal" in content
+    assert "function deleteStepFromModal" in content
+    assert "function updateStepModalFieldVisibility" in content
+
+    # Drag & Drop e classes
+    assert "card-step-pipeline" in content
+    assert "dragging" in content
+    assert "drag-over" in content
+    assert "btn-step-quick" in content
+
+
+def test_studio_static_uxs83_css_rules() -> None:
+    """Valida as regras de estilo do pipeline visual e badges coloridos (UXS-83)."""
+    css_path = Path(__file__).resolve().parent.parent / "uxsentinel_studio" / "static" / "style.css"
+    assert css_path.is_file(), f"style.css não encontrado em {css_path}"
+    content = css_path.read_text(encoding="utf-8")
+
+    assert ".card-step-pipeline" in content
+    assert ".card-step-pipeline.dragging" in content
+    assert ".card-step-pipeline.drag-over" in content
+    assert ".card-step-pipeline.has-congruence-warning" in content
+    assert ".btn-add-step-dashed" in content
+    assert ".badge-goto" in content
+    assert ".badge-fill" in content
+    assert ".badge-click" in content
+    assert ".badge-checkpoint" in content
+    assert ".badge-wait" in content
+    assert ".tags-manager" in content
+    assert ".env-manager-section" in content
+
+
+def test_studio_static_uxs84_js_multiline_and_modal_resilience() -> None:
+    """Valida a resiliência do parser YAML para multilinhas, sublistas e delegação de clique (UXS-84)."""
+    js_path = Path(__file__).resolve().parent.parent / "uxsentinel_studio" / "static" / "app.js"
+    assert js_path.is_file(), f"app.js não encontrado em {js_path}"
+    content = js_path.read_text(encoding="utf-8")
+
+    # Resiliência de multilinhas e sub-listas no parser
+    assert "inMultilineScalar" in content
+    assert "finalizeMultilineScalar" in content
+    assert "isStepStart" in content
+    assert "isSubListItem" in content
+
+    # Delegação de eventos no preview-steps-list
+    assert "preview-steps-list" in content
+    assert "card.dataset.stepIndex" in content
+
+    # Modais e tratamento de erros
+    assert "function closeModal(modalId)" in content
+    assert "function openScenarioMetadataModal" in content
+    assert "function openStepModal(stepIdx)" in content
+    assert "function openNewStepModal" in content
+
+
+def test_studio_static_uxs84_css_rules() -> None:
+    """Valida as regras de estilo de z-index elevado para modais e cursor pointer nos cards (UXS-84)."""
+    css_path = Path(__file__).resolve().parent.parent / "uxsentinel_studio" / "static" / "style.css"
+    assert css_path.is_file(), f"style.css não encontrado em {css_path}"
+    content = css_path.read_text(encoding="utf-8")
+
+    # z-index 1200 e flex garantidos para modais ativos
+    assert "#modal-step-editor.active" in content
+    assert "#modal-scenario-metadata.active" in content
+    assert "z-index: 1200 !important;" in content
+    assert "cursor: pointer !important;" in content
+
+
+def test_scenario_multiline_yaml_api_roundtrip(client: TestClient, auth_headers: dict[str, str]) -> None:
+    """Valida gravação e análise estática de cenário contendo blocos multilinhas (UXS-84)."""
+    multiline_yaml = """# ==============================================================================
+# CENÁRIO COM MULTILINHA E CRITÉRIOS ANINHADOS
+# ==============================================================================
+
+id: "cenario_multilinha_uxs84"
+title: "Auditoria Visual Multilinha"
+description: >
+  Audita comportamento complexo com quebra de linha.
+  Valida preservação estrutural pelo parser.
+profile: "generic"
+tags:
+  - "resilience"
+  - "multiline"
+
+steps:
+  - action: "goto"
+    url: "https://example.com/login"
+    description: "Navegação para a página de teste"
+
+  - action: "checkpoint"
+    name: "Ponto Crítico Multilinha"
+    expected_behavior: >
+      O painel de controle deve renderizar os KPIs de vendas.
+      Nenhum alerta de erro deve estar visível.
+    criteria:
+      - "contrast_aa"
+      - "i18n_pt_br"
+
+  - action: "click"
+    selector: "button.submit"
+"""
+    # 1. Validação estática
+    resp_val = client.post(
+        "/api/scenarios/validate",
+        headers=auth_headers,
+        json={"yaml_content": multiline_yaml},
+    )
+    assert resp_val.status_code == 200
+    data_val = resp_val.json()
+    assert data_val["valid"] is True
+    assert len(data_val["errors"]) == 0
+
+    # 2. Criação do arquivo
+    resp_create = client.post(
+        "/api/scenarios",
+        headers=auth_headers,
+        json={"yaml_content": multiline_yaml, "filename": "cenario_multilinha_uxs84.yaml"},
+    )
+    assert resp_create.status_code == 201
+
+    # 3. Detalhes via API
+    resp_detail = client.get("/api/scenarios/cenario_multilinha_uxs84", headers=auth_headers)
+    assert resp_detail.status_code == 200
+    detail = resp_detail.json()
+    assert detail["id"] == "cenario_multilinha_uxs84"
+    assert len(detail["steps"]) == 3
