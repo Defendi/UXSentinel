@@ -14,7 +14,7 @@
             <div class="topbar-brand">
                 <span class="brand-icon">🛡️</span>
                 <span class="brand-name">UXSentinel <span class="brand-badge">Studio</span></span>
-                <span class="version-badge" id="version-display">v0.1.8</span>
+                <span class="version-badge" id="version-display">v0.1.9</span>
             </div>
 
             <!-- Navegação Superior / Abas Globais -->
@@ -816,6 +816,7 @@
                                 <option value="fill">fill (Preencher campo de texto)</option>
                                 <option value="checkpoint">checkpoint (Auditoria Visual & IA)</option>
                                 <option value="wait">wait (Temporizador / Espera)</option>
+                                <option value="wait_until_ready">wait_until_ready (Aguardar Prontidão / Rede / Loading)</option>
                                 <option value="hover">hover (Passar o mouse)</option>
                                 <option value="press">press (Pressionar tecla)</option>
                                 <option value="scroll">scroll (Rolar página)</option>
@@ -939,7 +940,16 @@
                         </div>
                     </div>
 
-                    <!-- 9. CAMPO TRANSVERSAL: COMENTÁRIO PRESERVADO NO YAML -->
+                    <!-- 9. WAIT_UNTIL_READY -->
+                    <div class="step-conditional-group hidden" id="step-group-wait-until-ready">
+                        <div class="form-group">
+                            <label for="step-field-timeout-wait-ready">Timeout de Prontidão (ms, opcional):</label>
+                            <input type="number" id="step-field-timeout-wait-ready" class="input-mono" placeholder="15000">
+                            <small class="field-hint" style="color: var(--text-muted); font-size: 0.72rem; margin-top: 4px;">Aguarde estabilização de rede, sumiço de indicadores de loading (como .o_loading) e término de requisições.</small>
+                        </div>
+                    </div>
+
+                    <!-- 10. CAMPO TRANSVERSAL: COMENTÁRIO PRESERVADO NO YAML -->
                     <div class="step-comment-group">
                         <label for="step-modal-comment">
                             <span>💬</span> Comentário do Passo (Preservado no YAML):

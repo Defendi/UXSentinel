@@ -1133,6 +1133,9 @@
             fill: "⌨️",
             checkpoint: "📸",
             wait: "⏳",
+            wait_until_ready: "⏳",
+            wait_odoo_ready: "⏳",
+            wait_navigation: "⏳",
             hover: "👆",
             press: "⚡",
             scroll: "📜",
@@ -1177,6 +1180,9 @@
                 } else if (action === "wait") {
                     paramSummary = step.timeout || step.ms ? `${step.timeout || step.ms}ms` : (step.selector || "Aguardar condição");
                     if (!mainTitle) mainTitle = "Pausa temporizada / Espera";
+                } else if (action === "wait_until_ready" || action === "wait_odoo_ready" || action === "wait_navigation") {
+                    paramSummary = step.timeout ? `Aguardar prontidão (${step.timeout}ms)` : "Aguardar estabilização de rede e sumiço de loading";
+                    if (!mainTitle) mainTitle = "Aguardar Prontidão da Página";
                 } else if (action === "scroll") {
                     paramSummary = step.direction || step.target || "down";
                     if (!mainTitle) mainTitle = "Rolar página";
@@ -1491,7 +1497,13 @@
         if (delBtn) delBtn.style.display = "inline-flex";
 
         if (numInput) numInput.value = stepIdx + 1;
-        if (actionSelect) actionSelect.value = step.action || "goto";
+        if (actionSelect) {
+            let act = (step.action || "goto").toLowerCase();
+            if (act === "wait_odoo_ready" || act === "wait_navigation") {
+                act = "wait_until_ready";
+            }
+            actionSelect.value = act;
+        }
         if (commentInput) commentInput.value = step.description || "";
 
         populateStepModalFields(step);
@@ -1549,6 +1561,7 @@
         setVal("step-field-checkpoint-focus", "");
         setVal("step-field-wait-ms", "");
         setVal("step-field-wait-selector", "");
+        setVal("step-field-timeout-wait-ready", "");
         setVal("step-field-scroll-direction", "");
         setVal("step-field-scroll-target", "");
     }
@@ -1589,6 +1602,8 @@
         } else if (action === "wait") {
             setVal("step-field-wait-ms", step.timeout || step.ms || "");
             setVal("step-field-wait-selector", step.selector || "");
+        } else if (action === "wait_until_ready" || action === "wait_odoo_ready" || action === "wait_navigation") {
+            setVal("step-field-timeout-wait-ready", step.timeout || "");
         } else if (action === "scroll") {
             setVal("step-field-scroll-direction", step.direction || "");
             setVal("step-field-scroll-target", step.target || "");
@@ -1616,6 +1631,8 @@
             document.getElementById("step-group-checkpoint")?.classList.remove("hidden");
         } else if (action === "wait") {
             document.getElementById("step-group-wait")?.classList.remove("hidden");
+        } else if (action === "wait_until_ready" || action === "wait_odoo_ready" || action === "wait_navigation") {
+            document.getElementById("step-group-wait-until-ready")?.classList.remove("hidden");
         } else if (action === "scroll") {
             document.getElementById("step-group-scroll")?.classList.remove("hidden");
         }
@@ -1668,6 +1685,9 @@
             if (ms) stepData.timeout = parseInt(ms, 10);
             const sel = document.getElementById("step-field-wait-selector")?.value.trim();
             if (sel) stepData.selector = sel;
+        } else if (action === "wait_until_ready" || action === "wait_odoo_ready" || action === "wait_navigation") {
+            const to = document.getElementById("step-field-timeout-wait-ready")?.value.trim();
+            if (to) stepData.timeout = parseInt(to, 10);
         } else if (action === "scroll") {
             const dir = document.getElementById("step-field-scroll-direction")?.value.trim();
             if (dir) stepData.direction = dir;

@@ -84,7 +84,7 @@ def test_status_endpoint(client: TestClient) -> None:
     assert resp.status_code == 200
     data = resp.json()
     assert data["status"] == "ok"
-    assert "studio_version" in data
+    assert data["studio_version"] == "0.1.9"
     assert "core_version" in data
     assert "project_dir" in data
 
@@ -2230,8 +2230,8 @@ def test_studio_static_index_html_uxs82_structure() -> None:
     assert index_html_path.is_file(), f"index.html não encontrado em {index_html_path}"
     content = index_html_path.read_text(encoding="utf-8")
 
-    # 1. Bump de versão para 0.1.8
-    assert 'id="version-display">v0.1.8</span>' in content
+    # 1. Bump de versão para 0.1.9
+    assert 'id="version-display">v0.1.9</span>' in content
 
     # 2. Barra Geral Superior: analyze-toolbar
     assert 'class="analyze-toolbar"' in content
@@ -2513,3 +2513,77 @@ def test_studio_static_uxs84_html_dom_balance_and_checkpoint_rendering() -> None
     js_content = js_path.read_text(encoding="utf-8")
     assert 'step.name || step.description || "Auditoria Visual (Checkpoint)"' in js_content
     assert 'step.expected_behavior || step.instructions || step.focus || "Validação visual"' in js_content
+
+
+def test_studio_static_wait_until_ready_support() -> None:
+    """Valida a presença de suporte completo a wait_until_ready no frontend (HTML, JS, CSS) (UXS-84 / Regra 8)."""
+    static_dir = Path(__file__).resolve().parent.parent / "uxsentinel_studio" / "static"
+    html_content = (static_dir / "index.html").read_text(encoding="utf-8")
+    js_content = (static_dir / "app.js").read_text(encoding="utf-8")
+    css_content = (static_dir / "style.css").read_text(encoding="utf-8")
+
+    # 1. HTML: option no select e grupo condicional
+    assert '<option value="wait_until_ready">' in html_content or (
+        '<option value="wait_until_ready">wait_until_ready' in html_content
+    )
+    assert 'id="step-group-wait-until-ready"' in html_content
+    assert 'id="step-field-timeout-wait-ready"' in html_content
+
+    # 2. JS: ícones e ciclo de vida do modal
+    assert 'wait_until_ready: "⏳"' in js_content
+    assert 'wait_odoo_ready: "⏳"' in js_content
+    assert 'wait_navigation: "⏳"' in js_content
+    assert 'action === "wait_until_ready"' in js_content
+    assert "step-field-timeout-wait-ready" in js_content
+    assert "step-group-wait-until-ready" in js_content
+    assert "Aguardar Prontidão da Página" in js_content
+
+    # 3. CSS: estilização do badge de prontidão
+    assert ".step-badge.badge-wait_until_ready" in css_content
+    assert ".step-badge.badge-wait_odoo_ready" in css_content
+    assert ".step-badge.badge-wait_navigation" in css_content
+
+
+def test_scenario_wait_until_ready_api_roundtrip(client: TestClient, auth_headers: dict[str, str]) -> None:
+    """Valida que o backend valida, cria e persiste cenários com a ação wait_until_ready (Regra 8)."""
+    yaml_content = """# Cenário com ação wait_until_ready
+id: cenario_wait_ready_teste
+title: "Teste de Prontidão"
+profile: generic
+steps:
+  - action: goto
+    url: "https://example.com"
+  - action: wait_until_ready
+    timeout: 15000
+    description: "Aguardar estabilização da aplicação"
+  - action: checkpoint
+    name: "pos_prontidao"
+    expected_behavior: "Tela carregada com sucesso"
+"""
+    # 1. Validação estática
+    resp_val = client.post(
+        "/api/scenarios/validate",
+        headers=auth_headers,
+        json={"yaml_content": yaml_content},
+    )
+    assert resp_val.status_code == 200
+    data_val = resp_val.json()
+    assert data_val["valid"] is True
+    assert len(data_val["errors"]) == 0
+
+    # 2. Criação do arquivo
+    resp_create = client.post(
+        "/api/scenarios",
+        headers=auth_headers,
+        json={"yaml_content": yaml_content, "filename": "cenario_wait_ready_teste.yaml"},
+    )
+    assert resp_create.status_code == 201
+
+    # 3. Consulta e recuperação
+    resp_detail = client.get("/api/scenarios/cenario_wait_ready_teste", headers=auth_headers)
+    assert resp_detail.status_code == 200
+    detail = resp_detail.json()
+    assert detail["id"] == "cenario_wait_ready_teste"
+    assert len(detail["steps"]) == 3
+    assert detail["steps"][1]["action"] == "wait_until_ready"
+    assert detail["steps"][1]["timeout"] == 15000

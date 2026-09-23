@@ -37,6 +37,7 @@ class ExecutionOptions(BaseModel):
     jira: bool | None = None
     jira_project: str | None = None
     fix_prompt: bool | None = None
+    stream_events: Path | str | None = None
     event_bus: Any | None = None
     extra_options: dict = Field(default_factory=dict)
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -87,8 +88,25 @@ class ExecutionService:
             extra_options=extra_opts,
         )
 
-        return await self.runner.run_scenario(
-            scenario,
-            runner_options,
-            event_bus=options.event_bus,
-        )
+        event_bus = options.event_bus
+        streamer = None
+        if options.stream_events:
+            from uxsentinel.core.events import EventBus, JsonLinesEventStreamer
+
+            if event_bus is None:
+                event_bus = EventBus()
+            streamer = JsonLinesEventStreamer(options.stream_events)
+            streamer.open()
+            event_bus.subscribe(streamer)
+
+        try:
+            return await self.runner.run_scenario(
+                scenario,
+                runner_options,
+                event_bus=event_bus,
+            )
+        finally:
+            if streamer is not None:
+                if event_bus is not None:
+                    event_bus.unsubscribe(streamer)
+                streamer.close()

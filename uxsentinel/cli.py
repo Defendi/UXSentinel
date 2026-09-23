@@ -283,6 +283,7 @@ visível na tela e inspecionando cada checkpoint com Inteligência Artificial Mu
   uxsentinel --login-sso -p gemini_sso                 # Abre o navegador para autenticar no Gemini via SSO
   uxsentinel --login-sso -p claude_sso                 # Abre o navegador para autenticar no Claude via SSO
   uxsentinel --logout-sso                              # Remove a sessão SSO salva em cache
+  uxsentinel -s scenarios/teste.yaml --stream-events eventos.jsonl # Transmite eventos em tempo real em JSON Lines
   uxsentinel -s scenarios/teste.yaml --fix-prompt      # Gera prompt técnico de correção para IAs (Claude, Cursor, etc.)
   uxsentinel -s scenarios/teste.yaml --jira            # Cria issues automaticamente no Jira para inconformidades
   uxsentinel --set-jira-token                          # Configura token e URL do Jira interativamente
@@ -504,6 +505,13 @@ Documentação completa: https://github.com/Defendi/UXSentinel""",
         action="store_true",
         dest="fix_prompt",
         help="Gera um documento Markdown com prompt técnico de correção para agentes de IA (Claude Code, Cursor, Copilot).",
+    )
+    parser.add_argument(
+        "--stream-events",
+        type=Path,
+        default=None,
+        metavar="ARQUIVO",
+        help="Caminho para arquivo .jsonl onde os eventos da execução serão gravados em tempo real.",
     )
     markdown_group = parser.add_mutually_exclusive_group()
     markdown_group.add_argument(
@@ -1063,30 +1071,43 @@ async def async_main() -> int:
     # Execução de cenário único
     if len(scenarios_to_run) == 1:
         scenario_path = scenarios_to_run[0]
-        options = ExecutionOptions(
-            scenario_path=scenario_path,
-            provider=args.provider,
-            profile=args.profile,
-            headless=args.headless,
-            devtools=args.devtools,
-            record_video=args.record_video,
-            viewports=args.viewports or args.viewport,
-            enable_axe=args.enable_axe,
-            enable_css=args.enable_css,
-            update_baseline=args.update_baseline,
-            baseline_dir=args.baseline_dir,
-            diff_threshold=args.diff_threshold,
-            slowmo=args.slowmo,
-            output_dir=args.output_dir,
-            markdown=args.markdown,
-            fail_fast=args.fail_fast,
-            archive=args.archive,
-            archive_dir=args.archive_dir,
-            jira=args.jira,
-            jira_project=args.jira_project,
-            fix_prompt=args.fix_prompt,
-        )
-        report = await execution_service.run(options)
+        event_bus = None
+        streamer_cm: contextlib.AbstractContextManager = contextlib.nullcontext()
+        if args.stream_events:
+            from uxsentinel.core.events import EventBus, JsonLinesEventStreamer
+
+            streamer = JsonLinesEventStreamer(args.stream_events)
+            streamer_cm = streamer
+            event_bus = EventBus()
+            event_bus.subscribe(streamer)
+
+        with streamer_cm:
+            options = ExecutionOptions(
+                scenario_path=scenario_path,
+                provider=args.provider,
+                profile=args.profile,
+                headless=args.headless,
+                devtools=args.devtools,
+                record_video=args.record_video,
+                viewports=args.viewports or args.viewport,
+                enable_axe=args.enable_axe,
+                enable_css=args.enable_css,
+                update_baseline=args.update_baseline,
+                baseline_dir=args.baseline_dir,
+                diff_threshold=args.diff_threshold,
+                slowmo=args.slowmo,
+                output_dir=args.output_dir,
+                markdown=args.markdown,
+                fail_fast=args.fail_fast,
+                archive=args.archive,
+                archive_dir=args.archive_dir,
+                jira=args.jira,
+                jira_project=args.jira_project,
+                fix_prompt=args.fix_prompt,
+                stream_events=args.stream_events if not event_bus else None,
+                event_bus=event_bus,
+            )
+            report = await execution_service.run(options)
         await asyncio.sleep(0.05)
         return EXIT_SUCESSO if report.success else EXIT_INCONFORMIDADES
 
@@ -1097,37 +1118,49 @@ async def async_main() -> int:
     multi_results = []
     all_success = True
 
-    for idx, sc_path in enumerate(scenarios_to_run, start=1):
-        console.print(
-            f"[bold cyan]▶ [{idx}/{len(scenarios_to_run)}] Executando Cenário: {sc_path.stem}[/bold cyan]"
-        )
-        options = ExecutionOptions(
-            scenario_path=sc_path,
-            provider=args.provider,
-            profile=args.profile,
-            headless=args.headless,
-            devtools=args.devtools,
-            record_video=args.record_video,
-            viewports=args.viewports or args.viewport,
-            enable_axe=args.enable_axe,
-            enable_css=args.enable_css,
-            update_baseline=args.update_baseline,
-            baseline_dir=args.baseline_dir,
-            diff_threshold=args.diff_threshold,
-            slowmo=args.slowmo,
-            output_dir=args.output_dir,
-            markdown=args.markdown,
-            fail_fast=args.fail_fast,
-            archive=args.archive if idx == 1 else False,
-            archive_dir=args.archive_dir,
-            jira=args.jira,
-            jira_project=args.jira_project,
-            fix_prompt=args.fix_prompt,
-        )
-        rep = await execution_service.run(options)
-        multi_results.append((sc_path.stem, rep))
-        if not rep.success:
-            all_success = False
+    event_bus = None
+    streamer_cm: contextlib.AbstractContextManager = contextlib.nullcontext()
+    if args.stream_events:
+        from uxsentinel.core.events import EventBus, JsonLinesEventStreamer
+
+        streamer = JsonLinesEventStreamer(args.stream_events)
+        streamer_cm = streamer
+        event_bus = EventBus()
+        event_bus.subscribe(streamer)
+
+    with streamer_cm:
+        for idx, sc_path in enumerate(scenarios_to_run, start=1):
+            console.print(
+                f"[bold cyan]▶ [{idx}/{len(scenarios_to_run)}] Executando Cenário: {sc_path.stem}[/bold cyan]"
+            )
+            options = ExecutionOptions(
+                scenario_path=sc_path,
+                provider=args.provider,
+                profile=args.profile,
+                headless=args.headless,
+                devtools=args.devtools,
+                record_video=args.record_video,
+                viewports=args.viewports or args.viewport,
+                enable_axe=args.enable_axe,
+                enable_css=args.enable_css,
+                update_baseline=args.update_baseline,
+                baseline_dir=args.baseline_dir,
+                diff_threshold=args.diff_threshold,
+                slowmo=args.slowmo,
+                output_dir=args.output_dir,
+                markdown=args.markdown,
+                fail_fast=args.fail_fast,
+                archive=args.archive if idx == 1 else False,
+                archive_dir=args.archive_dir,
+                jira=args.jira,
+                jira_project=args.jira_project,
+                fix_prompt=args.fix_prompt,
+                event_bus=event_bus,
+            )
+            rep = await execution_service.run(options)
+            multi_results.append((sc_path.stem, rep))
+            if not rep.success:
+                all_success = False
 
     # Sumário consolidado
     summary_table = Table(title=f"Sumário Consolidado de Execução - {project_display_name}")
