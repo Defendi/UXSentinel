@@ -9,7 +9,9 @@ except ImportError:
         pass
 
 
-from pydantic import BaseModel, Field
+from typing import Any
+
+from pydantic import BaseModel, Field, field_validator
 
 from uxsentinel.browser.telemetry import (
     ConsoleLogEntry,
@@ -329,6 +331,28 @@ class StepAction(BaseModel):
     target: str | None = None
     skip: bool = False
     exceptions: ScenarioExceptions | None = None
+
+    @field_validator(
+        "value",
+        "selector",
+        "url",
+        "description",
+        "name",
+        "expected_behavior",
+        "ai_click",
+        "ai_fill",
+        "ai_assert",
+        "ai_action",
+        "target",
+        mode="before",
+    )
+    @classmethod
+    def coerce_str_fields(cls, v: Any) -> Any:
+        if v is None:
+            return None
+        if isinstance(v, (int, float, bool)):
+            return str(v)
+        return v
 
 
 # Alias para conformidade e expressividade

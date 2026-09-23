@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from uxsentinel.core.config import (
     list_registered_projects,
@@ -42,6 +42,23 @@ class StepDTO(BaseModel):
     url: str | None = None
     name: str | None = None
     expected_behavior: str | None = None
+
+    @field_validator(
+        "value",
+        "selector",
+        "url",
+        "description",
+        "name",
+        "expected_behavior",
+        mode="before",
+    )
+    @classmethod
+    def coerce_str_fields(cls, v: Any) -> Any:
+        if v is None:
+            return None
+        if isinstance(v, (int, float, bool)):
+            return str(v)
+        return v
 
 
 class ScenarioSummaryDTO(BaseModel):

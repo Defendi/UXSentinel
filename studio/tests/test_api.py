@@ -299,6 +299,38 @@ def test_duplicate_scenario_api_unauthorized(client: TestClient) -> None:
     assert resp.status_code == 401
 
 
+def test_duplicate_scenario_api_with_numeric_value(
+    client: TestClient,
+    auth_headers: dict[str, str],
+    project_workspace: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Valida duplicação de cenário contendo valor numérico no campo value via API (UXS-78)."""
+    cfg_dir = tmp_path / "config"
+    cfg_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(cfg_dir))
+
+    # Cria cenário contendo value numérico (123456)
+    scenarios_dir = project_workspace / "scenarios"
+    num_scenario = """id: cenario_numerico
+title: "Cenário com Valor Numérico"
+profile: generic
+steps:
+  - action: fill
+    selector: "#password"
+    value: 123456
+"""
+    (scenarios_dir / "cenario_numerico.yaml").write_text(num_scenario, encoding="utf-8")
+
+    resp = client.post("/api/scenarios/cenario_numerico/duplicate", headers=auth_headers, json={})
+    assert resp.status_code == 201
+    data = resp.json()
+    assert data["id"] == "cenario_numerico_copia"
+    assert len(data["steps"]) == 1
+    assert data["steps"][0]["value"] == "123456"
+
+
 # ==============================================================================
 # 4. Configuração Global e Mascaramento de Segredos
 # ==============================================================================

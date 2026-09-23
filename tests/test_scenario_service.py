@@ -648,3 +648,59 @@ def test_duplicate_scenario_not_found(tmp_path: Path):
     service = ScenarioService()
     with pytest.raises(FileNotFoundError, match="não encontrado para duplicação"):
         service.duplicate_scenario("inexistente", base_dir=tmp_path)
+
+
+def test_duplicate_and_load_scenario_with_numeric_and_bool_values(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """Valida suporte a int, float e bool no campo value de StepAction e StepDTO (UXS-78)."""
+    from uxsentinel.scenarios.parser import load_scenario
+
+    cfg_dir = tmp_path / "config" / "uxsentinel"
+    cfg_dir.mkdir(parents=True)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+
+    scen_dir = tmp_path / "scenarios"
+    scen_dir.mkdir(parents=True)
+    scen_file = scen_dir / "cenario_primitivos.yaml"
+    scen_file.write_text(
+        """id: cenario_primitivos
+title: Cenário com Primitivos
+profile: generic
+steps:
+  - action: fill
+    selector: "#password"
+    value: 123456
+  - action: fill
+    selector: "#price"
+    value: 99.9
+  - action: fill
+    selector: "#is_active"
+    value: true
+""",
+        encoding="utf-8",
+    )
+
+    # 1. Valida load_scenario (StepAction com coerção de tipos primitivos para str)
+    scenario_obj = load_scenario(str(scen_file))
+    assert scenario_obj.steps[0].value == "123456"
+    assert scenario_obj.steps[1].value == "99.9"
+    assert scenario_obj.steps[2].value == "True"
+
+    # 2. Valida duplicate_scenario (StepDTO com coerção e persistência)
+    service = ScenarioService()
+    duplicated = service.duplicate_scenario("cenario_primitivos", base_dir=tmp_path)
+
+    assert duplicated.id == "cenario_primitivos_copia"
+    assert len(duplicated.steps) == 3
+    assert duplicated.steps[0].value == "123456"
+    assert duplicated.steps[1].value == "99.9"
+    assert duplicated.steps[2].value == "True"
+
+    # 3. Valida load_scenario do arquivo duplicado gerado
+    dup_file = scen_dir / "cenario_primitivos_copia.yaml"
+    assert dup_file.is_file()
+    dup_loaded = load_scenario(str(dup_file))
+    assert dup_loaded.steps[0].value == "123456"
+    assert dup_loaded.steps[1].value == "99.9"
+    assert dup_loaded.steps[2].value == "True"
