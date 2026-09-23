@@ -1,3 +1,3 @@
 """UXSentinel Studio - Interface Gráfica Web e Mission Control."""
 
-__version__ = "0.1.9"
+__version__ = "0.1.10"
