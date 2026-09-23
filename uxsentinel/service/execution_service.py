@@ -19,6 +19,8 @@ class ExecutionOptions(BaseModel):
     profile: str | None = None
     headless: bool | None = None
     devtools: bool | None = None
+    capture_console: bool | None = None
+    inspect: bool | None = None
     record_video: bool | None = None
     viewports: str | list[str] | None = None
     enable_axe: bool | None = None
@@ -51,11 +53,21 @@ class ExecutionService:
         """Executa um cenário a partir das opções fornecidas."""
         scenario = load_scenario(str(options.scenario_path), auto_register=True)
 
+        extra_opts = dict(options.extra_options)
+        if options.capture_console is not None:
+            extra_opts["capture_console"] = options.capture_console
+        if options.inspect is not None:
+            extra_opts["inspect"] = options.inspect
+        if options.devtools is not None:
+            extra_opts["devtools"] = options.devtools
+
         runner_options = ScenarioRunOptions(
             provider=options.provider,
             profile=options.profile,
             headless=options.headless,
             devtools=options.devtools,
+            capture_console=options.capture_console,
+            inspect=options.inspect,
             record_video=options.record_video,
             viewports=options.viewports,
             enable_axe=options.enable_axe,
@@ -72,7 +84,7 @@ class ExecutionService:
             jira=options.jira,
             jira_project=options.jira_project,
             fix_prompt=options.fix_prompt,
-            extra_options=options.extra_options,
+            extra_options=extra_opts,
         )
 
         return await self.runner.run_scenario(

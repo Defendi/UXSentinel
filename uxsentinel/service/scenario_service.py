@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 
 from uxsentinel.core.config import (
     list_registered_projects,
+    register_project_scenario,
     remove_scenario_from_catalog,
 )
 from uxsentinel.scenarios.parser import (
@@ -56,6 +57,10 @@ class ScenarioSummaryDTO(BaseModel):
     modified_at: datetime
     project_id: str | None = None
     project_name: str | None = None
+    headless: bool | None = None
+    devtools: bool | None = None
+    capture_console: bool | None = None
+    inspect: bool | None = None
 
 
 class ScenarioDetailDTO(ScenarioSummaryDTO):
@@ -160,6 +165,10 @@ class ScenarioService:
                         modified_at=mod_time,
                         project_id=project_id,
                         project_name=p_name,
+                        headless=sc.headless,
+                        devtools=sc.devtools,
+                        capture_console=sc.capture_console,
+                        inspect=sc.inspect,
                     )
                 )
             except Exception:
@@ -200,6 +209,10 @@ class ScenarioService:
                             modified_at=mod_time,
                             project_id="library",
                             project_name="Biblioteca Embutida",
+                            headless=sc.headless,
+                            devtools=sc.devtools,
+                            capture_console=sc.capture_console,
+                            inspect=sc.inspect,
                         )
                     )
                 except Exception:
@@ -261,7 +274,33 @@ class ScenarioService:
         if not clean_q:
             return None
 
-        # 1. Busca primeiro nos projetos do catálogo
+        # 1. Se base_dir foi fornecido, prioriza a busca dentro do projeto ativo
+        if base_dir is not None:
+            base_path = Path(base_dir).resolve()
+            for sdir in (
+                base_path / "scenarios",
+                base_path / ".uxsentinel" / "scenarios",
+                base_path / "tests" / "scenarios",
+                base_path,
+            ):
+                if not sdir.is_dir():
+                    continue
+                for ext in ("*.yaml", "*.yml"):
+                    for candidate in sdir.glob(ext):
+                        if not is_valid_scenario_file(candidate):
+                            continue
+                        try:
+                            sc = load_scenario(str(candidate))
+                            if (
+                                sc.id == scenario_id
+                                or candidate.stem == scenario_id
+                                or candidate.name == scenario_id
+                            ):
+                                return candidate.resolve()
+                        except Exception:
+                            continue
+
+        # 2. Busca nos projetos registrados no catálogo
         with contextlib.suppress(Exception):
             catalog = list_registered_projects()
             for p_val in catalog.values():
@@ -299,25 +338,11 @@ class ScenarioService:
                                     except Exception:
                                         continue
 
-        # 2. Busca no base_dir caso fornecido
-        search_dirs: list[Path] = []
-        if base_dir is not None:
-            base_path = Path(base_dir).resolve()
-            search_dirs.extend(
-                [
-                    base_path / "scenarios",
-                    base_path / ".uxsentinel" / "scenarios",
-                    base_path / "tests" / "scenarios",
-                    base_path,
-                ]
-            )
-        search_dirs.append(self.get_library_dir())
-
-        for sdir in search_dirs:
-            if not sdir.is_dir():
-                continue
+        # 3. Busca na biblioteca embutida do core
+        lib_dir = self.get_library_dir()
+        if lib_dir.is_dir():
             for ext in ("*.yaml", "*.yml"):
-                for candidate in sdir.glob(ext):
+                for candidate in lib_dir.glob(ext):
                     if not is_valid_scenario_file(candidate):
                         continue
                     try:
@@ -374,6 +399,10 @@ class ScenarioService:
             modified_at=mod_time,
             raw_yaml=raw_yaml,
             steps=steps_dto,
+            headless=sc.headless,
+            devtools=sc.devtools,
+            capture_console=sc.capture_console,
+            inspect=sc.inspect,
         )
 
     def validate_scenario(self, yaml_content: str) -> ValidationResult:
@@ -537,3 +566,64 @@ class ScenarioService:
             return True
 
         return bool(not delete_file and (target_file is not None or catalog_entry_found))
+
+    def duplicate_scenario(
+        self,
+        scenario_id: str,
+        base_dir: Path | str | None = None,
+        new_id: str | None = None,
+        new_title: str | None = None,
+        project_id: str | None = None,
+    ) -> ScenarioDetailDTO:
+        """Duplica um cenário YAML existente gerando novo ID e título, salvando no disco e registrando no catálogo."""
+        self._sanitize_path_component(scenario_id)
+        orig_path = self.find_scenario_path(scenario_id, base_dir)
+        if not orig_path or not orig_path.is_file():
+            raise FileNotFoundError(f"Cenário '{scenario_id}' não encontrado para duplicação.")
+
+        orig_content = orig_path.read_text(encoding="utf-8")
+        loaded = yaml.safe_load(orig_content)
+        data: dict[str, Any] = loaded if isinstance(loaded, dict) else {}
+
+        if not new_id or not new_id.strip():
+            candidate_id = f"{scenario_id}_copia"
+            candidate_path = orig_path.parent / f"{candidate_id}.yaml"
+            counter = 2
+            while candidate_path.exists():
+                candidate_id = f"{scenario_id}_copia_{counter}"
+                candidate_path = orig_path.parent / f"{candidate_id}.yaml"
+                counter += 1
+            new_id = candidate_id
+        else:
+            new_id = new_id.strip()
+            if new_id.endswith((".yaml", ".yml")):
+                new_id = new_id.rsplit(".", 1)[0]
+            self._sanitize_path_component(new_id)
+
+        if not new_title or not new_title.strip():
+            orig_title = data.get("title") or scenario_id
+            new_title = f"{orig_title} (Cópia)"
+        else:
+            new_title = new_title.strip()
+
+        data["id"] = new_id
+        data["title"] = new_title
+
+        new_path = orig_path.parent / f"{new_id}.yaml"
+        new_content = yaml.safe_dump(data, sort_keys=False, allow_unicode=True)
+        new_path.write_text(new_content, encoding="utf-8")
+
+        project_name: str | None = None
+        if project_id:
+            with contextlib.suppress(Exception):
+                catalog = list_registered_projects()
+                if project_id in catalog:
+                    project_name = catalog[project_id].name
+
+        register_project_scenario(
+            scenario_path=new_path,
+            scenario_data=data,
+            project_name=project_name,
+        )
+
+        return self.get_scenario(new_id, base_dir=base_dir or orig_path.parent)

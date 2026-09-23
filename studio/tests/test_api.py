@@ -231,6 +231,72 @@ steps:
     assert resp_del_404.status_code == 404
 
 
+def test_duplicate_scenario_api_success(
+    client: TestClient,
+    auth_headers: dict[str, str],
+    project_workspace: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Valida duplicação de cenário com sucesso via POST /api/scenarios/{id}/duplicate."""
+    cfg_dir = tmp_path / "config"
+    cfg_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(cfg_dir))
+
+    resp = client.post("/api/scenarios/cenario_teste/duplicate", headers=auth_headers, json={})
+    assert resp.status_code == 201
+    data = resp.json()
+    assert data["id"] == "cenario_teste_copia"
+    assert data["title"] == "Cenário de Teste Unitário (Cópia)"
+
+    # Confere que o novo arquivo foi gravado no disco com sufixo _copia
+    cloned_file = project_workspace / "scenarios" / "cenario_teste_copia.yaml"
+    assert cloned_file.is_file()
+
+    # Confere que pode ser consultado no endpoint GET
+    resp_get = client.get("/api/scenarios/cenario_teste_copia", headers=auth_headers)
+    assert resp_get.status_code == 200
+    assert resp_get.json()["id"] == "cenario_teste_copia"
+
+
+def test_duplicate_scenario_api_custom_payload(
+    client: TestClient,
+    auth_headers: dict[str, str],
+    project_workspace: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Valida duplicação com payload customizado (new_id e new_title)."""
+    cfg_dir = tmp_path / "config"
+    cfg_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(cfg_dir))
+
+    payload = {"new_id": "cenario_clonado_custom", "new_title": "Cenário Customizado"}
+    resp = client.post(
+        "/api/scenarios/cenario_teste/duplicate",
+        headers=auth_headers,
+        json=payload,
+    )
+    assert resp.status_code == 201
+    data = resp.json()
+    assert data["id"] == "cenario_clonado_custom"
+    assert data["title"] == "Cenário Customizado"
+    assert (project_workspace / "scenarios" / "cenario_clonado_custom.yaml").is_file()
+
+
+def test_duplicate_scenario_api_not_found(client: TestClient, auth_headers: dict[str, str]) -> None:
+    """Valida retorno 404 ao tentar duplicar cenário inexistente."""
+    resp = client.post("/api/scenarios/cenario_fantasma/duplicate", headers=auth_headers, json={})
+    assert resp.status_code == 404
+    assert "não encontrado para duplicação" in resp.json()["detail"]
+
+
+def test_duplicate_scenario_api_unauthorized(client: TestClient) -> None:
+    """Valida que POST /api/scenarios/{id}/duplicate sem token retorna 401."""
+    resp = client.post("/api/scenarios/cenario_teste/duplicate", json={})
+    assert resp.status_code == 401
+
+
 # ==============================================================================
 # 4. Configuração Global e Mascaramento de Segredos
 # ==============================================================================
@@ -550,6 +616,58 @@ def test_execute_scenario_task_publishes_all_events(project_workspace: Path) -> 
     assert any('"event": "checkpoint"' in item for item in history)
     assert any('"event": "completed"' in item for item in history)
     assert EXECUTIONS[run_id]["status"] == "completed"
+
+
+def test_execute_scenario_task_logs_active_flags(project_workspace: Path) -> None:
+    """Valida se _execute_scenario_task registra nos logs SSE a mensagem de flags ativas com headless, devtools, console e inspect."""
+    from uxsentinel.service.execution_service import ExecutionOptions
+    from uxsentinel_studio.api import _execute_scenario_task
+
+    run_id = "test_task_flags_001"
+    main_queue: asyncio.Queue[str | None] = asyncio.Queue()
+
+    EXECUTIONS[run_id] = {
+        "run_id": run_id,
+        "scenario_id": "cenario_flags",
+        "status": "running",
+        "current_step": 0,
+        "logs": [],
+        "started_at": "2026-09-22T10:00:00Z",
+        "result": None,
+        "error": None,
+        "queue": main_queue,
+        "subscribers": [],
+        "event_history": [],
+    }
+
+    dummy_report = TestReport(
+        scenario_id="cenario_flags",
+        scenario_title="Cenário de Teste Flags",
+        success=True,
+        total_issues=0,
+        duration_seconds=0.5,
+    )
+
+    scenario_file = project_workspace / "scenarios" / "cenario_teste.yaml"
+    options = ExecutionOptions(
+        scenario_path=scenario_file,
+        headless=False,
+        devtools=True,
+        capture_console=True,
+        inspect=True,
+        output_dir=str(project_workspace / "report"),
+    )
+
+    with patch(
+        "uxsentinel.service.execution_service.ExecutionService.run",
+        new_callable=AsyncMock,
+        return_value=dummy_report,
+    ):
+        asyncio.run(_execute_scenario_task(run_id, options))
+
+    logs = EXECUTIONS[run_id]["logs"]
+    expected_flag_msg = "Flags ativas: headless=False, devtools=True, console=True, inspect=True"
+    assert any(expected_flag_msg in log for log in logs)
 
 
 def test_execute_scenario_task_realtime_eventbus_streaming(project_workspace: Path) -> None:
@@ -1747,6 +1865,122 @@ def test_execution_run_with_headless_and_slowmo_overrides(
         assert call_options.slowmo == 450
 
 
+def test_run_execution_with_devtools_console_inspect_overrides(
+    client: TestClient, auth_headers: dict[str, str]
+) -> None:
+    """Garante que POST /api/execution/run aceita overrides de devtools, capture_console e inspect e os repassa ao ExecutionService."""
+    mock_cfg = _build_mock_safe_config(
+        active_provider="gemini_cloud",
+        providers={
+            "gemini_cloud": ProviderSafeDTO(
+                type="api_key",
+                service="gemini",
+                model="gemini-1.5-pro",
+                has_api_key=True,
+            )
+        },
+    )
+    dummy_report = TestReport(
+        scenario_id="cenario_teste",
+        scenario_title="Cenário de Teste Unitário",
+        success=True,
+        total_issues=0,
+        duration_seconds=1.0,
+    )
+    with (
+        patch("uxsentinel.service.config_service.ConfigService.get_safe_config", return_value=mock_cfg),
+        patch(
+            "uxsentinel_studio.api.UnifiedVisionClient.test_connection",
+            new_callable=AsyncMock,
+            return_value=(True, "Conectado"),
+        ),
+        patch(
+            "uxsentinel.service.execution_service.ExecutionService.run",
+            new_callable=AsyncMock,
+            return_value=dummy_report,
+        ) as mock_run,
+    ):
+        resp = client.post(
+            "/api/execution/run",
+            json={
+                "scenario_id": "cenario_teste",
+                "overrides": {
+                    "headless": False,
+                    "devtools": True,
+                    "capture_console": True,
+                    "inspect": True,
+                    "slowmo": 300,
+                },
+            },
+            headers=auth_headers,
+        )
+        assert resp.status_code == 202
+        data = resp.json()
+        assert "run_id" in data
+        assert data["status"] == "running"
+
+        assert mock_run.call_count == 1
+        call_options = mock_run.call_args[0][0]
+        assert call_options.headless is False
+        assert call_options.devtools is True
+        assert call_options.capture_console is True
+        assert call_options.inspect is True
+        assert call_options.slowmo == 300
+
+
+def test_run_execution_with_console_alias_override(client: TestClient, auth_headers: dict[str, str]) -> None:
+    """Garante que POST /api/execution/run aceita 'console' como alias para 'capture_console'."""
+    mock_cfg = _build_mock_safe_config(
+        active_provider="gemini_cloud",
+        providers={
+            "gemini_cloud": ProviderSafeDTO(
+                type="api_key",
+                service="gemini",
+                model="gemini-1.5-pro",
+                has_api_key=True,
+            )
+        },
+    )
+    dummy_report = TestReport(
+        scenario_id="cenario_teste",
+        scenario_title="Cenário de Teste Unitário",
+        success=True,
+        total_issues=0,
+        duration_seconds=1.0,
+    )
+    with (
+        patch("uxsentinel.service.config_service.ConfigService.get_safe_config", return_value=mock_cfg),
+        patch(
+            "uxsentinel_studio.api.UnifiedVisionClient.test_connection",
+            new_callable=AsyncMock,
+            return_value=(True, "Conectado"),
+        ),
+        patch(
+            "uxsentinel.service.execution_service.ExecutionService.run",
+            new_callable=AsyncMock,
+            return_value=dummy_report,
+        ) as mock_run,
+    ):
+        resp = client.post(
+            "/api/execution/run",
+            json={
+                "scenario_id": "cenario_teste",
+                "overrides": {
+                    "console": True,
+                    "devtools": True,
+                    "inspect": True,
+                },
+            },
+            headers=auth_headers,
+        )
+        assert resp.status_code == 202
+        assert mock_run.call_count == 1
+        call_options = mock_run.call_args[0][0]
+        assert call_options.devtools is True
+        assert call_options.capture_console is True
+        assert call_options.inspect is True
+
+
 def test_login_sso_success_claude(client: TestClient, auth_headers: dict[str, str]) -> None:
     """Valida POST /api/config/login-sso com claude_sso com sucesso hermético."""
     with patch("uxsentinel.cli.handle_login_sso", return_value=0) as mock_handle:
@@ -1796,3 +2030,114 @@ def test_login_sso_unauthorized(client: TestClient) -> None:
         json={"provider": "claude_sso"},
     )
     assert resp.status_code == 401
+
+
+# ==============================================================================
+# 16. Configuração e Sincronização de Modo Headless (UXS-76)
+# ==============================================================================
+
+
+def test_get_config_reflects_browser_headless_file_setting(
+    client: TestClient, auth_headers: dict[str, str], project_workspace: Path
+) -> None:
+    """Valida que GET /api/config reflete fielmente o valor de browser.headless do arquivo."""
+    cfg_file = project_workspace / "uxsentinel.yaml"
+
+    # 1. Config com headless=True
+    cfg_file.write_text(
+        "browser:\n  headless: true\n  slow_mo_ms: 150\n",
+        encoding="utf-8",
+    )
+    resp = client.get("/api/config", headers=auth_headers)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["browser"]["headless"] is True
+
+    # 2. Config com headless=False
+    cfg_file.write_text(
+        "browser:\n  headless: false\n  slow_mo_ms: 300\n",
+        encoding="utf-8",
+    )
+    resp = client.get("/api/config", headers=auth_headers)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["browser"]["headless"] is False
+
+
+def test_scenario_detail_reflects_headless_setting(
+    client: TestClient, auth_headers: dict[str, str], project_workspace: Path
+) -> None:
+    """Valida que GET /api/scenarios/{id} retorna o valor headless declarado no cenário."""
+    scenarios_dir = project_workspace / "scenarios"
+
+    # Cenário com headless: true
+    (scenarios_dir / "cenario_headless_true.yaml").write_text(
+        """id: cenario_headless_true
+title: "Cenário com Headless True"
+profile: generic
+headless: true
+steps:
+  - action: goto
+    url: "https://exemplo.com.br"
+""",
+        encoding="utf-8",
+    )
+
+    # Cenário com headless: false
+    (scenarios_dir / "cenario_headless_false.yaml").write_text(
+        """id: cenario_headless_false
+title: "Cenário com Headless False"
+profile: generic
+headless: false
+steps:
+  - action: goto
+    url: "https://exemplo.com.br"
+""",
+        encoding="utf-8",
+    )
+
+    # Cenário sem headless declarado
+    (scenarios_dir / "cenario_sem_headless.yaml").write_text(
+        """id: cenario_sem_headless
+title: "Cenário Sem Headless"
+profile: generic
+steps:
+  - action: goto
+    url: "https://exemplo.com.br"
+""",
+        encoding="utf-8",
+    )
+
+    resp_true = client.get("/api/scenarios/cenario_headless_true", headers=auth_headers)
+    assert resp_true.status_code == 200
+    assert resp_true.json()["headless"] is True
+
+    resp_false = client.get("/api/scenarios/cenario_headless_false", headers=auth_headers)
+    assert resp_false.status_code == 200
+    assert resp_false.json()["headless"] is False
+
+    resp_none = client.get("/api/scenarios/cenario_sem_headless", headers=auth_headers)
+    assert resp_none.status_code == 200
+    assert resp_none.json()["headless"] is None
+
+
+def test_config_update_dto_unpacks_nested_browser_headless(
+    client: TestClient, auth_headers: dict[str, str]
+) -> None:
+    """Garante que POST /api/config desempacota browser.headless de estruturas aninhadas."""
+    with patch("uxsentinel.service.config_service.ConfigService.update_config") as mock_update:
+        resp = client.post(
+            "/api/config",
+            json={
+                "browser": {
+                    "headless": True,
+                    "slow_mo_ms": 250,
+                }
+            },
+            headers=auth_headers,
+        )
+        assert resp.status_code == 200
+        mock_update.assert_called_once()
+        called_dto = mock_update.call_args[0][0]
+        assert called_dto.browser_headless is True
+        assert called_dto.browser_slow_mo_ms == 250

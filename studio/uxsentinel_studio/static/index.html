@@ -112,12 +112,33 @@
                                     <option value="odoo">odoo (Enterprise ERP)</option>
                                 </select>
                             </div>
-                            <div class="toolbar-headless-toggle" title="Alternar entre modo invisível (background) e janela do navegador visível na tela">
-                                <label class="toggle-switch">
+                            <div class="toolbar-toggle-item toolbar-headless-toggle" id="toggle-container-headless" title="Alternar entre modo invisível (background) e janela do navegador visível na tela">
+                                <label class="toggle-switch toggle-sm">
                                     <input type="checkbox" id="editor-execution-headless" checked>
                                     <span class="toggle-slider"></span>
                                 </label>
                                 <span class="toggle-label" id="editor-execution-headless-label">Headless</span>
+                            </div>
+                            <div class="toolbar-toggle-item" id="toggle-container-devtools" title="DevTools: Abre o painel DevTools do Chromium">
+                                <label class="toggle-switch toggle-sm">
+                                    <input type="checkbox" id="editor-execution-devtools">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                                <span class="toggle-label" id="editor-execution-devtools-label">DevTools</span>
+                            </div>
+                            <div class="toolbar-toggle-item" id="toggle-container-console" title="Console: Captura logs e erros de console JS">
+                                <label class="toggle-switch toggle-sm">
+                                    <input type="checkbox" id="editor-execution-console" checked>
+                                    <span class="toggle-slider"></span>
+                                </label>
+                                <span class="toggle-label" id="editor-execution-console-label">Console</span>
+                            </div>
+                            <div class="toolbar-toggle-item" id="toggle-container-inspect" title="Inspect: Modo de inspeção visual de seletores">
+                                <label class="toggle-switch toggle-sm">
+                                    <input type="checkbox" id="editor-execution-inspect">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                                <span class="toggle-label" id="editor-execution-inspect-label">Inspect</span>
                             </div>
                             <button class="btn btn-primary" id="btn-run-scenario" title="Dispara a execução do cenário no background">
                                 <span>▶️</span> Executar Agora
@@ -361,6 +382,11 @@
                     </div>
                 </div>
             </section>
+
+            <!-- SPLITTER REDIMENSIONÁVEL ENTRE COLUNA 2 E COLUNA 3 (UXS-76) -->
+            <div class="col-splitter" id="splitter-col2-col3" title="Arraste para redimensionar o painel lateral">
+                <div class="splitter-handle"></div>
+            </div>
 
             <!-- COLUNA 3: Inspetor & Live Mission Control à Direita (STU-07) -->
             <aside class="inspector-col" id="inspector-col">

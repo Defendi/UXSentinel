@@ -2,9 +2,10 @@
 
 import time
 from pathlib import Path
+from typing import Any
 
 import httpx
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from uxsentinel.core.config import (
     GlobalConfig,
@@ -82,6 +83,30 @@ class ConfigUpdateDTO(BaseModel):
     jira_url: str | None = None
     jira_email: str | None = None
     jira_project_key: str | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _unpack_nested(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            if "browser" in data and isinstance(data["browser"], dict):
+                b = data["browser"]
+                if "headless" in b and data.get("browser_headless") is None:
+                    data["browser_headless"] = b["headless"]
+                if "slow_mo_ms" in b and data.get("browser_slow_mo_ms") is None:
+                    data["browser_slow_mo_ms"] = b["slow_mo_ms"]
+                if "devtools" in b and data.get("browser_devtools") is None:
+                    data["browser_devtools"] = b["devtools"]
+            if "jira" in data and isinstance(data["jira"], dict):
+                j = data["jira"]
+                if "enabled" in j and data.get("jira_enabled") is None:
+                    data["jira_enabled"] = j["enabled"]
+                if "url" in j and data.get("jira_url") is None:
+                    data["jira_url"] = j["url"]
+                if "email" in j and data.get("jira_email") is None:
+                    data["jira_email"] = j["email"]
+                if "project_key" in j and data.get("jira_project_key") is None:
+                    data["jira_project_key"] = j["project_key"]
+        return data
 
 
 class ConnectionResult(BaseModel):
@@ -299,30 +324,18 @@ class ConfigService:
             return ConnectionResult(valid=False, message=f"Erro de rede ou timeout: {ex}")
 
     async def test_ai_connection(self, provider: str) -> ConnectionResult:
-        """Testa conexão com o provedor de IA via chamada mínima."""
+        """Testa conexão com o provedor de IA via chamada de teste nativa."""
         cfg = self._load_raw_config()
         cfg.active_provider = provider
 
         start_time = time.monotonic()
         try:
             client = UnifiedVisionClient(cfg)
-            # Realiza chamada assíncrona mínima de diagnóstico
-            # Imagem de 1 pixel transparente para validar autenticação e endpoint
-            dummy_png = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15c4\x00\x00\x00\nIDATx\x9cc\x00\x01\x00\x00\x05\x00\x01\r\n-\xb4\x00\x00\x00\x00IEND\xaeB`\x82"
-            res = await client.analyze(
-                image_bytes=dummy_png,
-                prompt="Responda estritamente 'OK' para teste de conectividade.",
-            )
+            ok, msg = await client.test_connection(check_fallback=False)
             latency = int((time.monotonic() - start_time) * 1000)
-            if res:
-                return ConnectionResult(
-                    valid=True,
-                    message=f"Provedor '{provider}' conectado com sucesso!",
-                    latency_ms=latency,
-                )
             return ConnectionResult(
-                valid=False,
-                message=f"Provedor '{provider}' retornou resposta vazia.",
+                valid=ok,
+                message=msg if ok else f"Falha na conexão com '{provider}': {msg}",
                 latency_ms=latency,
             )
         except Exception as ex:

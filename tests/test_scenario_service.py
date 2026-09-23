@@ -543,3 +543,108 @@ steps:
     assert "perdido" not in ids_retornados
     assert "workspace" not in ids_retornados
     assert all(s.project_id == "proj-cadastrado" for s in res_com_catalogo)
+
+
+def test_duplicate_scenario_default_naming(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """Valida que duplicate_scenario gera id com _copia e título com (Cópia)."""
+    cfg_dir = tmp_path / "config" / "uxsentinel"
+    cfg_dir.mkdir(parents=True)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+
+    scen_dir = tmp_path / "scenarios"
+    scen_dir.mkdir(parents=True)
+    scen_file = scen_dir / "cenario_orig.yaml"
+    scen_file.write_text(
+        """id: cenario_orig
+title: Cenário Original
+steps:
+  - action: goto
+    url: https://example.com
+""",
+        encoding="utf-8",
+    )
+
+    service = ScenarioService()
+    duplicated = service.duplicate_scenario("cenario_orig", base_dir=tmp_path)
+
+    assert duplicated.id == "cenario_orig_copia"
+    assert duplicated.title == "Cenário Original (Cópia)"
+    new_file = scen_dir / "cenario_orig_copia.yaml"
+    assert new_file.is_file()
+
+    content = yaml.safe_load(new_file.read_text(encoding="utf-8"))
+    assert content["id"] == "cenario_orig_copia"
+    assert content["title"] == "Cenário Original (Cópia)"
+    assert content["steps"][0]["action"] == "goto"
+
+
+def test_duplicate_scenario_incremental_naming(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """Valida incremento para _copia_2 caso _copia já exista."""
+    cfg_dir = tmp_path / "config" / "uxsentinel"
+    cfg_dir.mkdir(parents=True)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+
+    scen_dir = tmp_path / "scenarios"
+    scen_dir.mkdir(parents=True)
+    (scen_dir / "orig.yaml").write_text(
+        """id: orig
+title: Orig
+steps:
+  - action: goto
+    url: https://example.com
+""",
+        encoding="utf-8",
+    )
+    (scen_dir / "orig_copia.yaml").write_text(
+        """id: orig_copia
+title: Orig (Cópia)
+steps:
+  - action: goto
+    url: https://example.com
+""",
+        encoding="utf-8",
+    )
+
+    service = ScenarioService()
+    dup = service.duplicate_scenario("orig", base_dir=tmp_path)
+
+    assert dup.id == "orig_copia_2"
+    assert (scen_dir / "orig_copia_2.yaml").is_file()
+
+
+def test_duplicate_scenario_custom_id_and_title(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """Valida fornecimento explícito de new_id e new_title."""
+    cfg_dir = tmp_path / "config" / "uxsentinel"
+    cfg_dir.mkdir(parents=True)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+
+    scen_dir = tmp_path / "scenarios"
+    scen_dir.mkdir(parents=True)
+    (scen_dir / "orig.yaml").write_text(
+        """id: orig
+title: Orig
+steps:
+  - action: goto
+    url: https://example.com
+""",
+        encoding="utf-8",
+    )
+
+    service = ScenarioService()
+    dup = service.duplicate_scenario(
+        "orig",
+        base_dir=tmp_path,
+        new_id="meu_clone",
+        new_title="Meu Clone Customizado",
+    )
+
+    assert dup.id == "meu_clone"
+    assert dup.title == "Meu Clone Customizado"
+    assert (scen_dir / "meu_clone.yaml").is_file()
+
+
+def test_duplicate_scenario_not_found(tmp_path: Path):
+    """Valida que duplicate_scenario dispara FileNotFoundError se o cenário não existir."""
+    service = ScenarioService()
+    with pytest.raises(FileNotFoundError, match="não encontrado para duplicação"):
+        service.duplicate_scenario("inexistente", base_dir=tmp_path)

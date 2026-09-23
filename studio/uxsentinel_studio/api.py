@@ -99,6 +99,13 @@ class ScenarioUpdateRequest(BaseModel):
     filename: str | None = None
 
 
+class DuplicateScenarioRequest(BaseModel):
+    """Payload opcional para duplicação customizada de cenário."""
+
+    new_id: str | None = None
+    new_title: str | None = None
+
+
 class ScenarioValidateRequest(BaseModel):
     """Payload para validação de sintaxe e semântica de YAML."""
 
@@ -326,6 +333,16 @@ async def _execute_scenario_task(run_id: str, options: ExecutionOptions) -> None
         )
         await publish_execution_event(
             run_id, "log", {"message": f"Iniciando execução do cenário: {scenario_id} [{display_mode}]"}
+        )
+        await publish_execution_event(
+            run_id,
+            "log",
+            {
+                "message": (
+                    f"Flags ativas: headless={options.headless}, devtools={options.devtools}, "
+                    f"console={options.capture_console}, inspect={options.inspect}"
+                )
+            },
         )
         try:
             scenario = load_scenario(str(options.scenario_path))
@@ -804,6 +821,46 @@ async def delete_scenario(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(err)) from err
 
 
+@router.post(
+    "/scenarios/{scenario_id}/duplicate",
+    response_model=ScenarioDetailDTO,
+    status_code=status.HTTP_201_CREATED,
+)
+async def duplicate_scenario(
+    scenario_id: str,
+    request: Request,
+    req: DuplicateScenarioRequest | None = None,
+    _: str = Depends(verify_studio_token),
+) -> ScenarioDetailDTO:
+    """Duplica um cenário YAML existente com novo ID e título opcional."""
+    project_dir = get_project_dir(request)
+    project_id: str | None = None
+    with contextlib.suppress(Exception):
+        catalog = list_registered_projects()
+        if project_dir is not None:
+            resolved_proj = project_dir.resolve()
+            for p_id, p_entry in catalog.items():
+                if p_entry.root_path and Path(p_entry.root_path).resolve() == resolved_proj:
+                    project_id = p_id
+                    break
+
+    service = ScenarioService()
+    try:
+        return service.duplicate_scenario(
+            scenario_id=scenario_id,
+            base_dir=project_dir,
+            new_id=req.new_id if req else None,
+            new_title=req.new_title if req else None,
+            project_id=project_id,
+        )
+    except FileNotFoundError as err:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(err)) from err
+    except PermissionError as err:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(err)) from err
+    except ValueError as err:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(err)) from err
+
+
 @router.post("/scenarios/validate", response_model=ValidationResult)
 async def validate_scenario(
     req: ScenarioValidateRequest,
@@ -865,8 +922,12 @@ async def run_execution(
     )
 
     # Prepara opções sanitizadas para o ExecutionService
+    overrides = dict(req.overrides)
+    if "console" in overrides and "capture_console" not in overrides:
+        overrides["capture_console"] = overrides["console"]
+
     valid_fields = set(ExecutionOptions.model_fields.keys())
-    sanitized_overrides = {k: v for k, v in req.overrides.items() if k in valid_fields}
+    sanitized_overrides = {k: v for k, v in overrides.items() if k in valid_fields}
 
     options = ExecutionOptions(
         scenario_path=scenario_path,

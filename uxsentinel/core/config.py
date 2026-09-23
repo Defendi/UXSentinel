@@ -40,6 +40,7 @@ class BrowserSettings(BaseModel):
     headless: bool = False
     devtools: bool = False
     capture_console: bool = True
+    inspect: bool = False
     slow_mo_ms: int = 350
     viewport_width: int = 1440
     viewport_height: int = 900

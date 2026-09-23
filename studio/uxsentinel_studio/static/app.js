@@ -30,6 +30,7 @@
         executionLogs: [],
         checkpointsLive: [],
         aiConnected: null,
+        globalConfig: null,
     };
 
     // --- 2. Utilitários e Cliente HTTP Autenticado ---
@@ -213,8 +214,23 @@
         if (btnDelete) btnDelete.style.display = "none";
         if (stepsContainer) {
             stepsContainer.innerHTML = '<div class="empty-state-text" style="padding: 24px; text-align: center; color: var(--text-muted);">Nenhum cenário selecionado</div>';
-        }
         setSaveStatus("saved");
+
+        const browserCfg = state.globalConfig?.browser || {};
+        const headlessToggle = document.getElementById("editor-execution-headless");
+        const devtoolsToggle = document.getElementById("editor-execution-devtools");
+        const consoleToggle = document.getElementById("editor-execution-console");
+        const inspectToggle = document.getElementById("editor-execution-inspect");
+
+        if (headlessToggle) headlessToggle.checked = Boolean(browserCfg.headless);
+        if (devtoolsToggle) devtoolsToggle.checked = Boolean(browserCfg.devtools);
+        if (consoleToggle) consoleToggle.checked = browserCfg.capture_console !== undefined ? Boolean(browserCfg.capture_console) : true;
+        if (inspectToggle) inspectToggle.checked = Boolean(browserCfg.inspect);
+
+        if (devtoolsToggle?.checked && headlessToggle) {
+            headlessToggle.checked = false;
+        }
+        updateExecutionFlagsUI();
     }
 
     async function loadScenarios() {
@@ -238,15 +254,40 @@
         }
     }
 
+    async function duplicateScenario(scenarioId) {
+        try {
+            const res = await apiFetch(`/api/scenarios/${encodeURIComponent(scenarioId)}/duplicate`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({}),
+            });
+            if (!res.ok) {
+                const errData = await res.json().catch(() => ({}));
+                showToast(errData.detail || "Falha ao duplicar cenário.", "error");
+                return;
+            }
+            const data = await res.json();
+            showToast("Cenário duplicado com sucesso!", "success");
+            await loadScenarios();
+            if (data && data.id) {
+                selectScenario(data.id);
+            }
+        } catch (err) {
+            console.error("Erro ao duplicar cenário:", err);
+            showToast("Erro de comunicação ao duplicar cenário.", "error");
+        }
+    }
+
     function createScenarioItemElement(sc) {
         const li = document.createElement("li");
         li.className = `scenario-item ${sc.id === state.activeScenarioId ? "active" : ""}`;
         li.innerHTML = `
             <div class="scenario-item-header">
                 <span class="scenario-item-title" title="${escapeHtml(sc.title || sc.id)}">${escapeHtml(sc.title || sc.id)}</span>
-                <div class="scenario-item-actions">
+                <div class="scenario-item-actions scenario-actions">
                     <span class="scenario-item-steps">${sc.step_count || 0} passos</span>
-                    <button class="btn-delete-scenario-item" title="Excluir cenário" data-scenario-id="${escapeHtml(sc.id)}">🗑️</button>
+                    <button class="btn-scenario-duplicate" data-duplicate-id="${escapeHtml(sc.id)}" title="Duplicar Cenário">📋</button>
+                    <button class="btn-delete-scenario-item btn-scenario-delete" title="Excluir cenário" data-scenario-id="${escapeHtml(sc.id)}">🗑️</button>
                 </div>
             </div>
             <div class="scenario-item-meta">
@@ -255,6 +296,14 @@
                 <span>${escapeHtml(sc.filename)}</span>
             </div>
         `;
+
+        const duplicateBtn = li.querySelector(".btn-scenario-duplicate");
+        if (duplicateBtn) {
+            duplicateBtn.addEventListener("click", (e) => {
+                e.stopPropagation();
+                duplicateScenario(sc.id);
+            });
+        }
 
         const deleteBtn = li.querySelector(".btn-delete-scenario-item");
         if (deleteBtn) {
@@ -406,6 +455,42 @@
             setSaveStatus("saved");
             renderPreviewSteps(data.steps || []);
             validateYaml(codeEditor ? codeEditor.value : "");
+
+            // Sincroniza os toggles de execução com o cenário ou com a configuração global (UXS-76)
+            const scenarioFlags = extractScenarioFlags(data);
+            const browserCfg = state.globalConfig?.browser || {};
+
+            const headlessToggle = document.getElementById("editor-execution-headless");
+            const devtoolsToggle = document.getElementById("editor-execution-devtools");
+            const consoleToggle = document.getElementById("editor-execution-console");
+            const inspectToggle = document.getElementById("editor-execution-inspect");
+
+            if (headlessToggle) {
+                headlessToggle.checked = scenarioFlags.headless !== null
+                    ? scenarioFlags.headless
+                    : Boolean(browserCfg.headless);
+            }
+            if (devtoolsToggle) {
+                devtoolsToggle.checked = scenarioFlags.devtools !== null
+                    ? scenarioFlags.devtools
+                    : Boolean(browserCfg.devtools);
+            }
+            if (consoleToggle) {
+                consoleToggle.checked = scenarioFlags.capture_console !== null
+                    ? scenarioFlags.capture_console
+                    : (browserCfg.capture_console !== undefined ? Boolean(browserCfg.capture_console) : true);
+            }
+            if (inspectToggle) {
+                inspectToggle.checked = scenarioFlags.inspect !== null
+                    ? scenarioFlags.inspect
+                    : Boolean(browserCfg.inspect);
+            }
+
+            if (devtoolsToggle?.checked && headlessToggle) {
+                headlessToggle.checked = false;
+            }
+
+            updateExecutionFlagsUI();
         } catch (err) {
             console.error("Erro ao selecionar cenário:", err);
         }
@@ -584,6 +669,153 @@
             .join("");
     }
 
+    // --- 5.1. Sincronização de Flags de Execução da Toolbar (UXS-74 / UXS-76) ---
+    function updateExecutionFlagsUI() {
+        const headlessToggle = document.getElementById("editor-execution-headless");
+        const headlessLabel = document.getElementById("editor-execution-headless-label");
+        const headlessContainer = document.getElementById("toggle-container-headless") || headlessToggle?.closest(".toolbar-headless-toggle");
+
+        if (headlessToggle && headlessLabel) {
+            const isHeadless = headlessToggle.checked;
+            if (isHeadless) {
+                headlessLabel.textContent = "Headless";
+                if (headlessContainer) {
+                    headlessContainer.classList.remove("headed-active");
+                    headlessContainer.title = "Alternar entre modo invisível (background) e janela do navegador visível na tela";
+                }
+            } else {
+                headlessLabel.textContent = "🖥️ Visível";
+                if (headlessContainer) {
+                    headlessContainer.classList.add("headed-active");
+                    headlessContainer.title = "Navegador Gráfico Visível na tela (Headed). Clique para rodar em segundo plano (Headless).";
+                }
+            }
+        }
+
+        const devtoolsToggle = document.getElementById("editor-execution-devtools");
+        const devtoolsContainer = document.getElementById("toggle-container-devtools");
+        if (devtoolsToggle && devtoolsContainer) {
+            if (devtoolsToggle.checked) {
+                devtoolsContainer.classList.add("active");
+            } else {
+                devtoolsContainer.classList.remove("active");
+            }
+        }
+
+        const consoleToggle = document.getElementById("editor-execution-console");
+        const consoleContainer = document.getElementById("toggle-container-console");
+        if (consoleToggle && consoleContainer) {
+            if (consoleToggle.checked) {
+                consoleContainer.classList.add("active");
+            } else {
+                consoleContainer.classList.remove("active");
+            }
+        }
+
+        const inspectToggle = document.getElementById("editor-execution-inspect");
+        const inspectContainer = document.getElementById("toggle-container-inspect");
+        if (inspectToggle && inspectContainer) {
+            if (inspectToggle.checked) {
+                inspectContainer.classList.add("active");
+            } else {
+                inspectContainer.classList.remove("active");
+            }
+        }
+    }
+
+    function updateHeadlessToggleUI() {
+        updateExecutionFlagsUI();
+    }
+
+    async function syncExecutionFlagsFromConfig(cachedConfig = null) {
+        try {
+            let cfg = cachedConfig || state.globalConfig;
+            if (!cfg) {
+                const res = await apiFetch("/api/config");
+                if (res.ok) {
+                    cfg = await res.json();
+                    state.globalConfig = cfg;
+                }
+            }
+            if (cfg && cfg.browser) {
+                const headlessVal = Boolean(cfg.browser.headless);
+                const devtoolsVal = Boolean(cfg.browser.devtools);
+                const consoleVal = cfg.browser.capture_console !== undefined ? Boolean(cfg.browser.capture_console) : true;
+                const inspectVal = Boolean(cfg.browser.inspect);
+
+                const headlessCheckbox = document.getElementById("editor-execution-headless");
+                const devtoolsCheckbox = document.getElementById("editor-execution-devtools");
+                const consoleCheckbox = document.getElementById("editor-execution-console");
+                const inspectCheckbox = document.getElementById("editor-execution-inspect");
+
+                if (headlessCheckbox) headlessCheckbox.checked = headlessVal;
+                if (devtoolsCheckbox) devtoolsCheckbox.checked = devtoolsVal;
+                if (consoleCheckbox) consoleCheckbox.checked = consoleVal;
+                if (inspectCheckbox) inspectCheckbox.checked = inspectVal;
+
+                // Se o DevTools estiver ativo por padrão, Chromium exige headed
+                if (devtoolsVal && headlessCheckbox) {
+                    headlessCheckbox.checked = false;
+                }
+
+                updateExecutionFlagsUI();
+            }
+        } catch (err) {
+            console.error("Erro ao sincronizar flags de execução da configuração:", err);
+        }
+    }
+
+    async function syncHeadlessToggleFromConfig(cachedConfig = null) {
+        return await syncExecutionFlagsFromConfig(cachedConfig);
+    }
+
+    function extractScenarioFlags(scenarioData) {
+        const flags = {
+            headless: null,
+            devtools: null,
+            capture_console: null,
+            inspect: null,
+        };
+        if (!scenarioData) return flags;
+
+        if (typeof scenarioData.headless === "boolean") flags.headless = scenarioData.headless;
+        if (typeof scenarioData.devtools === "boolean") flags.devtools = scenarioData.devtools;
+        if (typeof scenarioData.capture_console === "boolean") flags.capture_console = scenarioData.capture_console;
+        else if (typeof scenarioData.console === "boolean") flags.capture_console = scenarioData.console;
+        if (typeof scenarioData.inspect === "boolean") flags.inspect = scenarioData.inspect;
+
+        if (scenarioData.raw_yaml) {
+            const lines = scenarioData.raw_yaml.split("\n");
+            for (const line of lines) {
+                const hMatch = line.match(/^headless\s*:\s*(true|false|yes|no|1|0|on|off)\s*$/i);
+                if (hMatch && flags.headless === null) {
+                    const val = hMatch[1].toLowerCase();
+                    flags.headless = val === "true" || val === "yes" || val === "1" || val === "on";
+                }
+                const dMatch = line.match(/^devtools\s*:\s*(true|false|yes|no|1|0|on|off)\s*$/i);
+                if (dMatch && flags.devtools === null) {
+                    const val = dMatch[1].toLowerCase();
+                    flags.devtools = val === "true" || val === "yes" || val === "1" || val === "on";
+                }
+                const cMatch = line.match(/^(?:capture_console|console)\s*:\s*(true|false|yes|no|1|0|on|off)\s*$/i);
+                if (cMatch && flags.capture_console === null) {
+                    const val = cMatch[1].toLowerCase();
+                    flags.capture_console = val === "true" || val === "yes" || val === "1" || val === "on";
+                }
+                const iMatch = line.match(/^inspect\s*:\s*(true|false|yes|no|1|0|on|off)\s*$/i);
+                if (iMatch && flags.inspect === null) {
+                    const val = iMatch[1].toLowerCase();
+                    flags.inspect = val === "true" || val === "yes" || val === "1" || val === "on";
+                }
+            }
+        }
+        return flags;
+    }
+
+    function extractScenarioHeadless(scenarioData) {
+        return extractScenarioFlags(scenarioData).headless;
+    }
+
     // --- 6. Live Mission Control & Streaming SSE (STU-07) ---
     async function runScenarioExecution() {
         if (!state.activeScenarioId) {
@@ -626,8 +858,12 @@
         if (checkpointsList) checkpointsList.innerHTML = "";
 
         const isHeadless = document.getElementById("editor-execution-headless")?.checked ?? true;
+        const isDevtools = document.getElementById("editor-execution-devtools")?.checked ?? false;
+        const isConsole = document.getElementById("editor-execution-console")?.checked ?? true;
+        const isInspect = document.getElementById("editor-execution-inspect")?.checked ?? false;
 
         appendLogLine(`[CONFIG] Modo de exibição: ${isHeadless ? "Headless (Background)" : "Navegador Gráfico Visível (Headed)"}`, "info");
+        appendLogLine(`[CONFIG] Flags de depuração: DevTools=${isDevtools}, Console=${isConsole}, Inspect=${isInspect}`, "info");
         appendLogLine(`[ORQUESTRAÇÃO] Disparando execução do cenário: ${state.activeScenarioId}...`, "info");
 
         try {
@@ -637,6 +873,9 @@
                     scenario_id: state.activeScenarioId,
                     overrides: {
                         headless: isHeadless,
+                        devtools: isDevtools,
+                        capture_console: isConsole,
+                        inspect: isInspect,
                         slowmo: isHeadless ? 200 : 450,
                     },
                 }),
@@ -897,6 +1136,7 @@
             if (!res.ok) return;
 
             const cfg = await res.json();
+            state.globalConfig = cfg;
 
             // Localização dos Arquivos de Configuração
             if (cfg.config_files) {
@@ -1006,6 +1246,9 @@
             payload.jira.api_token = tokenVal;
         }
 
+        const bHeadlessInput = document.getElementById("cfg-browser-headless");
+        const newHeadless = bHeadlessInput ? bHeadlessInput.checked : undefined;
+
         try {
             const res = await apiFetch("/api/config", {
                 method: "POST",
@@ -1014,6 +1257,16 @@
 
             if (res.ok) {
                 showToast("Configurações atualizadas com sucesso!", "success");
+                if (newHeadless !== undefined) {
+                    if (state.globalConfig && state.globalConfig.browser) {
+                        state.globalConfig.browser.headless = newHeadless;
+                    }
+                    const editorHeadless = document.getElementById("editor-execution-headless");
+                    if (editorHeadless) {
+                        editorHeadless.checked = Boolean(newHeadless);
+                        updateHeadlessToggleUI();
+                    }
+                }
                 await checkAIStatus();
             } else {
                 showToast("Erro ao persistir configurações.", "error");
@@ -1379,6 +1632,18 @@ steps:
             });
         });
 
+        // Container de Cenários: duplicação via botão da lista
+        document.getElementById("project-scenarios-tree")?.addEventListener("click", (e) => {
+            const dupBtn = e.target.closest(".btn-scenario-duplicate");
+            if (dupBtn) {
+                e.stopPropagation();
+                const dupId = dupBtn.dataset.duplicateId;
+                if (dupId) {
+                    duplicateScenario(dupId);
+                }
+            }
+        });
+
         // Editor YAML
         const codeEditor = document.getElementById("yaml-code-editor");
         if (codeEditor) {
@@ -1421,31 +1686,31 @@ steps:
             }
         });
 
-        // Botões do Editor
+        // Toggles de Execução da Toolbar (UXS-74 / UXS-76)
         const headlessToggle = document.getElementById("editor-execution-headless");
-        const headlessLabel = document.getElementById("editor-execution-headless-label");
-        const headlessContainer = headlessToggle?.closest(".toolbar-headless-toggle");
+        const devtoolsToggle = document.getElementById("editor-execution-devtools");
+        const consoleToggle = document.getElementById("editor-execution-console");
+        const inspectToggle = document.getElementById("editor-execution-inspect");
 
-        function updateHeadlessToggleUI() {
-            if (!headlessToggle || !headlessLabel) return;
-            const isHeadless = headlessToggle.checked;
-            if (isHeadless) {
-                headlessLabel.textContent = "Headless";
-                if (headlessContainer) {
-                    headlessContainer.classList.remove("headed-active");
-                    headlessContainer.title = "Alternar entre modo invisível (background) e janela do navegador visível na tela";
-                }
-            } else {
-                headlessLabel.textContent = "🖥️ Navegador Visível";
-                if (headlessContainer) {
-                    headlessContainer.classList.add("headed-active");
-                    headlessContainer.title = "Navegador Gráfico Visível na tela (Headed). Clique para rodar em segundo plano (Headless).";
-                }
+        headlessToggle?.addEventListener("change", () => {
+            if (headlessToggle.checked && devtoolsToggle?.checked) {
+                devtoolsToggle.checked = false;
             }
-        }
+            updateExecutionFlagsUI();
+        });
 
-        headlessToggle?.addEventListener("change", updateHeadlessToggleUI);
-        updateHeadlessToggleUI();
+        devtoolsToggle?.addEventListener("change", () => {
+            if (devtoolsToggle.checked && headlessToggle) {
+                // DevTools do Chromium exige modo headed (navegador visível)
+                headlessToggle.checked = false;
+            }
+            updateExecutionFlagsUI();
+        });
+
+        consoleToggle?.addEventListener("change", updateExecutionFlagsUI);
+        inspectToggle?.addEventListener("change", updateExecutionFlagsUI);
+
+        updateExecutionFlagsUI();
 
         document.getElementById("btn-run-scenario")?.addEventListener("click", runScenarioExecution);
         document.getElementById("btn-save-scenario")?.addEventListener("click", saveScenario);
@@ -1634,6 +1899,51 @@ steps:
             const logs = document.getElementById("terminal-logs-window");
             if (logs) logs.innerHTML = '<div class="log-line system">[TERMINAL LIMPO]</div>';
         });
+
+        // Splitter Redimensionável (Coluna 2 / Coluna 3) - UXS-76
+        initColumnSplitter();
+    }
+
+    // Splitter Redimensionável (Coluna 2 / Coluna 3) - UXS-76
+    function initColumnSplitter() {
+        const splitter = document.getElementById("splitter-col2-col3");
+        if (!splitter) return;
+
+        // Recupera largura salva previamente no localStorage
+        try {
+            const savedWidth = localStorage.getItem("studio_inspector_width");
+            if (savedWidth) {
+                const parsed = parseInt(savedWidth, 10);
+                if (!isNaN(parsed) && parsed >= 260 && parsed <= 700) {
+                    document.documentElement.style.setProperty("--inspector-width", `${parsed}px`);
+                }
+            }
+        } catch (_) {}
+
+        const onMouseMove = (e) => {
+            const newWidth = window.innerWidth - e.clientX;
+            const maxAllowed = Math.min(700, Math.floor(window.innerWidth * 0.55));
+            const clampedWidth = Math.max(260, Math.min(newWidth, maxAllowed));
+            document.documentElement.style.setProperty("--inspector-width", `${clampedWidth}px`);
+            try {
+                localStorage.setItem("studio_inspector_width", String(clampedWidth));
+            } catch (_) {}
+        };
+
+        const onMouseUp = () => {
+            document.body.classList.remove("is-resizing");
+            splitter.classList.remove("active");
+            window.removeEventListener("mousemove", onMouseMove);
+            window.removeEventListener("mouseup", onMouseUp);
+        };
+
+        splitter.addEventListener("mousedown", (e) => {
+            e.preventDefault();
+            document.body.classList.add("is-resizing");
+            splitter.classList.add("active");
+            window.addEventListener("mousemove", onMouseMove);
+            window.addEventListener("mouseup", onMouseUp);
+        });
     }
 
     // --- 13. Boot da Aplicação ---
@@ -1656,6 +1966,7 @@ steps:
         initEventListeners();
         loadVersionStatus();
         await checkAIStatus();
+        await syncExecutionFlagsFromConfig();
         await loadProjects();
         await loadScenarios();
     }

@@ -50,6 +50,8 @@ class ScenarioRunOptions:
     profile: str | None = None
     headless: bool | None = None
     devtools: bool | None = None
+    capture_console: bool | None = None
+    inspect: bool | None = None
     record_video: bool | None = None
     viewports: str | list[str] | list[ViewportConfig] | None = None
     enable_axe: bool | None = None
@@ -206,6 +208,20 @@ class ScenarioRunnerService:
         )
         if cfg.browser.devtools:
             cfg.browser.headless = False
+
+        # Resolução de Console / Telemetria
+        if options.capture_console is not None:
+            cfg.browser.capture_console = options.capture_console
+        elif getattr(scenario, "capture_console", None) is not None:
+            cfg.browser.capture_console = scenario.capture_console
+
+        # Resolução de Inspect
+        if options.inspect is not None:
+            cfg.browser.inspect = options.inspect
+            options.extra_options["inspect"] = options.inspect
+        elif getattr(scenario, "inspect", None) is not None:
+            cfg.browser.inspect = scenario.inspect
+            options.extra_options["inspect"] = scenario.inspect
 
         # Resolução de Arquivamento
         cfg.reporting.archive_previous_reports = resolve_archive_mode(

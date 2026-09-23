@@ -63,7 +63,7 @@ def test_protected_routes_require_valid_token(client):
 
 
 def test_spa_serves_index_with_full_layout(client):
-    """Valida se o index.html da SPA carrega os elementos essenciais da interface em 3 colunas."""
+    """Valida se o index.html da SPA carrega os elementos essenciais da interface em 3 colunas e o splitter redimensionável."""
     token = get_session_token()
     resp = client.get(f"/?token={token}")
     assert resp.status_code == 200
@@ -72,14 +72,18 @@ def test_spa_serves_index_with_full_layout(client):
     assert "terminal-logs-window" in resp.text
     assert "sidebar" in resp.text
     assert "inspector-col" in resp.text
+    assert "splitter-col2-col3" in resp.text
 
 
 def test_spa_static_assets_delivery(client):
-    """Valida entrega dos assets estáticos style.css e app.js."""
+    """Valida entrega dos assets estáticos style.css e app.js com suporte a redimensionamento."""
     resp_css = client.get("/static/style.css")
     assert resp_css.status_code == 200
     assert "var(--bg-base)" in resp_css.text
+    assert "col-splitter" in resp_css.text
+    assert "--inspector-width" in resp_css.text
 
     resp_js = client.get("/static/app.js")
     assert resp_js.status_code == 200
     assert "initSessionToken" in resp_js.text
+    assert "initColumnSplitter" in resp_js.text

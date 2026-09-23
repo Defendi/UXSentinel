@@ -345,6 +345,8 @@ class Scenario(BaseModel):
     env: dict[str, str] = Field(default_factory=dict)
     headless: bool | None = None
     devtools: bool | None = None
+    capture_console: bool | None = None
+    inspect: bool | None = None
     video: bool | None = None
     axe: bool | None = None
     css: bool | None = None

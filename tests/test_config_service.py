@@ -93,17 +93,42 @@ async def test_config_service_test_jira_connection_mocked():
 
 @pytest.mark.asyncio
 async def test_config_service_test_ai_connection_mocked():
-    """Valida teste de conectividade com LLM isolado por mock."""
+    """Valida teste de conectividade com LLM isolado por mock hermético."""
     service = ConfigService()
 
+    # 1. Sucesso
     with patch(
-        "uxsentinel.service.config_service.UnifiedVisionClient.analyze", new_callable=AsyncMock
-    ) as mock_analyze:
-        mock_analyze.return_value = "OK"
+        "uxsentinel.service.config_service.UnifiedVisionClient.test_connection",
+        new_callable=AsyncMock,
+    ) as mock_test_conn:
+        mock_test_conn.return_value = (True, "Provedor ativo 'gemini_sso' operacional.")
 
         res = await service.test_ai_connection("gemini_sso")
         assert res.valid is True
-        assert "conectado com sucesso" in res.message
+        assert "operacional" in res.message
+        mock_test_conn.assert_awaited_once_with(check_fallback=False)
+
+    # 2. Falha reportada pelo cliente
+    with patch(
+        "uxsentinel.service.config_service.UnifiedVisionClient.test_connection",
+        new_callable=AsyncMock,
+    ) as mock_test_conn:
+        mock_test_conn.return_value = (False, "API Key inválida")
+
+        res = await service.test_ai_connection("gemini_sso")
+        assert res.valid is False
+        assert "Falha na conexão com 'gemini_sso': API Key inválida" in res.message
+
+    # 3. Exceção inesperada
+    with patch(
+        "uxsentinel.service.config_service.UnifiedVisionClient.test_connection",
+        new_callable=AsyncMock,
+    ) as mock_test_conn:
+        mock_test_conn.side_effect = RuntimeError("Erro de rede fatal")
+
+        res = await service.test_ai_connection("gemini_sso")
+        assert res.valid is False
+        assert "Erro ao conectar com provedor 'gemini_sso': Erro de rede fatal" in res.message
 
 
 def test_config_service_resolves_config_files_locations(tmp_path: Path):
