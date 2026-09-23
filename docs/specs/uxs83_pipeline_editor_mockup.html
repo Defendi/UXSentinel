@@ -1,0 +1,612 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <title>Preview Visual: Editor de Pipeline de Cenários (UXS-83)</title>
+  <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
+  <style>
+    :root {
+      --bg-dark: #090d16;
+      --bg-surface: #131b2e;
+      --bg-card: #1e293b;
+      --border-subtle: #334155;
+      --accent-cyan: #06b6d4;
+      --accent-purple: #8b5cf6;
+      --accent-amber: #f59e0b;
+      --accent-red: #ef4444;
+      --accent-green: #10b981;
+      --text-primary: #f8fafc;
+      --text-muted: #94a3b8;
+    }
+    body {
+      background-color: var(--bg-dark);
+      color: var(--text-primary);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+    .mono {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    }
+    /* Drag and Drop visual feedback */
+    .card-step.dragging {
+      opacity: 0.4;
+      transform: scale(0.98);
+      border-color: var(--accent-cyan);
+    }
+    .card-step.drag-over {
+      border-top: 3px solid var(--accent-cyan);
+    }
+  </style>
+</head>
+<body class="p-6">
+  <div class="max-w-6xl mx-auto space-y-6">
+    
+    <!-- Topo Informativo do Brainstorming -->
+    <div class="border-b border-slate-800 pb-4 flex justify-between items-center">
+      <div>
+        <span class="text-xs uppercase font-bold tracking-widest text-[var(--accent-cyan)]">Brainstorming • Validação de Interface</span>
+        <h1 class="text-2xl font-bold flex items-center gap-2">
+          <span>⚡</span> UXS-83: Editor Visual de Pipeline de Cenários
+        </h1>
+        <p class="text-sm text-slate-400 mt-1">
+          Pipeline interativo com Drag-and-Drop, Verificador de Congruência, Modais em Português com campos adaptativos e sincronização em tempo real.
+        </p>
+      </div>
+      <div class="flex items-center gap-3">
+        <button onclick="openMetadataModal()" class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 flex items-center gap-1.5 transition-colors shadow">
+          <span>⚙️</span> Propriedades do Cenário
+        </button>
+        <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-cyan-950 border border-cyan-500/30 text-cyan-400">
+          Studio v0.1.6
+        </span>
+      </div>
+    </div>
+
+    <!-- Simulação da Área de Trabalho do Studio com o Novo Pipeline -->
+    <div class="rounded-xl border border-slate-800 bg-[#0f172a] overflow-hidden shadow-2xl">
+      
+      <!-- 1. ANALYZE-TOOLBAR (Topo Geral) -->
+      <div class="h-12 bg-[#090e1a] border-b border-slate-800/80 px-4 flex items-center justify-start gap-4">
+        <div class="flex items-center gap-2 text-xs font-semibold text-slate-200">
+          <span>📝</span>
+          <span class="mono text-cyan-300">auditoria_jornada_gotryx.yaml</span>
+        </div>
+        <div class="h-4 w-[1px] bg-slate-800"></div>
+        <div class="flex items-center gap-3 text-xs text-slate-300">
+          <label class="flex items-center gap-1.5 cursor-pointer bg-slate-900 px-2.5 py-1 rounded border border-slate-800">
+            <input type="checkbox" checked class="accent-cyan-500">
+            <span>Headless</span>
+          </label>
+          <label class="flex items-center gap-1.5 cursor-pointer bg-slate-900 px-2.5 py-1 rounded border border-slate-800">
+            <input type="checkbox" class="accent-cyan-500">
+            <span>DevTools</span>
+          </label>
+          <label class="flex items-center gap-1.5 cursor-pointer bg-slate-900 px-2.5 py-1 rounded border border-slate-800">
+            <input type="checkbox" checked class="accent-cyan-500">
+            <span>Console</span>
+          </label>
+          <label class="flex items-center gap-1.5 cursor-pointer bg-slate-900 px-2.5 py-1 rounded border border-slate-800">
+            <input type="checkbox" class="accent-cyan-500">
+            <span>Inspect</span>
+          </label>
+        </div>
+        <div class="h-4 w-[1px] bg-slate-800"></div>
+        <button class="bg-cyan-600 hover:bg-cyan-500 text-slate-950 font-bold px-3 py-1.5 rounded text-xs flex items-center gap-1.5 transition-colors">
+          <span>▶️</span> Executar Agora
+        </button>
+      </div>
+
+      <!-- CORPO PRINCIPAL DO EDITOR (editor-body) -->
+      <div class="flex flex-row min-h-[520px]">
+        
+        <!-- PAINEL CENTRAL (editor-pane) -->
+        <div class="flex-1 flex flex-col border-r border-slate-800 bg-[#080d1a]">
+          
+          <!-- 2. EDITOR-TOOLBAR -->
+          <div class="h-11 bg-[#0b1224] border-b border-slate-800/80 px-4 flex items-center justify-start gap-3">
+            <span class="text-[11px] px-2 py-0.5 rounded bg-slate-900 text-cyan-400 border border-slate-800 font-mono">
+              Projeto
+            </span>
+            <span id="save-indicator" class="text-xs text-emerald-400 font-mono flex items-center gap-1">
+              <span>●</span> Salvo
+            </span>
+
+            <div class="h-4 w-[1px] bg-slate-800"></div>
+
+            <div class="flex items-center gap-1.5 text-xs text-slate-300">
+              <span class="text-slate-400">Perfil:</span>
+              <span class="bg-slate-900 border border-slate-800 text-slate-200 rounded px-2 py-0.5 mono text-[11px]">odoo</span>
+            </div>
+
+            <div class="h-4 w-[1px] bg-slate-800"></div>
+
+            <!-- Botão de Propriedades/Metadados (Item 1) -->
+            <button onclick="openMetadataModal()" class="bg-slate-900 hover:bg-slate-800 text-slate-300 px-2.5 py-1 rounded text-xs border border-slate-800 flex items-center gap-1 transition-colors">
+              <span>⚙️</span> Metadados
+            </button>
+
+            <div class="h-4 w-[1px] bg-slate-800"></div>
+
+            <!-- Alternador de Modo -->
+            <div class="flex items-center bg-slate-950 p-0.5 rounded-lg border border-slate-800 text-xs">
+              <button id="mode-visual-btn" onclick="setMode('visual')" class="px-3 py-1 rounded-md font-medium bg-cyan-600 text-slate-950 shadow">
+                👁️ Visual (Pipeline)
+              </button>
+              <button id="mode-yaml-btn" onclick="setMode('yaml')" class="px-3 py-1 rounded-md font-medium text-slate-400 hover:text-slate-200">
+                📝 Código YAML
+              </button>
+            </div>
+
+            <div class="h-4 w-[1px] bg-slate-800"></div>
+
+            <button class="bg-slate-900 hover:bg-slate-800 text-slate-200 px-2.5 py-1 rounded text-xs border border-slate-800 flex items-center gap-1">
+              <span>💾</span> Salvar
+            </button>
+          </div>
+
+          <!-- ÁREA VISUAL DO PIPELINE (visual-container) -->
+          <div id="visual-view" class="flex-1 flex flex-col p-4 overflow-y-auto space-y-3">
+            
+            <div class="flex justify-between items-center pb-2 border-b border-slate-800/80">
+              <div class="flex items-center gap-2">
+                <span class="text-sm font-semibold text-slate-200">Esteira Sequencial de Ações</span>
+                <span id="step-count-badge" class="text-xs bg-slate-900 px-2 py-0.5 rounded text-cyan-400 mono">4 passos</span>
+              </div>
+              <span class="text-[11px] text-slate-500 italic">
+                Dica: Arraste para reordenar ou clique no card para editar parâmetros.
+              </span>
+            </div>
+
+            <!-- Lista de Cards Interativos (Drag and Drop nativo) -->
+            <div id="pipeline-cards-list" class="space-y-2.5">
+              
+              <!-- CARD 1: goto -->
+              <div class="card-step bg-slate-900/90 border border-slate-800 rounded-lg p-3 hover:border-cyan-500/50 cursor-pointer transition-all flex items-center justify-between group"
+                   draggable="true" ondragstart="handleDragStart(event, 0)" ondragover="handleDragOver(event, 0)" ondrop="handleDrop(event, 0)" onclick="openStepModal(0)">
+                <div class="flex items-center gap-3">
+                  <span class="text-slate-600 group-hover:text-slate-400 cursor-grab text-base select-none">⠿</span>
+                  <div class="space-y-1">
+                    <div class="flex items-center gap-2">
+                      <span class="px-2 py-0.5 rounded bg-cyan-950/80 border border-cyan-500/40 text-cyan-300 font-mono text-[10px] uppercase font-bold">goto</span>
+                      <span class="font-medium text-slate-200 text-xs">Navegar até a tela de login do Backoffice</span>
+                      <span class="text-[11px] text-slate-500 font-mono">#1</span>
+                    </div>
+                    <p class="text-slate-400 mono text-[11px]">http://localhost:8069/web/login?db=gotryx</p>
+                    <p class="text-[10px] text-slate-500 italic">💬 Acessa o ambiente local de testes do ERP</p>
+                  </div>
+                </div>
+                <div class="flex items-center gap-2">
+                  <button onclick="duplicateStep(event, 0)" title="Duplicar Passo" class="p-1 rounded bg-slate-800/80 hover:bg-cyan-950 text-slate-400 hover:text-cyan-300 border border-slate-700/60 transition-colors">📋</button>
+                  <button onclick="deleteStep(event, 0)" title="Excluir Passo" class="p-1 rounded bg-slate-800/80 hover:bg-red-950 text-slate-400 hover:text-red-300 border border-slate-700/60 transition-colors">🗑️</button>
+                </div>
+              </div>
+
+              <!-- CARD 2: fill -->
+              <div class="card-step bg-slate-900/90 border border-slate-800 rounded-lg p-3 hover:border-cyan-500/50 cursor-pointer transition-all flex items-center justify-between group"
+                   draggable="true" ondragstart="handleDragStart(event, 1)" ondragover="handleDragOver(event, 1)" ondrop="handleDrop(event, 1)" onclick="openStepModal(1)">
+                <div class="flex items-center gap-3">
+                  <span class="text-slate-600 group-hover:text-slate-400 cursor-grab text-base select-none">⠿</span>
+                  <div class="space-y-1">
+                    <div class="flex items-center gap-2">
+                      <span class="px-2 py-0.5 rounded bg-blue-950/80 border border-blue-500/40 text-blue-300 font-mono text-[10px] uppercase font-bold">fill</span>
+                      <span class="font-medium text-slate-200 text-xs">Preencher login do usuário</span>
+                      <span class="text-[11px] text-slate-500 font-mono">#2</span>
+                    </div>
+                    <p class="text-slate-400 mono text-[11px]">input#login ➔ "admin@gotryx.com"</p>
+                  </div>
+                </div>
+                <div class="flex items-center gap-2">
+                  <button onclick="duplicateStep(event, 1)" title="Duplicar Passo" class="p-1 rounded bg-slate-800/80 hover:bg-cyan-950 text-slate-400 hover:text-cyan-300 border border-slate-700/60 transition-colors">📋</button>
+                  <button onclick="deleteStep(event, 1)" title="Excluir Passo" class="p-1 rounded bg-slate-800/80 hover:bg-red-950 text-slate-400 hover:text-red-300 border border-slate-700/60 transition-colors">🗑️</button>
+                </div>
+              </div>
+
+              <!-- CARD 3: click -->
+              <div class="card-step bg-slate-900/90 border border-slate-800 rounded-lg p-3 hover:border-cyan-500/50 cursor-pointer transition-all flex items-center justify-between group"
+                   draggable="true" ondragstart="handleDragStart(event, 2)" ondragover="handleDragOver(event, 2)" ondrop="handleDrop(event, 2)" onclick="openStepModal(2)">
+                <div class="flex items-center gap-3">
+                  <span class="text-slate-600 group-hover:text-slate-400 cursor-grab text-base select-none">⠿</span>
+                  <div class="space-y-1">
+                    <div class="flex items-center gap-2">
+                      <span class="px-2 py-0.5 rounded bg-emerald-950/80 border border-emerald-500/40 text-emerald-300 font-mono text-[10px] uppercase font-bold">click</span>
+                      <span class="font-medium text-slate-200 text-xs">Confirmar entrada no sistema</span>
+                      <span class="text-[11px] text-slate-500 font-mono">#3</span>
+                    </div>
+                    <p class="text-slate-400 mono text-[11px]">button.btn-primary[type="submit"]</p>
+                  </div>
+                </div>
+                <div class="flex items-center gap-2">
+                  <button onclick="duplicateStep(event, 2)" title="Duplicar Passo" class="p-1 rounded bg-slate-800/80 hover:bg-cyan-950 text-slate-400 hover:text-cyan-300 border border-slate-700/60 transition-colors">📋</button>
+                  <button onclick="deleteStep(event, 2)" title="Excluir Passo" class="p-1 rounded bg-slate-800/80 hover:bg-red-950 text-slate-400 hover:text-red-300 border border-slate-700/60 transition-colors">🗑️</button>
+                </div>
+              </div>
+
+              <!-- CARD 4: checkpoint (com alerta simulado do verificador determinístico) -->
+              <div class="card-step bg-slate-900/90 border border-purple-500/40 rounded-lg p-3 hover:border-purple-400 cursor-pointer transition-all flex items-center justify-between group bg-purple-950/10"
+                   draggable="true" ondragstart="handleDragStart(event, 3)" ondragover="handleDragOver(event, 3)" ondrop="handleDrop(event, 3)" onclick="openStepModal(3)">
+                <div class="flex items-center gap-3">
+                  <span class="text-slate-600 group-hover:text-slate-400 cursor-grab text-base select-none">⠿</span>
+                  <div class="space-y-1">
+                    <div class="flex items-center gap-2">
+                      <span class="px-2 py-0.5 rounded bg-purple-950/80 border border-purple-500/40 text-purple-300 font-mono text-[10px] uppercase font-bold">checkpoint</span>
+                      <span class="font-semibold text-purple-200 text-xs">Auditoria Visual e Cognitiva do Dashboard</span>
+                      <span class="text-[11px] text-slate-500 font-mono">#4</span>
+                    </div>
+                    <p class="text-slate-300 text-[11px]">Verifica se o dashboard carregou com conformidade de marca e sem quebras visuais.</p>
+                    <p class="text-[10px] text-purple-400/80 italic">💬 Valida ausência de 'Odoo' na tela e contraste das métricas</p>
+                  </div>
+                </div>
+                <div class="flex items-center gap-2">
+                  <button onclick="duplicateStep(event, 3)" title="Duplicar Passo" class="p-1 rounded bg-slate-800/80 hover:bg-cyan-950 text-slate-400 hover:text-cyan-300 border border-slate-700/60 transition-colors">📋</button>
+                  <button onclick="deleteStep(event, 3)" title="Excluir Passo" class="p-1 rounded bg-slate-800/80 hover:bg-red-950 text-slate-400 hover:text-red-300 border border-slate-700/60 transition-colors">🗑️</button>
+                </div>
+              </div>
+
+            </div>
+
+            <!-- 7. BOTÃO NO RODAPÉ PARA ADICIONAR NOVO CARD -->
+            <button onclick="openNewStepModal()" class="w-full py-2.5 rounded-lg border-2 border-dashed border-slate-800 hover:border-cyan-500/50 hover:bg-cyan-950/10 text-slate-400 hover:text-cyan-300 text-xs font-semibold flex items-center justify-center gap-2 transition-all">
+              <span>➕</span> Adicionar Passo à Pipeline
+            </button>
+          </div>
+
+          <!-- ÁREA DO EDITOR YAML (Oculto por padrão, ativado pelo alternador) -->
+          <div id="yaml-view" class="hidden flex-1 flex flex-col bg-[#050811] p-3 mono text-xs text-slate-300 overflow-y-auto">
+            <textarea id="mock-yaml-area" class="w-full h-full bg-transparent outline-none resize-none leading-5 text-cyan-200/90" spellcheck="false">version: "1.0"
+id: "auditoria_jornada_gotryx"
+title: "GoTryx - Auditoria de Usabilidade e UX"
+profile: "odoo"
+tags:
+  - "gotryx"
+  - "backoffice"
+  - "gt_chat"
+env:
+  BASE_URL: "http://localhost:8069"
+steps:
+  - action: "goto"
+    url: "http://localhost:8069/web/login?db=gotryx"
+    description: "Acessa o ambiente local de testes do ERP"
+  - action: "fill"
+    selector: "input#login"
+    value: "admin@gotryx.com"
+  - action: "click"
+    selector: "button.btn-primary[type=\"submit\"]"
+  - action: "checkpoint"
+    name: "Auditoria Visual e Cognitiva do Dashboard"
+    description: "Valida ausência de 'Odoo' na tela e contraste das métricas"</textarea>
+          </div>
+
+          <!-- 6. BARRA DE DIAGNÓSTICO E CONGRUÊNCIA DETERMINÍSTICA -->
+          <div class="h-8 bg-[#060a14] border-t border-slate-800/90 px-3 flex items-center justify-between text-[11px]">
+            <span id="diagnostic-msg" class="text-emerald-400 font-mono flex items-center gap-1.5">
+              <span>✓</span> Sequência determinística válida: navegação 'goto' inicial configurada sem conflitos.
+            </span>
+            <span class="text-slate-500 text-[10px]">Sincronização Bidirecional Ativa</span>
+          </div>
+
+        </div>
+
+        <!-- SPLITTER (6px) -->
+        <div class="w-1.5 bg-slate-900 hover:bg-cyan-500/50 cursor-col-resize flex items-center justify-center">
+          <div class="w-0.5 h-6 bg-slate-700 rounded"></div>
+        </div>
+
+        <!-- COLUNA DIREITA: LIVE MISSION CONTROL -->
+        <div class="w-[340px] bg-[#0c1322] flex flex-col">
+          <div class="h-11 border-b border-slate-800 px-4 flex items-center bg-[#090e1a]">
+            <span class="text-xs font-semibold text-amber-400 flex items-center gap-2">
+              <span>⚡</span> Live Mission Control
+            </span>
+            <span class="ml-auto text-[10px] bg-amber-950/60 text-amber-300 border border-amber-500/30 px-2 py-0.5 rounded font-mono">
+              STANDBY
+            </span>
+          </div>
+          <div class="p-4 space-y-4 text-xs">
+            <div class="bg-slate-900/80 p-3 rounded-lg border border-slate-800 space-y-1">
+              <span class="text-slate-400 text-[11px]">Streaming de Auditoria SSE</span>
+              <p class="text-slate-300">Pronto para inspecionar execução passo a passo do pipeline.</p>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- MODAL 1: METADADOS INICIAIS DO CENÁRIO (Item 1 — 100% em Português) -->
+    <div id="modal-metadata" class="hidden fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+      <div class="bg-[#0f172a] border border-slate-800 rounded-xl w-full max-w-xl shadow-2xl overflow-hidden">
+        <div class="px-5 py-4 border-b border-slate-800 flex justify-between items-center bg-slate-900/60">
+          <h3 class="text-sm font-bold text-slate-100 flex items-center gap-2">
+            <span>⚙️</span> Propriedades do Cenário de Auditoria
+          </h3>
+          <button onclick="closeMetadataModal()" class="text-slate-400 hover:text-slate-200">✕</button>
+        </div>
+        <div class="p-5 space-y-4 text-xs">
+          <div>
+            <label class="block text-slate-300 font-semibold mb-1">Identificador Único (ID):</label>
+            <input type="text" value="auditoria_jornada_gotryx" class="w-full bg-slate-900 border border-slate-800 rounded px-3 py-1.5 text-slate-200 mono">
+          </div>
+          <div>
+            <label class="block text-slate-300 font-semibold mb-1">Título da Jornada:</label>
+            <input type="text" value="GoTryx - Auditoria de Usabilidade e UX" class="w-full bg-slate-900 border border-slate-800 rounded px-3 py-1.5 text-slate-200">
+          </div>
+          <div>
+            <label class="block text-slate-300 font-semibold mb-1">Descrição do Objetivo:</label>
+            <textarea class="w-full bg-slate-900 border border-slate-800 rounded px-3 py-1.5 text-slate-200 h-16">Auditoria visual e cognitiva sob a ótica estrita do usuário cliente.</textarea>
+          </div>
+          <div class="grid grid-cols-2 gap-4">
+            <div>
+              <label class="block text-slate-300 font-semibold mb-1">Perfil de Aplicação:</label>
+              <select class="w-full bg-slate-900 border border-slate-800 rounded px-3 py-1.5 text-slate-200">
+                <option selected>odoo (Enterprise ERP)</option>
+                <option>generic (Universal)</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-slate-300 font-semibold mb-1">Etiquetas (Tags):</label>
+              <div class="flex flex-wrap gap-1.5 p-1.5 bg-slate-900 border border-slate-800 rounded">
+                <span class="px-2 py-0.5 rounded bg-slate-800 text-cyan-300 text-[11px] flex items-center gap-1">gotryx <button>✕</button></span>
+                <span class="px-2 py-0.5 rounded bg-slate-800 text-cyan-300 text-[11px] flex items-center gap-1">backoffice <button>✕</button></span>
+              </div>
+            </div>
+          </div>
+          <!-- GERENCIADOR DE VARIÁVEIS DE AMBIENTE (Item 1: Botões simples por ícone) -->
+          <div class="space-y-2 border-t border-slate-800 pt-3">
+            <div class="flex justify-between items-center">
+              <label class="text-slate-300 font-semibold flex items-center gap-1.5">
+                <span>🌐</span> Variáveis de Ambiente (env):
+              </label>
+              <button onclick="addEnvRow()" type="button" title="Adicionar Nova Variável" class="w-6 h-6 rounded bg-cyan-950 hover:bg-cyan-900 border border-cyan-500/40 text-cyan-300 flex items-center justify-center text-xs font-bold transition-colors">
+                ➕
+              </button>
+            </div>
+            
+            <div id="env-rows-container" class="space-y-1.5 max-h-36 overflow-y-auto pr-1">
+              <!-- Linha 1 -->
+              <div class="flex items-center gap-2">
+                <input type="text" value="BASE_URL" placeholder="NOME_CHAVE" class="w-1/3 bg-slate-900 border border-slate-800 rounded px-2.5 py-1 text-cyan-400 mono text-xs">
+                <span class="text-slate-500 mono">=</span>
+                <input type="text" value="http://localhost:8069" placeholder="valor" class="flex-1 bg-slate-900 border border-slate-800 rounded px-2.5 py-1 text-slate-300 mono text-xs">
+                <button onclick="removeEnvRow(this)" type="button" title="Excluir Variável" class="w-6 h-6 rounded bg-slate-800 hover:bg-red-950 text-slate-400 hover:text-red-300 border border-slate-700/60 flex items-center justify-center text-xs transition-colors">
+                  🗑️
+                </button>
+              </div>
+
+              <!-- Linha 2 -->
+              <div class="flex items-center gap-2">
+                <input type="text" value="USER_LOGIN" placeholder="NOME_CHAVE" class="w-1/3 bg-slate-900 border border-slate-800 rounded px-2.5 py-1 text-cyan-400 mono text-xs">
+                <span class="text-slate-500 mono">=</span>
+                <input type="text" value="admin@gotryx.com" placeholder="valor" class="flex-1 bg-slate-900 border border-slate-800 rounded px-2.5 py-1 text-slate-300 mono text-xs">
+                <button onclick="removeEnvRow(this)" type="button" title="Excluir Variável" class="w-6 h-6 rounded bg-slate-800 hover:bg-red-950 text-slate-400 hover:text-red-300 border border-slate-700/60 flex items-center justify-center text-xs transition-colors">
+                  🗑️
+                </button>
+              </div>
+            </div>
+          </div>
+
+        </div>
+        <div class="px-5 py-3 border-t border-slate-800 bg-slate-900/60 flex justify-end gap-2 text-xs">
+          <button onclick="closeMetadataModal()" class="px-3 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300">Cancelar</button>
+          <button onclick="saveMetadataModal()" class="px-3 py-1.5 rounded bg-cyan-600 hover:bg-cyan-500 text-slate-950 font-bold">💾 Salvar Metadados</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- MODAL 2: EDIÇÃO DE PASSO COM VISIBILIDADE CONDICIONAL (Item 3) -->
+    <div id="modal-step" class="hidden fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+      <div class="bg-[#0f172a] border border-slate-800 rounded-xl w-full max-w-lg shadow-2xl overflow-hidden">
+        <div class="px-5 py-4 border-b border-slate-800 flex justify-between items-center bg-slate-900/60">
+          <h3 id="step-modal-title" class="text-sm font-bold text-slate-100 flex items-center gap-2">
+            <span>✏️</span> Editar Parâmetros da Ação
+          </h3>
+          <button onclick="closeStepModal()" class="text-slate-400 hover:text-slate-200">✕</button>
+        </div>
+        <div class="p-5 space-y-3.5 text-xs">
+          
+          <div class="grid grid-cols-3 gap-3">
+            <div>
+              <label class="block text-slate-300 font-semibold mb-1">Nº do Passo (Posição):</label>
+              <input id="field-step-number" type="number" min="1" value="1" class="w-full bg-slate-900 border border-slate-800 rounded px-3 py-1.5 text-cyan-300 mono font-bold">
+            </div>
+            <div class="col-span-2">
+              <label class="block text-slate-300 font-semibold mb-1">Tipo de Ação:</label>
+              <select id="field-action" onchange="updateModalFieldVisibility()" class="w-full bg-slate-900 border border-slate-800 rounded px-3 py-1.5 text-slate-200 mono">
+                <option value="goto">goto (Navegar para URL)</option>
+                <option value="click">click (Clicar no elemento)</option>
+                <option value="fill">fill (Preencher campo de texto)</option>
+                <option value="checkpoint">checkpoint (Auditoria Visual & IA)</option>
+                <option value="wait">wait (Temporizador / Espera)</option>
+                <option value="hover">hover (Passar o mouse)</option>
+                <option value="press">press (Pressionar tecla)</option>
+                <option value="scroll">scroll (Rolar página)</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Campo Dinâmico: URL (visível para goto) -->
+          <div id="group-url">
+            <label class="block text-slate-300 font-semibold mb-1">URL de Destino:</label>
+            <input id="input-url" type="text" value="http://localhost:8069/web/login?db=gotryx" class="w-full bg-slate-900 border border-slate-800 rounded px-3 py-1.5 text-slate-200 mono">
+          </div>
+
+          <!-- Campo Dinâmico: Seletor (visível para click, fill, hover, press) -->
+          <div id="group-selector" class="hidden">
+            <label class="block text-slate-300 font-semibold mb-1">Seletor do Elemento (CSS ou XPath):</label>
+            <input id="input-selector" type="text" placeholder="ex: input#login ou button.btn-primary" class="w-full bg-slate-900 border border-slate-800 rounded px-3 py-1.5 text-slate-200 mono">
+          </div>
+
+          <!-- Campo Dinâmico: Valor (visível para fill) -->
+          <div id="group-value" class="hidden">
+            <label class="block text-slate-300 font-semibold mb-1">Valor a Preencher:</label>
+            <input id="input-value" type="text" placeholder="Texto a digitar no campo" class="w-full bg-slate-900 border border-slate-800 rounded px-3 py-1.5 text-slate-200">
+          </div>
+
+          <!-- Campo Dinâmico: Checkpoint (visível para checkpoint) -->
+          <div id="group-checkpoint" class="hidden space-y-2">
+            <div>
+              <label class="block text-slate-300 font-semibold mb-1">Nome do Ponto de Auditoria:</label>
+              <input id="input-checkpoint-name" type="text" placeholder="ex: Dashboard Inicial" class="w-full bg-slate-900 border border-slate-800 rounded px-3 py-1.5 text-slate-200">
+            </div>
+            <div>
+              <label class="block text-slate-300 font-semibold mb-1">Critérios de Usabilidade para a IA:</label>
+              <textarea id="input-checkpoint-desc" placeholder="Descreva os requisitos visuais esperados" class="w-full bg-slate-900 border border-slate-800 rounded px-3 py-1.5 text-slate-200 h-14"></textarea>
+            </div>
+          </div>
+
+          <!-- Campo Dinâmico: Tempo (visível para wait) -->
+          <div id="group-time" class="hidden">
+            <label class="block text-slate-300 font-semibold mb-1">Tempo de Espera (milissegundos):</label>
+            <input id="input-time" type="number" placeholder="ex: 2000" class="w-full bg-slate-900 border border-slate-800 rounded px-3 py-1.5 text-slate-200 mono">
+          </div>
+
+          <!-- CAMPO TRANSVERSAL: COMENTÁRIO PRESERVADO NO YAML -->
+          <div class="border-t border-slate-800/80 pt-3">
+            <label class="block text-slate-300 font-semibold mb-1 flex items-center gap-1.5">
+              <span>💬</span> Comentário / Observação Técnica (Preservado no YAML):
+            </label>
+            <input id="input-comment" type="text" placeholder="Adicione uma anotação técnica para documentar este passo..." class="w-full bg-slate-900 border border-slate-800 rounded px-3 py-1.5 text-slate-300 text-xs">
+          </div>
+
+        </div>
+        <div class="px-5 py-3 border-t border-slate-800 bg-slate-900/60 flex justify-between items-center text-xs">
+          <button onclick="deleteStepFromModal()" class="px-3 py-1.5 rounded bg-red-950/40 hover:bg-red-900/60 text-red-400 border border-red-800/40">🗑️ Excluir Passo</button>
+          <div class="flex gap-2">
+            <button onclick="closeStepModal()" class="px-3 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300">Cancelar</button>
+            <button onclick="saveStepModal()" class="px-3 py-1.5 rounded bg-cyan-600 hover:bg-cyan-500 text-slate-950 font-bold">💾 Salvar Passo</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <script>
+    let draggedIndex = null;
+
+    function setMode(mode) {
+      const visualView = document.getElementById('visual-view');
+      const yamlView = document.getElementById('yaml-view');
+      const btnVisual = document.getElementById('mode-visual-btn');
+      const btnYaml = document.getElementById('mode-yaml-btn');
+
+      if (mode === 'visual') {
+        visualView.classList.remove('hidden');
+        yamlView.classList.add('hidden');
+        btnVisual.className = "px-3 py-1 rounded-md font-medium bg-cyan-600 text-slate-950 shadow";
+        btnYaml.className = "px-3 py-1 rounded-md font-medium text-slate-400 hover:text-slate-200";
+      } else {
+        visualView.classList.add('hidden');
+        yamlView.classList.remove('hidden');
+        btnYaml.className = "px-3 py-1 rounded-md font-medium bg-cyan-600 text-slate-950 shadow";
+        btnVisual.className = "px-3 py-1 rounded-md font-medium text-slate-400 hover:text-slate-200";
+      }
+    }
+
+    // Drag and drop interativo
+    function handleDragStart(e, index) {
+      draggedIndex = index;
+      e.currentTarget.classList.add('dragging');
+    }
+    function handleDragOver(e, index) {
+      e.preventDefault();
+      e.currentTarget.classList.add('drag-over');
+    }
+    function handleDrop(e, targetIndex) {
+      e.preventDefault();
+      e.currentTarget.classList.remove('drag-over');
+      document.querySelectorAll('.card-step').forEach(c => c.classList.remove('dragging', 'drag-over'));
+      
+      if (draggedIndex === null || draggedIndex === targetIndex) return;
+
+      // Simulando reordenação e disparando verificador determinístico
+      const diagnostic = document.getElementById('diagnostic-msg');
+      const saveIndicator = document.getElementById('save-indicator');
+      saveIndicator.innerHTML = '<span class="text-amber-400">● Modificado</span>';
+
+      if (targetIndex === 0 && draggedIndex !== 0) {
+        diagnostic.className = "text-amber-400 font-mono flex items-center gap-1.5";
+        diagnostic.innerHTML = "<span>⚠️</span> Aviso de Congruência: Ação interativa posicionada antes da navegação 'goto' inicial!";
+      } else {
+        diagnostic.className = "text-emerald-400 font-mono flex items-center gap-1.5";
+        diagnostic.innerHTML = "<span>✓</span> Sequência válida recalculada e sincronizada com o YAML.";
+      }
+    }
+
+    // Modal de Metadados
+    function openMetadataModal() {
+      document.getElementById('modal-metadata').classList.remove('hidden');
+    }
+    function closeMetadataModal() {
+      document.getElementById('modal-metadata').classList.add('hidden');
+    }
+    function saveMetadataModal() {
+      closeMetadataModal();
+      document.getElementById('save-indicator').innerHTML = '<span class="text-amber-400">● Modificado</span>';
+    }
+
+    // Modal de Passos com Visibilidade Condicional
+    function openStepModal(stepIdx) {
+      document.getElementById('modal-step').classList.remove('hidden');
+      const actionSelect = document.getElementById('field-action');
+      if (stepIdx === 0) actionSelect.value = 'goto';
+      else if (stepIdx === 1) actionSelect.value = 'fill';
+      else if (stepIdx === 2) actionSelect.value = 'click';
+      else if (stepIdx === 3) actionSelect.value = 'checkpoint';
+      updateModalFieldVisibility();
+    }
+    function openNewStepModal() {
+      document.getElementById('modal-step-title').innerHTML = '<span>➕</span> Adicionar Novo Passo';
+      document.getElementById('field-action').value = 'goto';
+      updateModalFieldVisibility();
+      document.getElementById('modal-step').classList.remove('hidden');
+    }
+    function closeStepModal() {
+      document.getElementById('modal-step').classList.add('hidden');
+    }
+    function saveStepModal() {
+      closeStepModal();
+      document.getElementById('save-indicator').innerHTML = '<span class="text-amber-400">● Modificado</span>';
+    }
+    function deleteStepFromModal() {
+      closeStepModal();
+      document.getElementById('save-indicator').innerHTML = '<span class="text-amber-400">● Modificado</span>';
+    }
+    function duplicateStep(e, idx) {
+      e.stopPropagation();
+      alert(`Passo #${idx + 1} duplicado com sucesso! Sincronizado com YAML.`);
+      document.getElementById('save-indicator').innerHTML = '<span class="text-amber-400">● Modificado</span>';
+    }
+    function deleteStep(e, idx) {
+      e.stopPropagation();
+      alert(`Passo #${idx + 1} removido com sucesso! Sincronizado com YAML.`);
+      document.getElementById('save-indicator').innerHTML = '<span class="text-amber-400">● Modificado</span>';
+    }
+
+    function updateModalFieldVisibility() {
+      const action = document.getElementById('field-action').value;
+      document.getElementById('group-url').classList.toggle('hidden', action !== 'goto');
+      document.getElementById('group-selector').classList.toggle('hidden', !['click', 'fill', 'hover', 'press'].includes(action));
+      document.getElementById('group-value').classList.toggle('hidden', action !== 'fill');
+      document.getElementById('group-checkpoint').classList.toggle('hidden', action !== 'checkpoint');
+      document.getElementById('group-time').classList.toggle('hidden', action !== 'wait');
+    }
+    function addEnvRow() {
+      const container = document.getElementById('env-rows-container');
+      const div = document.createElement('div');
+      div.className = "flex items-center gap-2";
+      div.innerHTML = `
+        <input type="text" placeholder="NOVA_CHAVE" class="w-1/3 bg-slate-900 border border-slate-800 rounded px-2.5 py-1 text-cyan-400 mono text-xs">
+        <span class="text-slate-500 mono">=</span>
+        <input type="text" placeholder="valor" class="flex-1 bg-slate-900 border border-slate-800 rounded px-2.5 py-1 text-slate-300 mono text-xs">
+        <button onclick="removeEnvRow(this)" type="button" title="Excluir Variável" class="w-6 h-6 rounded bg-slate-800 hover:bg-red-950 text-slate-400 hover:text-red-300 border border-slate-700/60 flex items-center justify-center text-xs transition-colors">
+          🗑️
+        </button>
+      `;
+      container.appendChild(div);
+    }
+    function removeEnvRow(btn) {
+      btn.closest('.flex').remove();
+    }
+  </script>
+
+</body>
+</html>
