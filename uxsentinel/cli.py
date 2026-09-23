@@ -10,11 +10,16 @@ from rich.table import Table
 
 from uxsentinel import __version__
 from uxsentinel.core.config import (
+    BUILTIN_PROVIDERS,
     GlobalConfig,
     find_project_in_catalog,
     find_scenario_in_project,
+    get_user_config_path,
     list_registered_projects,
     load_config,
+    save_active_provider,
+    save_default_viewports,
+    save_jira_config,
 )
 from uxsentinel.scenarios.parser import load_scenario
 from uxsentinel.service.execution_service import ExecutionOptions, ExecutionService
@@ -293,7 +298,11 @@ visível na tela e inspecionando cada checkpoint com Inteligência Artificial Mu
   uxsentinel -P "Meu Projeto"                          # Executa todos os cenários do projeto pelo nome/slug
   uxsentinel -P "Meu Projeto" -s login                 # Executa um cenário específico dentro do projeto
   uxsentinel --scenario-path /caminho/cenario.yaml     # Executa cenário externo em caminho arbitrário
-  uxsentinel --select-project                          # Menu interativo para selecionar projeto do catálogo
+  uxsentinel config                                    # Abre o assistente interativo de configuração no terminal (UXS-28)
+  uxsentinel --configure                               # Abre o assistente interativo de configuração no terminal
+  uxsentinel --interactive-config                      # Alias para o assistente interativo de configuração
+  uxsentinel mcp                                       # Inicia o servidor MCP nativo sobre stdio para agentes de IA (UXS-85)
+  uxsentinel --mcp                                     # Inicia o servidor MCP nativo sobre stdio
   uxsentinel --version                                 # Exibe a versão instalada (ou -v)
   uxsentinel --init-config                             # Cria o arquivo de configuração em ~/.config/uxsentinel/config.yaml
 
@@ -586,6 +595,13 @@ Documentação completa: https://github.com/Defendi/UXSentinel""",
         help="Configura interativamente o token e credenciais do Jira no arquivo global (~/.config/uxsentinel/config.yaml).",
     )
     parser.add_argument(
+        "--configure",
+        "--interactive-config",
+        action="store_true",
+        dest="interactive_config",
+        help="Abre o assistente interativo de configuração no terminal (IA, Viewport e Jira).",
+    )
+    parser.add_argument(
         "--init-config",
         action="store_true",
         help="Cria o arquivo de configuração padrão do usuário em ~/.config/uxsentinel/config.yaml (sem precisar de sudo).",
@@ -614,6 +630,11 @@ Documentação completa: https://github.com/Defendi/UXSentinel""",
         "--logout-sso",
         action="store_true",
         help="Remove as credenciais SSO em cache do provedor e encerra.",
+    )
+    parser.add_argument(
+        "--mcp",
+        action="store_true",
+        help="Inicia o servidor MCP nativo (Model Context Protocol) via stdio para controle por agentes de IA (UXS-85).",
     )
     crawl_group = parser.add_argument_group("Modo Exploratório Autônomo (Crawling - UXS-12)")
     crawl_group.add_argument(
@@ -745,6 +766,521 @@ async def handle_set_jira_token(cfg: GlobalConfig) -> int:
     else:
         console.print(f"[yellow]⚠️ Aviso de conectividade:[/yellow] {msg}\n")
     return 0
+
+
+SUPPORTED_AI_PROVIDERS: list[tuple[str, str, str]] = [
+    ("gemini_cloud", "Gemini 1.5 Pro", "API Key Google AI Studio (Nuvem)"),
+    ("gemini_sso", "Gemini 1.5 Pro via SSO", "Autenticação corporativa via navegador"),
+    ("claude_sso", "Claude Haiku via SSO", "Autenticação corporativa via navegador"),
+    ("anthropic_cloud", "Claude 3.5 Sonnet", "API Key Anthropic (Nuvem)"),
+    ("openai_cloud", "GPT-4o", "API Key OpenAI (Nuvem)"),
+    ("ollama_local", "Ollama Local (qwen2-vl:7b)", "100% offline em localhost:11434"),
+    ("corporate_gateway", "Gateway Corporativo", "Proxy corporativo OpenAI compatível"),
+]
+
+
+async def _configure_ai_provider(cfg: GlobalConfig) -> None:
+    """Configura o provedor de IA ativo e credenciais com teste imediato de conectividade."""
+    from rich.prompt import Confirm, Prompt
+    from rich.table import Table
+
+    from uxsentinel.vision.client import UnifiedVisionClient
+
+    console.print("\n[bold cyan]🤖 Configuração do Provedor de IA Ativo & Credenciais[/bold cyan]")
+
+    table = Table(title="Provedores de IA Suportados", show_header=True)
+    table.add_column("#", style="bold cyan", width=4, justify="center")
+    table.add_column("Identificador", style="bold white")
+    table.add_column("Modelo Padrão", style="yellow")
+    table.add_column("Descrição / Modo", style="dim")
+    table.add_column("Status", justify="center")
+
+    default_idx = "1"
+    for idx, (p_id, p_model, p_desc) in enumerate(SUPPORTED_AI_PROVIDERS, start=1):
+        is_active = p_id == cfg.active_provider
+        status = "[bold green]● Ativo[/bold green]" if is_active else "-"
+        if is_active:
+            default_idx = str(idx)
+        table.add_row(str(idx), p_id, p_model, p_desc, status)
+
+    console.print(table)
+
+    try:
+        choice = Prompt.ask(
+            "[bold cyan]Selecione o número ou nome do provedor[/bold cyan]",
+            choices=[str(i) for i in range(1, len(SUPPORTED_AI_PROVIDERS) + 1)]
+            + [p[0] for p in SUPPORTED_AI_PROVIDERS],
+            default=default_idx,
+        ).strip()
+    except (EOFError, KeyboardInterrupt):
+        return
+
+    selected_provider = cfg.active_provider
+    if choice.isdigit() and 1 <= int(choice) <= len(SUPPORTED_AI_PROVIDERS):
+        selected_provider = SUPPORTED_AI_PROVIDERS[int(choice) - 1][0]
+    elif any(choice == p[0] for p in SUPPORTED_AI_PROVIDERS):
+        selected_provider = choice
+
+    cloud_providers = {"anthropic_cloud", "gemini_cloud", "openai_cloud"}
+
+    if selected_provider in cloud_providers:
+        current_key = None
+        if selected_provider in cfg.providers and cfg.providers[selected_provider].api_key:
+            current_key = cfg.providers[selected_provider].api_key
+        elif selected_provider in BUILTIN_PROVIDERS and BUILTIN_PROVIDERS[selected_provider].api_key:
+            current_key = BUILTIN_PROVIDERS[selected_provider].api_key
+
+        has_saved_key = bool(current_key and not current_key.startswith("${"))
+        if has_saved_key:
+            console.print("[dim]Chave de API atual: [●●●●●●●● (configurado)][/dim]")
+            try:
+                new_key = Prompt.ask(
+                    "Nova API Key (Enter para manter atual)",
+                    password=True,
+                    default="",
+                    show_default=False,
+                ).strip()
+            except (EOFError, KeyboardInterrupt):
+                return
+            final_key = new_key if new_key else current_key
+        else:
+            try:
+                final_key = Prompt.ask("API Key", password=True, default="").strip()
+            except (EOFError, KeyboardInterrupt):
+                return
+
+        saved_file = save_active_provider(selected_provider, api_key=final_key or None)
+
+    elif selected_provider == "ollama_local":
+        current_url = "http://localhost:11434"
+        current_model = "qwen2-vl:7b"
+        if selected_provider in cfg.providers:
+            current_url = cfg.providers[selected_provider].base_url or current_url
+            current_model = cfg.providers[selected_provider].model or current_model
+
+        try:
+            base_url = Prompt.ask("URL do Ollama", default=current_url).strip()
+            model = Prompt.ask("Modelo de visão do Ollama", default=current_model).strip()
+        except (EOFError, KeyboardInterrupt):
+            return
+
+        saved_file = save_active_provider(selected_provider, base_url=base_url, model=model)
+
+    elif selected_provider == "corporate_gateway":
+        current_url = "https://ai-gateway.suaempresa.com.br/v1"
+        current_model = "corporate-vision-model"
+        current_key = None
+        if selected_provider in cfg.providers:
+            current_url = cfg.providers[selected_provider].base_url or current_url
+            current_model = cfg.providers[selected_provider].model or current_model
+            current_key = cfg.providers[selected_provider].api_key
+
+        try:
+            base_url = Prompt.ask("URL base do Gateway", default=current_url).strip()
+            model = Prompt.ask("Modelo no Gateway", default=current_model).strip()
+        except (EOFError, KeyboardInterrupt):
+            return
+
+        has_saved_key = bool(current_key and not current_key.startswith("${"))
+        if has_saved_key:
+            console.print("[dim]Token corporativo atual: [●●●●●●●● (configurado)][/dim]")
+            try:
+                new_key = Prompt.ask(
+                    "Novo Token Corporativo (Enter para manter atual)",
+                    password=True,
+                    default="",
+                    show_default=False,
+                ).strip()
+            except (EOFError, KeyboardInterrupt):
+                return
+            final_key = new_key if new_key else current_key
+        else:
+            try:
+                final_key = Prompt.ask("Token Corporativo (opcional)", password=True, default="").strip()
+            except (EOFError, KeyboardInterrupt):
+                return
+
+        saved_file = save_active_provider(
+            selected_provider, base_url=base_url, model=model, api_key=final_key or None
+        )
+
+    else:
+        # SSO (gemini_sso, claude_sso)
+        console.print(
+            f"[cyan]Provedor SSO ativado. A autenticação é realizada via navegador com:[/cyan] "
+            f"[bold yellow]uxsentinel --login-sso -p {selected_provider}[/bold yellow]"
+        )
+        saved_file = save_active_provider(selected_provider)
+
+    # Atualiza configuração em memória
+    cfg.active_provider = selected_provider
+    if selected_provider not in cfg.providers:
+        from uxsentinel.core.config import ProviderSettings
+
+        if selected_provider in BUILTIN_PROVIDERS:
+            b_prov = BUILTIN_PROVIDERS[selected_provider]
+            cfg.providers[selected_provider] = b_prov.model_copy(deep=True)
+        else:
+            cfg.providers[selected_provider] = ProviderSettings(type="api", service="anthropic", model="")
+
+    prov = cfg.providers[selected_provider]
+    if selected_provider in cloud_providers and "final_key" in locals() and final_key:
+        prov.api_key = final_key
+    elif selected_provider == "ollama_local":
+        prov.base_url = base_url
+        prov.model = model
+    elif selected_provider == "corporate_gateway":
+        prov.base_url = base_url
+        prov.model = model
+        if "final_key" in locals() and final_key:
+            prov.api_key = final_key
+
+    console.print(
+        f"\n[bold green]✓ Provedor de IA '[white]{selected_provider}[/white]' salvo com sucesso em:[/bold green] "
+        f"[cyan]{saved_file}[/cyan]"
+    )
+
+    try:
+        test_now = Confirm.ask("Deseja testar a conexão com o provedor de IA agora?", default=True)
+    except (EOFError, KeyboardInterrupt):
+        return
+
+    if test_now:
+        console.print(f"🔍 Testando conexão com [bold yellow]{selected_provider}[/bold yellow]...")
+        client = UnifiedVisionClient(cfg)
+        ok, msg = await client.test_connection(check_fallback=False)
+        if ok:
+            console.print(f"[bold green]✓ Conexão com a IA bem-sucedida:[/bold green] {msg}\n")
+        else:
+            console.print(f"[bold red]❌ Falha na conexão com a IA:[/bold red] {msg}\n")
+
+
+def _configure_viewport(cfg: GlobalConfig) -> None:
+    """Configura a resolução padrão de viewport e multi-viewports."""
+    from rich.prompt import Prompt
+    from rich.table import Table
+
+    console.print("\n[bold cyan]🖥️  Configuração da Resolução de Viewport Padrão[/bold cyan]")
+
+    vp_table = Table(title="Presets Canônicos e Customizados", show_header=True)
+    vp_table.add_column("#", style="bold cyan", width=4, justify="center")
+    vp_table.add_column("Preset / Tipo", style="bold white")
+    vp_table.add_column("Resolução", style="yellow")
+    vp_table.add_column("Descrição", style="dim")
+
+    vp_table.add_row("1", "desktop", "1440x900", "Padrão de auditoria em telas desktop/laptop")
+    vp_table.add_row("2", "fullhd", "1920x1080", "Desktop expandido / Monitores Full HD")
+    vp_table.add_row("3", "tablet", "768x1024", "iPad e tablets no modo vertical (retrato)")
+    vp_table.add_row("4", "mobile", "375x812", "iPhone e smartphones modernos")
+    vp_table.add_row("5", "customizado", "Manual", "Informar largura x altura personalizadas")
+    vp_table.add_row(
+        "6", "multi-viewport", "Responsivo", "Auditar automaticamente em Desktop, Tablet e Mobile"
+    )
+
+    console.print(vp_table)
+
+    try:
+        vp_choice = Prompt.ask(
+            "[bold cyan]Escolha a opção de viewport[/bold cyan]",
+            choices=["1", "2", "3", "4", "5", "6"],
+            default="1",
+        ).strip()
+    except (EOFError, KeyboardInterrupt):
+        return
+
+    if vp_choice == "1":
+        w, h = 1440, 900
+        saved_file = save_default_viewports(width=w, height=h, clear_viewports=True)
+        cfg.browser.viewport_width = w
+        cfg.browser.viewport_height = h
+        cfg.browser.viewports = None
+        console.print(
+            f"[bold green]✓ Viewport padrão definida para desktop (1440x900) em:[/bold green] [cyan]{saved_file}[/cyan]"
+        )
+
+    elif vp_choice == "2":
+        w, h = 1920, 1080
+        saved_file = save_default_viewports(width=w, height=h, clear_viewports=True)
+        cfg.browser.viewport_width = w
+        cfg.browser.viewport_height = h
+        cfg.browser.viewports = None
+        console.print(
+            f"[bold green]✓ Viewport padrão definida para fullhd (1920x1080) em:[/bold green] [cyan]{saved_file}[/cyan]"
+        )
+
+    elif vp_choice == "3":
+        w, h = 768, 1024
+        saved_file = save_default_viewports(width=w, height=h, clear_viewports=True)
+        cfg.browser.viewport_width = w
+        cfg.browser.viewport_height = h
+        cfg.browser.viewports = None
+        console.print(
+            f"[bold green]✓ Viewport padrão definida para tablet (768x1024) em:[/bold green] [cyan]{saved_file}[/cyan]"
+        )
+
+    elif vp_choice == "4":
+        w, h = 375, 812
+        saved_file = save_default_viewports(width=w, height=h, clear_viewports=True)
+        cfg.browser.viewport_width = w
+        cfg.browser.viewport_height = h
+        cfg.browser.viewports = None
+        console.print(
+            f"[bold green]✓ Viewport padrão definida para mobile (375x812) em:[/bold green] [cyan]{saved_file}[/cyan]"
+        )
+
+    elif vp_choice == "5":
+        try:
+            w_str = Prompt.ask("Largura em pixels", default=str(cfg.browser.viewport_width)).strip()
+            h_str = Prompt.ask("Altura em pixels", default=str(cfg.browser.viewport_height)).strip()
+            w, h = int(w_str), int(h_str)
+        except (ValueError, EOFError, KeyboardInterrupt):
+            console.print("[red]Dimensões inválidas informadas.[/red]")
+            return
+
+        saved_file = save_default_viewports(width=w, height=h, clear_viewports=True)
+        cfg.browser.viewport_width = w
+        cfg.browser.viewport_height = h
+        cfg.browser.viewports = None
+        console.print(
+            f"[bold green]✓ Viewport customizada ({w}x{h}) salva em:[/bold green] [cyan]{saved_file}[/cyan]"
+        )
+
+    elif vp_choice == "6":
+        multi_list = ["desktop", "tablet", "mobile"]
+        saved_file = save_default_viewports(viewports=multi_list)
+        cfg.browser.viewports = multi_list
+        console.print(
+            f"[bold green]✓ Multi-viewports responsivas configuradas {multi_list} em:[/bold green] [cyan]{saved_file}[/cyan]"
+        )
+
+
+async def _configure_jira(cfg: GlobalConfig) -> None:
+    """Configura integração com Atlassian Jira com teste imediato de conectividade."""
+    from rich.prompt import Confirm, Prompt
+
+    from uxsentinel.integrations.jira import JiraClient
+
+    console.print("\n[bold cyan]📋 Configuração da Integração Atlassian Jira[/bold cyan]")
+
+    current_jira = cfg.jira
+    try:
+        enable_jira = Confirm.ask("Habilitar integração com Atlassian Jira?", default=current_jira.enabled)
+    except (EOFError, KeyboardInterrupt):
+        return
+
+    default_url = current_jira.url or "https://sua-empresa.atlassian.net"
+    try:
+        jira_url = Prompt.ask("URL base do Jira", default=default_url).strip()
+    except (EOFError, KeyboardInterrupt):
+        return
+
+    default_email = (
+        current_jira.email if current_jira.email and not current_jira.email.startswith("${") else ""
+    )
+    try:
+        jira_email = Prompt.ask("E-mail Atlassian", default=default_email).strip()
+    except (EOFError, KeyboardInterrupt):
+        return
+
+    has_token = bool(current_jira.api_token and not current_jira.api_token.startswith("${"))
+    if has_token:
+        console.print("[dim]Token atual: [●●●●●●●● (configurado)][/dim]")
+        try:
+            new_token = Prompt.ask(
+                "Novo API Token / PAT (Enter para manter atual)",
+                password=True,
+                default="",
+                show_default=False,
+            ).strip()
+        except (EOFError, KeyboardInterrupt):
+            return
+        jira_token = new_token if new_token else current_jira.api_token
+    else:
+        try:
+            jira_token = Prompt.ask("API Token / PAT", password=True, default="").strip()
+        except (EOFError, KeyboardInterrupt):
+            return
+
+    default_proj = (
+        current_jira.project_key
+        if current_jira.project_key and not current_jira.project_key.startswith("${")
+        else "PROJ"
+    )
+    try:
+        jira_proj = Prompt.ask("Chave do Projeto (ex: PROJ, UXS)", default=default_proj).strip().upper()
+    except (EOFError, KeyboardInterrupt):
+        return
+
+    saved_file = save_jira_config(
+        url=jira_url,
+        email=jira_email,
+        api_token=jira_token,
+        project_key=jira_proj,
+        enabled=enable_jira,
+    )
+
+    current_jira.url = jira_url
+    current_jira.email = jira_email
+    current_jira.api_token = jira_token
+    current_jira.project_key = jira_proj
+    current_jira.enabled = enable_jira
+
+    console.print(
+        f"\n[bold green]✓ Configurações do Jira salvas com sucesso em:[/bold green] [cyan]{saved_file}[/cyan]"
+    )
+
+    if enable_jira and jira_url and jira_token:
+        try:
+            test_now = Confirm.ask("Deseja testar a conectividade com o Jira agora?", default=True)
+        except (EOFError, KeyboardInterrupt):
+            return
+
+        if test_now:
+            console.print("🔍 Testando conectividade com o Jira...")
+            test_client = JiraClient(current_jira)
+            ok, msg = await test_client.test_connection()
+            if ok:
+                console.print(
+                    f"[bold green]✓ Conexão com o Jira estabelecida com sucesso:[/bold green] {msg}\n"
+                )
+            else:
+                console.print(f"[yellow]⚠️ Aviso de conectividade:[/yellow] {msg}\n")
+
+
+async def _run_full_wizard(cfg: GlobalConfig) -> None:
+    """Executa o assistente completo guiado passo a passo."""
+    from rich.panel import Panel
+    from rich.table import Table
+
+    console.print(
+        Panel.fit(
+            "[bold cyan]Assistente Completo Passo a Passo[/bold cyan]\n"
+            "[dim]Vamos configurar Provedor de IA, Viewport e Integração Jira em sequência.[/dim]",
+            border_style="cyan",
+        )
+    )
+
+    console.print("\n[bold magenta]━━━ Passo 1 de 3: Provedor de IA ━━━[/bold magenta]")
+    await _configure_ai_provider(cfg)
+
+    console.print("\n[bold magenta]━━━ Passo 2 de 3: Resolução de Viewport ━━━[/bold magenta]")
+    _configure_viewport(cfg)
+
+    console.print("\n[bold magenta]━━━ Passo 3 de 3: Integração Jira ━━━[/bold magenta]")
+    await _configure_jira(cfg)
+
+    summary_table = Table(title="Resumo Consolidado das Configurações", show_header=True)
+    summary_table.add_column("Componente", style="bold cyan")
+    summary_table.add_column("Configuração Ativa", style="white")
+
+    summary_table.add_row("Provedor de IA", cfg.active_provider)
+    summary_table.add_row("Viewport Padrão", f"{cfg.browser.viewport_width}x{cfg.browser.viewport_height}")
+    jira_desc = f"{'Ativa' if cfg.jira.enabled else 'Desativada'}"
+    if cfg.jira.url:
+        jira_desc += f" ({cfg.jira.url}, projeto {cfg.jira.project_key or 'não definido'})"
+    summary_table.add_row("Atlassian Jira", jira_desc)
+
+    console.print()
+    console.print(summary_table)
+    console.print()
+
+
+async def _test_current_connections(cfg: GlobalConfig) -> None:
+    """Testa imediatamente a conectividade das integrações ativas (IA e Jira)."""
+    from uxsentinel.integrations.jira import JiraClient
+    from uxsentinel.vision.client import UnifiedVisionClient
+
+    console.print(
+        f"\n🔍 Testando conectividade com o provedor de IA: [bold yellow]{cfg.active_provider}[/bold yellow]..."
+    )
+    client = UnifiedVisionClient(cfg)
+    ok_ai, msg_ai = await client.test_connection(check_fallback=False)
+    if ok_ai:
+        console.print(f"[bold green]✓ IA conectada com sucesso:[/bold green] {msg_ai}")
+    else:
+        console.print(f"[bold red]❌ Falha na conexão com a IA:[/bold red] {msg_ai}")
+
+    if cfg.jira.url and cfg.jira.api_token:
+        console.print(f"\n🔍 Testando conectividade com o Atlassian Jira ({cfg.jira.url})...")
+        jira_client = JiraClient(cfg.jira)
+        ok_jira, msg_jira = await jira_client.test_connection()
+        if ok_jira:
+            console.print(f"[bold green]✓ Jira conectado com sucesso:[/bold green] {msg_jira}")
+        else:
+            console.print(f"[yellow]⚠️ Aviso Jira:[/yellow] {msg_jira}")
+    else:
+        console.print("\n[dim]Integração Jira não configurada ou sem URL/Token.[/dim]")
+    console.print()
+
+
+async def handle_interactive_config(cfg: GlobalConfig) -> int:
+    """Assistente interativo de configuração no terminal (UXS-28)."""
+    from rich.panel import Panel
+    from rich.prompt import Prompt
+    from rich.table import Table
+
+    console.print()
+    console.print(
+        Panel.fit(
+            "[bold cyan]UXSentinel 🛡️  - Assistente de Configuração Interativa[/bold cyan]\n"
+            f"[dim]Arquivo: {get_user_config_path()}[/dim]",
+            border_style="cyan",
+        )
+    )
+
+    while True:
+        table = Table(title="Menu de Configuração", show_header=True, header_style="bold magenta")
+        table.add_column("Opção", style="bold cyan", width=6, justify="center")
+        table.add_column("Descrição", style="white")
+        table.add_column("Status / Configuração Atual", style="dim")
+
+        ai_status = f"{cfg.active_provider}"
+        vp_status = f"{cfg.browser.viewport_width}x{cfg.browser.viewport_height}"
+        if cfg.browser.viewports:
+            vp_status += f" (multi: {len(cfg.browser.viewports)})"
+        jira_status = "Ativo" if cfg.jira.enabled else "Desativado"
+        if cfg.jira.url:
+            jira_status += f" ({cfg.jira.project_key or 'sem projeto'})"
+
+        table.add_row("1", "Configurar Provedor de IA Ativo & Credenciais", ai_status)
+        table.add_row("2", "Configurar Resolução de Viewport Padrão", vp_status)
+        table.add_row("3", "Configurar Integração Atlassian Jira", jira_status)
+        table.add_row("4", "Assistente Completo (Passo a Passo)", "Executar todas as etapas")
+        table.add_row("5", "Testar Conexões Atuais", "Verificar IA e Jira")
+        table.add_row("6", "Sair", "Encerrar assistente")
+
+        console.print()
+        console.print(table)
+        console.print()
+
+        try:
+            choice = (
+                Prompt.ask(
+                    "[bold cyan]Escolha uma opção[/bold cyan]",
+                    choices=["1", "2", "3", "4", "5", "6", "q", "sair"],
+                    default="6",
+                )
+                .strip()
+                .lower()
+            )
+        except (EOFError, KeyboardInterrupt):
+            console.print("\n[yellow]Configuração encerrada.[/yellow]")
+            return 0
+
+        if choice in ("6", "q", "sair"):
+            console.print("[green]Configuração finalizada com sucesso. Até logo![/green]")
+            return 0
+
+        if choice == "1":
+            await _configure_ai_provider(cfg)
+        elif choice == "2":
+            _configure_viewport(cfg)
+        elif choice == "3":
+            await _configure_jira(cfg)
+        elif choice == "4":
+            await _run_full_wizard(cfg)
+        elif choice == "5":
+            await _test_current_connections(cfg)
 
 
 def handle_logout_sso(cfg: GlobalConfig, provider_override: str | None) -> int:
@@ -959,6 +1495,15 @@ async def async_main() -> int:
         return EXIT_SUCESSO
 
     cfg = load_config(args.config)
+
+    if args.mcp or args.scenario_pos == "mcp":
+        from uxsentinel.mcp.server import MCPServer
+
+        server = MCPServer(cfg)
+        return await server.run_stdio()
+
+    if args.interactive_config or args.scenario_pos in ("config", "configure"):
+        return await handle_interactive_config(cfg)
 
     if args.set_jira_token:
         return await handle_set_jira_token(cfg)

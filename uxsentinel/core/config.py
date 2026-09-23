@@ -775,11 +775,12 @@ def save_jira_config(
     api_token: str | None = None,
     project_key: str | None = None,
     enabled: bool | None = None,
+    config_path: Path | None = None,
 ) -> Path:
     """Salva ou atualiza a seção 'jira' no arquivo de configuração do usuário (~/.config/uxsentinel/config.yaml)."""
-    cfg_file = ensure_user_config()
-    content = cfg_file.read_text(encoding="utf-8")
-    data = yaml.safe_load(content) or {}
+    cfg_file = Path(config_path) if config_path is not None else ensure_user_config()
+    content = cfg_file.read_text(encoding="utf-8") if cfg_file.is_file() else ""
+    data = yaml.safe_load(content) or {} if content else {}
 
     if "jira" not in data or not isinstance(data["jira"], dict):
         data["jira"] = {}
@@ -795,6 +796,101 @@ def save_jira_config(
     if enabled is not None:
         data["jira"]["enabled"] = enabled
 
+    cfg_file.parent.mkdir(parents=True, exist_ok=True)
+    cfg_file.write_text(yaml.safe_dump(data, sort_keys=False, allow_unicode=True), encoding="utf-8")
+    with contextlib.suppress(Exception):
+        cfg_file.chmod(0o600)
+    return cfg_file
+
+
+def save_active_provider(
+    provider_name: str,
+    api_key: str | None = None,
+    base_url: str | None = None,
+    model: str | None = None,
+    config_path: Path | None = None,
+) -> Path:
+    """Salva ou atualiza o provedor de IA ativo e suas credenciais/endereço em ~/.config/uxsentinel/config.yaml."""
+    cfg_file = Path(config_path) if config_path is not None else ensure_user_config()
+    content = cfg_file.read_text(encoding="utf-8") if cfg_file.is_file() else ""
+    data = yaml.safe_load(content) or {} if content else {}
+
+    p_clean = provider_name.strip()
+    data["active_provider"] = p_clean
+
+    if "providers" not in data or not isinstance(data["providers"], dict):
+        data["providers"] = {}
+
+    if p_clean not in data["providers"] or not isinstance(data["providers"][p_clean], dict):
+        if p_clean in BUILTIN_PROVIDERS:
+            b_prov = BUILTIN_PROVIDERS[p_clean]
+            data["providers"][p_clean] = {
+                "type": b_prov.type,
+                "service": b_prov.service,
+                "model": b_prov.model,
+                "temperature": b_prov.temperature,
+                "max_tokens": b_prov.max_tokens,
+            }
+            if b_prov.base_url:
+                data["providers"][p_clean]["base_url"] = b_prov.base_url
+            if b_prov.headers:
+                data["providers"][p_clean]["headers"] = dict(b_prov.headers)
+        else:
+            data["providers"][p_clean] = {
+                "type": "api",
+                "service": "anthropic",
+                "model": "",
+            }
+
+    prov_dict = data["providers"][p_clean]
+    if api_key is not None and api_key.strip():
+        prov_dict["api_key"] = api_key.strip()
+    if base_url is not None and base_url.strip():
+        prov_dict["base_url"] = base_url.strip()
+    if model is not None and model.strip():
+        prov_dict["model"] = model.strip()
+
+    cfg_file.parent.mkdir(parents=True, exist_ok=True)
+    cfg_file.write_text(yaml.safe_dump(data, sort_keys=False, allow_unicode=True), encoding="utf-8")
+    with contextlib.suppress(Exception):
+        cfg_file.chmod(0o600)
+    return cfg_file
+
+
+def save_default_viewports(
+    viewports: list[str] | list[dict[str, Any]] | None = None,
+    width: int | None = None,
+    height: int | None = None,
+    clear_viewports: bool = False,
+    config_path: Path | None = None,
+) -> Path:
+    """Salva a resolução padrão de viewport e/ou lista de viewports em ~/.config/uxsentinel/config.yaml."""
+    cfg_file = Path(config_path) if config_path is not None else ensure_user_config()
+    content = cfg_file.read_text(encoding="utf-8") if cfg_file.is_file() else ""
+    data = yaml.safe_load(content) or {} if content else {}
+
+    if "browser" not in data or not isinstance(data["browser"], dict):
+        data["browser"] = {}
+
+    if width is not None or height is not None:
+        if "viewport" not in data["browser"] or not isinstance(data["browser"]["viewport"], dict):
+            data["browser"]["viewport"] = {}
+        if width is not None:
+            data["browser"]["viewport"]["width"] = int(width)
+        if height is not None:
+            data["browser"]["viewport"]["height"] = int(height)
+
+    if clear_viewports:
+        data["browser"].pop("viewports", None)
+    elif viewports is not None:
+        data["browser"]["viewports"] = [
+            v.model_dump(exclude_none=True)
+            if hasattr(v, "model_dump")
+            else (v.__dict__ if hasattr(v, "__dict__") and not isinstance(v, (str, int, float, bool)) else v)
+            for v in viewports
+        ]
+
+    cfg_file.parent.mkdir(parents=True, exist_ok=True)
     cfg_file.write_text(yaml.safe_dump(data, sort_keys=False, allow_unicode=True), encoding="utf-8")
     with contextlib.suppress(Exception):
         cfg_file.chmod(0o600)
@@ -1230,5 +1326,7 @@ __all__ = [
     "resolve_markdown_mode",
     "resolve_video_mode",
     "resolve_viewports",
+    "save_active_provider",
+    "save_default_viewports",
     "save_jira_config",
 ]

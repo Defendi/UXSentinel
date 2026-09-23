@@ -19,6 +19,7 @@ from uxsentinel.service import (
     SafeConfigDTO,
 )
 from uxsentinel.service.config_service import SecretFieldStatus
+from uxsentinel_studio import __version__ as studio_version
 from uxsentinel_studio.api import EXECUTIONS, publish_execution_event
 from uxsentinel_studio.server import create_app, get_session_token
 
@@ -84,7 +85,7 @@ def test_status_endpoint(client: TestClient) -> None:
     assert resp.status_code == 200
     data = resp.json()
     assert data["status"] == "ok"
-    assert data["studio_version"] == "0.1.9"
+    assert data["studio_version"] == studio_version
     assert "core_version" in data
     assert "project_dir" in data
 
@@ -2230,8 +2231,8 @@ def test_studio_static_index_html_uxs82_structure() -> None:
     assert index_html_path.is_file(), f"index.html não encontrado em {index_html_path}"
     content = index_html_path.read_text(encoding="utf-8")
 
-    # 1. Bump de versão para 0.1.9
-    assert 'id="version-display">v0.1.9</span>' in content
+    # 1. Bump de versão para versão corrente do studio
+    assert f'id="version-display">v{studio_version}</span>' in content
 
     # 2. Barra Geral Superior: analyze-toolbar
     assert 'class="analyze-toolbar"' in content
