@@ -156,8 +156,6 @@ Este documento estabelece as regras mandatórias que TODOS os agentes de IA, sub
 > - **Bloqueio Total por Falha de Conexão**: Se o MCP do Jira não estiver autenticado ou falhar na inicialização/chamada, **NADA DEVE SER FEITO NO REPOSITÓRIO**.
 > - **Aviso Imediato ao Usuário**: O agente deve interromper o fluxo imediatamente e avisar o usuário que o MCP do Jira não está autenticado, solicitando que a autenticação seja reestabelecida antes de prosseguir com qualquer trabalho.
 
----
-
 ## 📄 7. Manual do Usuário e Padronização da Qualidade do Studio
 
 > [!IMPORTANT]
@@ -170,5 +168,17 @@ Este documento estabelece as regras mandatórias que TODOS os agentes de IA, sub
 >   1. **Especificações Técnicas:** Dados de desempenho, consumo, portas de loopback, segurança e dimensões multi-viewport;
 >   2. **Critérios de Aceitação:** Matriz de severidade de defeitos (bloqueante, alta, média, baixa) e termômetro de saúde (score ring);
 >   3. **Instruções de Uso Passo a Passo:** Manuseio prático de cada componente da interface e do assistente de IA.
+
+---
+
+## 🔄 8. Paridade Mandatória entre UXSentinel CLI, Regras YAML e o Editor Visual do Studio
+
+> [!CAUTION]
+> 
+> ### REGRA MANDATÓRIA: PARIDADE E SINCRONISMO CONTÍNUO ENTRE SCHEMA YAML E EDITOR VISUAL
+> 
+> - **Reflexo Imediato no Studio**: Toda e qualquer alteração, adição, renomeação ou evolução técnica realizada no **UXSentinel CLI** (em modelos Pydantic, novas ações de cenário, novos campos de parâmetros, metadados ou regras de sintaxe YAML) DEVE OBRIGATORIAMENTE ser refletida de ponta a ponta no **Editor Visual do UXSentinel Studio**.
+> - **Proibição de Descompasso**: É terminantemente proibido introduzir suporte a novas ações ou atributos no motor do CLI sem atualizar simultaneamente os formulários, modais, cards interativos e serializadores do editor visual no Studio.
+> - **Validação Hermética**: Testes herméticos no Studio devem cobrir a compatibilidade integral das novas regras de YAML tanto na importação (parsing) quanto na exportação (geração visual para código).
 
 
