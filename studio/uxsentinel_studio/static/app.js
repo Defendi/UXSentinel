@@ -214,6 +214,7 @@
         if (btnDelete) btnDelete.style.display = "none";
         if (stepsContainer) {
             stepsContainer.innerHTML = '<div class="empty-state-text" style="padding: 24px; text-align: center; color: var(--text-muted);">Nenhum cenário selecionado</div>';
+        }
         setSaveStatus("saved");
 
         const browserCfg = state.globalConfig?.browser || {};

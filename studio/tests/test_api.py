@@ -1,6 +1,8 @@
 """Testes herméticos para as rotas da API REST e streaming SSE do UXSentinel Studio (UXS-52 / STU-05)."""
 
 import asyncio
+import shutil
+import subprocess
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
@@ -2141,3 +2143,25 @@ def test_config_update_dto_unpacks_nested_browser_headless(
         called_dto = mock_update.call_args[0][0]
         assert called_dto.browser_headless is True
         assert called_dto.browser_slow_mo_ms == 250
+
+
+def test_studio_static_app_js_syntax_integrity() -> None:
+    """Valida a integridade sintática de app.js usando node --check ou balanceamento de chaves."""
+    app_js_path = Path(__file__).resolve().parent.parent / "uxsentinel_studio" / "static" / "app.js"
+    assert app_js_path.is_file(), f"Arquivo app.js não encontrado em {app_js_path}"
+
+    node_bin = shutil.which("node")
+    if node_bin:
+        res = subprocess.run(
+            [node_bin, "--check", str(app_js_path)],
+            capture_output=True,
+            text=True,
+        )
+        assert res.returncode == 0, f"Erro de sintaxe em app.js:\n{res.stderr}"
+    else:
+        content = app_js_path.read_text(encoding="utf-8")
+        open_braces = content.count("{")
+        close_braces = content.count("}")
+        assert open_braces == close_braces, (
+            f"Desbalanceamento de chaves em app.js: {open_braces} != {close_braces}"
+        )
