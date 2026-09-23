@@ -60,5 +60,5 @@ jobs:
         with:
           user: __token__
           password: ${{ secrets.PYPI_API_TOKEN || secrets.PYPI_TOKEN }}
-          skip-existing: false
+          skip-existing: true
 

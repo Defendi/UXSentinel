@@ -14,7 +14,7 @@
             <div class="topbar-brand">
                 <span class="brand-icon">🛡️</span>
                 <span class="brand-name">UXSentinel <span class="brand-badge">Studio</span></span>
-                <span class="version-badge" id="version-display">v0.1.3</span>
+                <span class="version-badge" id="version-display">v0.1.4</span>
             </div>
 
             <!-- Navegação Superior / Abas Globais -->
@@ -96,6 +96,7 @@
             <section class="main-column" id="main-content-col">
                 <!-- Visão 1: Editor de Cenários (Padrão) -->
                 <div class="view-panel active" id="view-editor">
+                    <!-- Toolbar acima de tudo (editor + inspector) -->
                     <div class="editor-toolbar">
                         <div class="editor-file-info">
                             <span class="file-icon">📝</span>
@@ -152,15 +153,95 @@
                         </div>
                     </div>
 
-                    <div class="editor-container">
-                        <div class="line-numbers" id="editor-line-numbers">1</div>
-                        <textarea id="yaml-code-editor" spellcheck="false" placeholder="# Carregando conteúdo YAML do cenário..."></textarea>
-                    </div>
+                    <!-- Corpo: editor YAML e inspector lado a lado -->
+                    <div class="editor-body">
+                        <!-- Painel do editor YAML -->
+                        <div class="editor-pane">
+                            <div class="editor-container">
+                                <div class="line-numbers" id="editor-line-numbers">1</div>
+                                <textarea id="yaml-code-editor" spellcheck="false" placeholder="# Carregando conteúdo YAML do cenário..."></textarea>
+                            </div>
 
-                    <!-- Barra de Diagnóstico e Validação em Linha -->
-                    <div class="validation-bar valid" id="validation-feedback-bar">
-                        <span class="val-icon" id="val-icon">✓</span>
-                        <span class="val-message" id="val-message">YAML Válido e em conformidade estrutural.</span>
+                            <!-- Barra de Diagnóstico e Validação em Linha -->
+                            <div class="validation-bar valid" id="validation-feedback-bar">
+                                <span class="val-icon" id="val-icon">✓</span>
+                                <span class="val-message" id="val-message">YAML Válido e em conformidade estrutural.</span>
+                            </div>
+                        </div>
+
+                        <!-- SPLITTER REDIMENSIONÁVEL -->
+                        <div class="col-splitter" id="splitter-col2-col3" title="Arraste para redimensionar o painel lateral">
+                            <div class="splitter-handle"></div>
+                        </div>
+
+                        <!-- COLUNA 3: Inspector & Live Mission Control -->
+                        <aside class="inspector-col" id="inspector-col">
+                            <div class="inspector-tabs">
+                                <button class="insp-tab active" data-insp-tab="preview">
+                                    <span>📋</span> Passos do Cenário
+                                </button>
+                                <button class="insp-tab" data-insp-tab="live">
+                                    <span>⚡</span> Live Mission Control
+                                </button>
+                            </div>
+
+                            <!-- Visão Passos do Cenário Decompostos -->
+                            <div class="inspector-content active" id="insp-panel-preview">
+                                <div class="inspector-header">
+                                    <span class="insp-title">Roteiro Decomposto</span>
+                                    <span class="step-count-badge" id="preview-step-count">0 passos</span>
+                                </div>
+                                <div class="step-card-stream" id="preview-steps-list">
+                                    <div class="empty-state">
+                                        <span class="empty-icon">👈</span>
+                                        <p>Selecione um cenário à esquerda para visualizar seus passos decompostos.</p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Visão Live Mission Control (Streaming SSE) -->
+                            <div class="inspector-content" id="insp-panel-live">
+                                <div class="live-header">
+                                    <div class="live-title-row">
+                                        <span class="live-badge" id="live-badge">AGUARDANDO</span>
+                                        <span class="live-run-id" id="live-run-id">ID: --</span>
+                                    </div>
+                                    <div class="progress-bar-container">
+                                        <div class="progress-bar-fill" id="live-progress-fill" style="width: 0%;"></div>
+                                    </div>
+                                    <div class="progress-info-row">
+                                        <span id="live-step-status">Pronto para iniciar auditoria</span>
+                                        <span id="live-percentage">0%</span>
+                                    </div>
+                                </div>
+
+                                <!-- Terminal Hacker / Console de Logs -->
+                                <div class="terminal-container">
+                                    <div class="terminal-bar">
+                                        <span class="term-dots"><i></i><i></i><i></i></span>
+                                        <span class="term-title">Console de Auditoria em Tempo Real</span>
+                                        <button class="term-btn" id="btn-clear-logs" title="Limpar logs">🗑️</button>
+                                    </div>
+                                    <div class="terminal-logs" id="terminal-logs-window">
+                                        <div class="log-line system">[SISTEMA] Conexão pronta. Dispare um cenário com "Executar Agora" para iniciar o streaming.</div>
+                                    </div>
+                                </div>
+
+                                <!-- Checkpoints Inspecionados ao Vivo -->
+                                <div class="live-checkpoints-section">
+                                    <div class="section-title-sm">📸 Checkpoints Avaliados na Sessão</div>
+                                    <div class="live-checkpoints-list" id="live-checkpoints-list">
+                                        <div class="empty-checkpoints">Nenhum checkpoint processado ainda.</div>
+                                    </div>
+                                </div>
+
+                                <div class="live-footer" id="live-footer" style="display: none;">
+                                    <a href="#" target="_blank" class="btn btn-primary btn-block" id="btn-view-report-link">
+                                        <span>📄</span> Abrir Relatório Completo de Auditoria
+                                    </a>
+                                </div>
+                            </div>
+                        </aside>
                     </div>
                 </div>
 
@@ -382,80 +463,6 @@
                     </div>
                 </div>
             </section>
-
-            <!-- SPLITTER REDIMENSIONÁVEL ENTRE COLUNA 2 E COLUNA 3 (UXS-76) -->
-            <div class="col-splitter" id="splitter-col2-col3" title="Arraste para redimensionar o painel lateral">
-                <div class="splitter-handle"></div>
-            </div>
-
-            <!-- COLUNA 3: Inspetor & Live Mission Control à Direita (STU-07) -->
-            <aside class="inspector-col" id="inspector-col">
-                <div class="inspector-tabs">
-                    <button class="insp-tab active" data-insp-tab="preview">
-                        <span>📋</span> Passos do Cenário
-                    </button>
-                    <button class="insp-tab" data-insp-tab="live">
-                        <span>⚡</span> Live Mission Control
-                    </button>
-                </div>
-
-                <!-- Visão Passos do Cenário Decompostos -->
-                <div class="inspector-content active" id="insp-panel-preview">
-                    <div class="inspector-header">
-                        <span class="insp-title">Roteiro Decomposto</span>
-                        <span class="step-count-badge" id="preview-step-count">0 passos</span>
-                    </div>
-                    <div class="step-card-stream" id="preview-steps-list">
-                        <div class="empty-state">
-                            <span class="empty-icon">👈</span>
-                            <p>Selecione um cenário à esquerda para visualizar seus passos decompostos.</p>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Visão Live Mission Control (Streaming SSE) -->
-                <div class="inspector-content" id="insp-panel-live">
-                    <div class="live-header">
-                        <div class="live-title-row">
-                            <span class="live-badge" id="live-badge">AGUARDANDO</span>
-                            <span class="live-run-id" id="live-run-id">ID: --</span>
-                        </div>
-                        <div class="progress-bar-container">
-                            <div class="progress-bar-fill" id="live-progress-fill" style="width: 0%;"></div>
-                        </div>
-                        <div class="progress-info-row">
-                            <span id="live-step-status">Pronto para iniciar auditoria</span>
-                            <span id="live-percentage">0%</span>
-                        </div>
-                    </div>
-
-                    <!-- Terminal Hacker / Console de Logs -->
-                    <div class="terminal-container">
-                        <div class="terminal-bar">
-                            <span class="term-dots"><i></i><i></i><i></i></span>
-                            <span class="term-title">Console de Auditoria em Tempo Real</span>
-                            <button class="term-btn" id="btn-clear-logs" title="Limpar logs">🗑️</button>
-                        </div>
-                        <div class="terminal-logs" id="terminal-logs-window">
-                            <div class="log-line system">[SISTEMA] Conexão pronta. Dispare um cenário com "Executar Agora" para iniciar o streaming.</div>
-                        </div>
-                    </div>
-
-                    <!-- Checkpoints Inspecionados ao Vivo -->
-                    <div class="live-checkpoints-section">
-                        <div class="section-title-sm">📸 Checkpoints Avaliados na Sessão</div>
-                        <div class="live-checkpoints-list" id="live-checkpoints-list">
-                            <div class="empty-checkpoints">Nenhum checkpoint processado ainda.</div>
-                        </div>
-                    </div>
-
-                    <div class="live-footer" id="live-footer" style="display: none;">
-                        <a href="#" target="_blank" class="btn btn-primary btn-block" id="btn-view-report-link">
-                            <span>📄</span> Abrir Relatório Completo de Auditoria
-                        </a>
-                    </div>
-                </div>
-            </aside>
         </main>
 
         <!-- Modal: Novo Cenário -->
