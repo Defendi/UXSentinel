@@ -1923,8 +1923,8 @@ steps:
 
         const onMouseMove = (e) => {
             const newWidth = window.innerWidth - e.clientX;
-            const maxAllowed = Math.min(700, Math.floor(window.innerWidth * 0.55));
-            const clampedWidth = Math.max(260, Math.min(newWidth, maxAllowed));
+            const maxAllowed = Math.min(700, Math.floor(window.innerWidth - 350));
+            const clampedWidth = Math.max(260, Math.min(newWidth, Math.max(260, maxAllowed)));
             document.documentElement.style.setProperty("--inspector-width", `${clampedWidth}px`);
             try {
                 localStorage.setItem("studio_inspector_width", String(clampedWidth));
