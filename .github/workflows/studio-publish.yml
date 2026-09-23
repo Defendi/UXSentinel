@@ -1,0 +1,66 @@
+# ==============================================================================
+# Pipeline de CI/CD: Qualidade, Testes e Publicação do UXSentinel Studio no PyPI
+# ==============================================================================
+
+name: Publish UXSentinel Studio to PyPI
+
+on:
+  push:
+    tags:
+      - 'studio-v*'
+  workflow_dispatch: # Permite disparo manual pelo painel de Actions do GitHub
+
+permissions:
+  contents: read
+
+jobs:
+  validate-and-publish:
+    name: Build, Test & Publish Studio
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout do Repositório
+        uses: actions/checkout@v4
+
+      - name: Configurar Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Instalar Ferramentas de Build, Linter e Dependências
+        run: |
+          python -m pip install --upgrade pip
+          pip install build "twine>=5.1.1" ruff pytest pytest-asyncio
+          pip install -r requirements.txt
+          pip install -e .
+          pip install -e ./studio
+
+      - name: Instalar Navegadores do Playwright
+        run: |
+          playwright install --with-deps chromium
+
+      - name: Quality Gate - Linter e Formatação (Ruff)
+        run: |
+          ruff check .
+          ruff format --check .
+
+      - name: Executar Bateria de Testes Automatizados
+        run: |
+          pytest tests studio/tests
+
+      - name: Construir Pacotes de Distribuição do Studio (Wheel e Sdist)
+        run: |
+          python -m build studio/
+
+      - name: Validar Integridade dos Pacotes do Studio (Twine)
+        run: |
+          twine check --strict studio/dist/*
+
+      - name: Publicar Pacote no PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          user: __token__
+          password: ${{ secrets.PYPI_STUDIO_API_TOKEN || secrets.PYPI_API_TOKEN || secrets.PYPI_TOKEN }}
+          packages-dir: studio/dist/
+          skip-existing: false
