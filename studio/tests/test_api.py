@@ -60,6 +60,19 @@ def auth_headers() -> dict[str, str]:
     return {"X-Studio-Token": get_session_token()}
 
 
+def _build_mock_safe_config(
+    active_provider: str,
+    providers: dict[str, ProviderSafeDTO],
+) -> SafeConfigDTO:
+    """Helper para construir SafeConfigDTO hermético para testes de status de IA."""
+    return SafeConfigDTO(
+        active_provider=active_provider,
+        browser=BrowserConfigDTO(),
+        jira=JiraSafeDTO(api_token=SecretFieldStatus(configured=False)),
+        providers=providers,
+    )
+
+
 # ==============================================================================
 # 1. Status & Liveness
 # ==============================================================================
@@ -461,6 +474,17 @@ def test_results_and_artifacts(
 
 def test_run_execution_and_status(client: TestClient, auth_headers: dict[str, str]) -> None:
     """Valida disparo de execução assíncrona e consulta de status."""
+    mock_cfg = _build_mock_safe_config(
+        active_provider="gemini_cloud",
+        providers={
+            "gemini_cloud": ProviderSafeDTO(
+                type="api_key",
+                service="gemini",
+                model="gemini-1.5-pro",
+                has_api_key=True,
+            )
+        },
+    )
     dummy_report = TestReport(
         scenario_id="cenario_teste",
         scenario_title="Cenário de Teste Unitário",
@@ -470,6 +494,7 @@ def test_run_execution_and_status(client: TestClient, auth_headers: dict[str, st
     )
 
     with (
+        patch("uxsentinel.service.config_service.ConfigService.get_safe_config", return_value=mock_cfg),
         patch(
             "uxsentinel_studio.api.UnifiedVisionClient.test_connection",
             new_callable=AsyncMock,
@@ -992,6 +1017,18 @@ def test_executions_api_endpoint_respects_cap(client: TestClient, auth_headers: 
     """Valida se o endpoint /api/execution/run utiliza _register_execution respeitando o cap."""
     from uxsentinel_studio.api import EXECUTIONS, MAX_RETAINED_EXECUTIONS
 
+    mock_cfg = _build_mock_safe_config(
+        active_provider="gemini_cloud",
+        providers={
+            "gemini_cloud": ProviderSafeDTO(
+                type="api_key",
+                service="gemini",
+                model="gemini-1.5-pro",
+                has_api_key=True,
+            )
+        },
+    )
+
     EXECUTIONS.clear()
     for i in range(MAX_RETAINED_EXECUTIONS):
         EXECUTIONS[f"pre_fill_{i}"] = {"run_id": f"pre_fill_{i}", "status": "completed"}
@@ -1000,6 +1037,7 @@ def test_executions_api_endpoint_respects_cap(client: TestClient, auth_headers: 
     oldest_id = next(iter(EXECUTIONS))
 
     with (
+        patch("uxsentinel.service.config_service.ConfigService.get_safe_config", return_value=mock_cfg),
         patch(
             "uxsentinel_studio.api.UnifiedVisionClient.test_connection",
             new_callable=AsyncMock,
@@ -1558,19 +1596,6 @@ steps:
 # ==============================================================================
 # 17. Status de IA e Bloqueio Mandatório de Execução (UXS-74 / Passo 2)
 # ==============================================================================
-
-
-def _build_mock_safe_config(
-    active_provider: str,
-    providers: dict[str, ProviderSafeDTO],
-) -> SafeConfigDTO:
-    """Helper para construir SafeConfigDTO hermético para testes de status de IA."""
-    return SafeConfigDTO(
-        active_provider=active_provider,
-        browser=BrowserConfigDTO(),
-        jira=JiraSafeDTO(api_token=SecretFieldStatus(configured=False)),
-        providers=providers,
-    )
 
 
 def test_ai_status_endpoint_api_key_connected(client: TestClient, auth_headers: dict[str, str]) -> None:
