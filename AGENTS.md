@@ -1,196 +1,64 @@
-# 🛡️ Diretrizes Operacionais e Regras Mandatórias do Projeto (AGENTS.md)
+# Governança do UXSentinel
 
-Este documento estabelece as regras mandatórias que TODOS os agentes de IA, subagentes e desenvolvedores DEVEM seguir rigorosamente no repositório **UXSentinel**.
+Este arquivo é a fonte única de verdade para agentes, subagentes e desenvolvedores do repositório. As instruções específicas de uma tarefa só podem alterar esta política quando o usuário as declarar expressamente.
 
----
+## 1. Idioma, escopo e neutralidade
 
-## 🚦 0. Ciclo de Vida Mandatório de Toda Tarefa
+- Toda comunicação, documentação, artefato e mensagem operacional deve estar em Português do Brasil.
+- A atuação deste workspace é exclusiva do UXSentinel: arquitetura, código, testes, Studio e evolução do produto.
+- Sistemas, aplicações e repositórios externos são apenas alvos circunstanciais de auditoria ou teste; não geram dependências ou regras de negócio.
+- O produto é universal e neutro em relação a frameworks e clientes. Não acople o UXSentinel a regras de um projeto específico.
+- Não use skills, convenções ou regras de projetos externos para conduzir o trabalho neste repositório.
+- Git, auditorias e operações devem permanecer concentrados neste repositório, salvo solicitação expressa em contrário.
+- Consulte a [documentação técnica](docs/README.md) e a [skill oficial](.agents/skills/uxsentinel-guide/SKILL.md) para detalhes operacionais; para tarefas técnicas, a skill oficial é obrigatória, mas deve ser carregada sob demanda; não duplique regras aqui.
 
-> [!CAUTION]
->
-> ### REGRA INEGOCIÁVEL: TODA TAREFA SEGUE 5 FASES DISTINTAS, CADA UMA COM GATE DE AUTORIZAÇÃO HUMANA
->
-> Toda e qualquer tarefa (feature, bugfix, refatoração, melhoria ou release) deve obrigatoriamente passar pelas **5 fases abaixo, nesta ordem exata**. O agente **NÃO DEVE avançar para a próxima fase sem autorização explícita por escrito do usuário**, exceto quando o usuário indicar expressamente que determinada fase deve ser executada sem necessidade de aprovação.
+## 2. Classificação de tarefas
 
----
+- **Auditoria somente leitura:** inspeção, análise ou revisão sem alteração de arquivos, cards, versões ou infraestrutura. Não exige card, implementação ou aprovação das fases; deve apenas relatar evidências e recomendações.
+- **Alteração:** qualquer mudança em código, testes, Studio, documentação, configuração ou harness. Mesmo uma alteração pequena passa por todos os gates aplicáveis.
+- **Release:** alteração de versão, tag, commit de publicação, GitHub ou PyPI. É uma etapa separada e nunca pode ser inferida de uma autorização de implementação.
+- Uma auditoria somente leitura que resulte em mudança proposta continua sendo uma tarefa de alteração quando for executada.
 
-### Fase 1 — 📋 Especificação
+## 3. Gates de aprovação
 
-> [!IMPORTANT]
-> **Bloqueada até: autorização do usuário para iniciar a implementação.**
+Toda alteração deve seguir esta ordem, sem avançar por omissão:
 
-- Criar (ou atualizar) o card no Jira projeto `UXS` com título, descrição do problema/objetivo e contexto.
-- Documentar no card todas as **características**, **comportamentos esperados**, **restrições técnicas** e **critérios de aceitação**.
-- Apresentar o card ao usuário com um resumo claro das specs.
-- ✋ **PARAR e aguardar aprovação** antes de qualquer ação de implementação.
-- 🚫 É **proibido** ler arquivos com intenção de implementar, escrever código, delegar a subagentes de implementação ou executar qualquer ação técnica antes da aprovação desta fase.
+1. **Especificação:** registrar o objetivo, comportamento, restrições e critérios de aceitação no card do Jira do UXS; auditorias somente leitura são a exceção.
+2. **Implementação:** aguardar aprovação explícita da especificação e executar a mudança aprovada por subagente especializado.
+3. **Testes:** aguardar autorização para testar; executar a suíte completa, verificações de qualidade e todos os testes herméticos aplicáveis.
+4. **Publicação:** aguardar autorização expressa após apresentar os resultados; somente então versionar, criar tag, publicar ou acionar o PyPI.
+5. **Finalização:** aguardar autorização após a publicação para atualizar documentação, manual aplicável, Jira e estado final do trabalho.
 
----
+- A aprovação deve ser explícita e por escrito; a falta de resposta não constitute autorização.
+- Antes de iniciar qualquer tarefa, valide a conexão e a autenticação do MCP do Atlassian; se falhar, bloqueie o fluxo e avise o usuário.
+- O fluxo pode ser adaptado ou excepcionado somente quando o usuário pedir explicitamente uma mudança de política.
 
-### Fase 2 — 🛠️ Implementação
+## 4. Subagentes e implementação
 
-> [!IMPORTANT]
-> **Bloqueada até: autorização do usuário para iniciar os testes.**
+- O agente principal coordena; implementações de código e mudanças técnicas devem ser delegadas a subagentes especializados.
+- O subagente deve seguir a especificação aprovada, a skill oficial e as convenções existentes; não amplie o escopo nem invente dependências.
+- Toda mudança relevante deve incluir cobertura de testes aplicável; mudanças de CLI/YAML/Studio devem manter a paridade entre esses componentes e atualizar o manual oficial conforme a documentação quando houver interface.
+- A skill [uxsentinel-qa-tester](.agents/skills/uxsentinel-qa-tester/SKILL.md) define a execução de qualidade e hermeticidade quando essa etapa for autorizada.
 
-- Somente iniciar após aprovação da Fase 1.
-- Toda implementação deve ser executada por **subagentes especializados** (nunca diretamente pelo agente principal).
-- Seguir rigorosamente as specs aprovadas no card Jira.
-- Ao concluir, apresentar ao usuário o resumo das alterações realizadas.
-- ✋ **PARAR e aguardar aprovação** antes de executar a bateria de testes.
+## 5. Hermeticidade e segurança
 
----
+- Testes devem ser rápidos, determinísticos e 100% herméticos: sem rede externa real, produção, credenciais reais ou dados sensíveis.
+- Nunca comite, registre ou exponha segredos, tokens, chaves, `.env` ou configurações locais de agentes.
+- Preserve `.claude/`, `.gemini/`, `.superpowers/`, worktrees, caches e artefatos locais fora do versionamento, salvo uma exceção canônica explícita.
+- Use o menor privilégio necessário e confirme o destino de operações destrutivas, remotas ou irreversíveis antes de executá-las.
 
-### Fase 3 — 🧪 Testes
+## 6. Release e manutenção
 
-> [!IMPORTANT]
-> **Bloqueada até: autorização do usuário para publicar.**
+- Não altere versões, crie tags, publique releases, faça push de publicação ou dispare PyPI de forma autônoma.
+- A versão só pode ser alterada depois da suíte completa, das verificações de qualidade e da autorização humana explícita.
+- Após essa autorização, siga o fluxo único de bump, commit semântico, tag, push, release e pipeline definido na [skill oficial](.agents/skills/uxsentinel-guide/SKILL.md) e no [guia de releases](docs/07_guia_de_publicacao_e_releases.md).
+- Uma tarefa de reorganização do harness não autoriza bump, commit, tag, release ou publicação.
 
-- Somente iniciar após aprovação da Fase 2.
-- Executar **100% da bateria de testes**: `ambiente/bin/pytest tests studio/tests`.
-- Executar a **tríade de qualidade**: `ruff check .` e `ruff format --check .` sem erros.
-- Todos os testes devem ser **100% herméticos** (sem chamadas a redes externas reais ou credenciais de produção).
-- Exibir claramente ao usuário o sumário completo dos resultados.
-- ✋ **PARAR e aguardar aprovação** antes de publicar qualquer versão.
+## 7. Precedência das fontes
 
----
-
-### Fase 4 — 🚀 Publicação
-
-> [!IMPORTANT]
-> **Bloqueada até: autorização do usuário para finalizar.**
-
-- Somente iniciar após aprovação da Fase 3.
-- É **terminantemente proibido** de forma autônoma:
-  - Alterar versão em `pyproject.toml` ou `uxsentinel/__init__.py`;
-  - Criar tags Git de versão (`git tag vX.Y.Z`);
-  - Criar ou publicar Releases no GitHub;
-  - Publicar ou disparar deploys para o PyPI.
-- Executar: bump de versão → commit semântico → tag git → push → release GitHub → pipeline PyPI.
-- ✋ **PARAR e aguardar aprovação** antes de finalizar o card.
-
----
-
-### Fase 5 — ✅ Finalização
-
-> [!IMPORTANT]
-> **Bloqueada até: autorização do usuário.**
-
-- Somente iniciar após aprovação da Fase 4.
-- Atualizar o card Jira com o status final, versão publicada e links da release.
-- Atualizar o `UXSentinel_Studio_Manual_do_Usuario.pdf` se houver mudanças de funcionalidade ou interface.
-- Fazer commit e push final de qualquer documentação pendente.
-- Fechar o card no Jira.
-
----
-
-
-
-## 🛑 1. Gate Mandatório de Nova Versão e Deploy
-
-> [!CAUTION]
-> 
-> ### REGRA INEGOCIÁVEL: SOMENTE GERAR VERSÃO NOVA APÓS TESTES E APROVAÇÃO DO USUÁRIO
-> 
-> É **terminantemente proibido** realizar qualquer uma das seguintes ações de forma autônoma:
-> 
-> - Alterar a versão em `pyproject.toml` ou `uxsentinel/__init__.py`;
-> - Criar tags Git de versão (`git tag vX.Y.Z`);
-> - Criar ou publicar Releases no GitHub (`gh release create`);
-> - Publicar ou disparar deploys para o PyPI.
-> - Executar implementações no código diretamente, sempre use subagentes.
-
-> **Fluxo Estrito Pré-Release:**
-> 
-> 1. ✅ **Implementação Concluída**: Toda a funcionalidade e seus testes unitários herméticos devem estar prontos.
-> 2. 🧪 **Bateria Completa de Testes**: Executar `uv run pytest` e obter **100% de testes aprovados**.
-> 3. 🧹 **Tríade de Qualidade e Linter**: Executar `uv run ruff check .` e `uv run ruff format --check .` sem nenhum erro.
-> 4. 📢 **Apresentação de Resultados**: Exibir claramente ao usuário o sumário de testes e o que foi realizado.
-> 5. ✋ **Gate de Aprovação Humana**: **Perguntar ao usuário e aguardar autorização expressa** para avançar com a geração de versão e deploy.
-> 6. 🚀 **Execução do Deploy**: Somente após a confirmação por escrito do usuário, efetuar o bump de versão, commit semântico, tag git e disparo da release.
-> 7. 🚀 **Jira**: Toda documentação das tarefas devem ser feitas nos cards no Jira no espaço "UXSentinel Tarefas". Mantenha os cards organizados por épico + tarefa/bug mais importante. Sempre execute um card por vez, nunca execute cards em lote. Antes de qualquer ação, verifique se o MCP do Jira está autenticado; caso contrário, bloqueie a execução e avise o usuário imediatamente.
-
----
-
-## 🇧🇷 2. Idioma e Comunicação
-
-> [!IMPORTANT]
-> 
-> - Toda comunicação com o usuário, documentação, mensagens de commit, artefatos e respostas devem ser entregues **estritamente em Português do Brasil**.
-
----
-
-## 🛡️ 3. Escopo Exclusivo e Projetos Circunstanciais
-
-> [!IMPORTANT]
-> 
-> - **Foco Estrito no UXSentinel**: Neste espaço de trabalho, a atuação do agente trata **exclusivamente** do produto **UXSentinel** (sua arquitetura, funcionalidades, código, testes e evolução).
-> - **Outros Projetos são Circunstanciais**: Quaisquer outros repositórios, sistemas ou aplicações externas (como Gotryx, módulos Odoo, APIs ou frontends de clientes) são **estritamente circunstanciais**. Eles atuam unicamente como alvos de teste, casos de uso externos ou cenários temporários de auditoria.
-> - **Isolamento de Operações de Repositório**: Verificações de repositório (`git status`, `git diff`, commits, branches, releases, auditoria de arquivos) devem se concentrar primariamente no **UXSentinel**. Não desvie o escopo do projeto para gerenciar outros repositórios, exceto sob solicitação expressa do usuário.
-> - **Neutralidade e Desacoplamento**: O UXSentinel é um agente autônomo e universal de Visual QA, neutro em relação a frameworks (React, Vue, Angular, Odoo, Django, etc.). Não introduza dependências de negócio nem acople o projeto a regras de outros sistemas sem solicitação expressa do usuário.
-
----
-
-## 🧪 4. Hermeticidade dos Testes
-
-- Todos os testes em `tests/` devem ser **100% herméticos**, rápidos e isolados (sem chamadas a redes externas reais ou credenciais de produção).
-
----
-
-## 🎯 5. Skill Oficial do Projeto e Proibição Expressa
-
-> [!IMPORTANT]
-> 
-> - A skill oficial, exclusiva e mandatória para qualquer tarefa técnica ou operacional neste repositório é **`UXSentinel/.gemini/skills/uxsentinel-guide`** ([`uxsentinel-guide`](file:///mnt/home/alexandre/Projetos/UXSentinel/.gemini/skills/uxsentinel-guide/SKILL.md)).
-> - **PROIBIÇÃO EXPRESSA**: É **terminantemente proibido** utilizar, carregar, consultar ou fazer qualquer menção à skill `gotryx-project` ou a regras do ecossistema Gotryx no repositório **UXSentinel**.
-> - O **UXSentinel** é um projeto de código aberto, universal, neutro e totalmente desacoplado de projetos específicos de clientes.
-
----
-
-## 🎫 6. Conexão Obrigatória com o MCP do Jira (Atlassian)
-
-> [!CAUTION]
-> 
-> ### REGRA MANDATÓRIA: VALIDAÇÃO PRÉVIA DA CONEXÃO COM O MCP DO JIRA
-> 
-> - **Verificação Prévia Obrigatória**: Antes de iniciar qualquer tarefa, planejamento ou execução de código no repositório, o agente DEVE obrigatoriamente checar a conexão e autenticação com o **servidor MCP do Jira (Atlassian)**.
-> - **Bloqueio Total por Falha de Conexão**: Se o MCP do Jira não estiver autenticado ou falhar na inicialização/chamada, **NADA DEVE SER FEITO NO REPOSITÓRIO**.
-> - **Aviso Imediato ao Usuário**: O agente deve interromper o fluxo imediatamente e avisar o usuário que o MCP do Jira não está autenticado, solicitando que a autenticação seja reestabelecida antes de prosseguir com qualquer trabalho.
-
-## 📄 7. Manual do Usuário e Padronização da Qualidade do Studio
-
-> [!IMPORTANT]
-> 
-> ### REGRA MANDATÓRIA: MANTER O MANUAL DO STUDIO SEMPRE ATUALIZADO NA RAIZ
-> 
-> - **Localização Obrigatória:** O manual oficial do usuário deve residir **obrigatoriamente na pasta principal (raiz do projeto)** sob o nome `UXSentinel_Studio_Manual_do_Usuario.pdf`.
-> - **Atualização Obrigatória Pré-Release:** Sempre que novas funcionalidades, telas, opções de configuração, novos endpoints, regras de conformidade ou alterações arquiteturais forem implementadas no **UXSentinel Studio**, o manual em PDF DEVE ser obrigatoriamente atualizado e recompilado antes da conclusão dos cards ou de qualquer ciclo de release.
-> - **Fidelidade ao Padrão de Qualidade:** O documento deve preservar rigorosamente a linguagem acessível para leigos e cobrir os três blocos fundamentais:
->   1. **Especificações Técnicas:** Dados de desempenho, consumo, portas de loopback, segurança e dimensões multi-viewport;
->   2. **Critérios de Aceitação:** Matriz de severidade de defeitos (bloqueante, alta, média, baixa) e termômetro de saúde (score ring);
->   3. **Instruções de Uso Passo a Passo:** Manuseio prático de cada componente da interface e do assistente de IA.
-
----
-
-## 🔄 8. Paridade Mandatória entre UXSentinel CLI, Regras YAML e o Editor Visual do Studio
-
-> [!CAUTION]
-> 
-> ### REGRA MANDATÓRIA: PARIDADE E SINCRONISMO CONTÍNUO ENTRE SCHEMA YAML E EDITOR VISUAL
-> 
-> - **Reflexo Imediato no Studio**: Toda e qualquer alteração, adição, renomeação ou evolução técnica realizada no **UXSentinel CLI** (em modelos Pydantic, novas ações de cenário, novos campos de parâmetros, metadados ou regras de sintaxe YAML) DEVE OBRIGATORIAMENTE ser refletida de ponta a ponta no **Editor Visual do UXSentinel Studio**.
-> - **Proibição de Descompasso**: É terminantemente proibido introduzir suporte a novas ações ou atributos no motor do CLI sem atualizar simultaneamente os formulários, modais, cards interativos e serializadores do editor visual no Studio.
-> - **Validação Hermética**: Testes herméticos no Studio devem cobrir a compatibilidade integral das novas regras de YAML tanto na importação (parsing) quanto na exportação (geração visual para código).
-
----
-
-## 🏷️ 9. Versionamento Semântico e Bump Automático de Revisão (Patch)
-
-> [!CAUTION]
-> 
-> ### REGRA MANDATÓRIA: BUMP AUTOMÁTICO DE REVISÃO EM TODA ALTERAÇÃO SIGNIFICATIVA
-> 
-> - **Incremento de Revisão Obrigatório**: Sempre que houver uma alteração significativa no código — seja uma nova **feature**, **melhoria estrutural** ou **correção de bug** relevante —, deve-se obrigatoriamente gerar uma nova versão de revisão (*patch*), por exemplo: incrementando de `0.1.1` para `0.1.2`, de `0.1.6` para `0.1.7`, etc.
-> - **Sincronismo Total de Versão**: O bump de versão deve ser aplicado de forma coordenada em todos os pontos de declaração:
->   - Para o core CLI: `pyproject.toml` e `uxsentinel/__init__.py`;
->   - Para o Studio: `studio/pyproject.toml`, `studio/uxsentinel_studio/__init__.py` e no badge do cabeçalho em `studio/uxsentinel_studio/static/index.html`.
-> - **Build e Instalação do Pacote**: Sempre que a versão for incrementada localmente, o pacote deve ser recompilado (`ambiente/bin/python3 -m build <alvo>`) e disponibilizado para testes imediatos com a nova versão refletida.
+1. `AGENTS.md` é a política canônica deste repositório.
+2. A skill oficial é a referência operacional detalhada e deve ser carregada apenas sob demanda.
+3. `CLAUDE.md` e `GEMINI.md` são adaptadores mínimos que remetem a este arquivo, sem criar regras próprias.
+4. A documentação técnica explica domínios e processos, mas não substitui esta governança.
+5. Uma instrução explícita do usuário pode mudar a política somente para a tarefa e somente quando isso for declarado; as proteções de segurança e os gates não são presumidos removidos.
+6. Em caso de conflito entre adaptadores, skills ou referências, prevalece `AGENTS.md`; nunca mantenha uma cópia divergente da política.

@@ -294,6 +294,7 @@ visível na tela e inspecionando cada checkpoint com Inteligência Artificial Mu
   uxsentinel --set-jira-token                          # Configura token e URL do Jira interativamente
   uxsentinel --list-scenarios                          # Lista todos os cenários disponíveis no projeto e biblioteca
   uxsentinel --list-projects                           # Lista os projetos cadastrados no catálogo global e seus cenários
+  uxsentinel --list-providers                          # Lista todos os provedores de LLM/IA compatíveis e o status do provedor ativo e encerra.
   uxsentinel -s scenarios/teste.yaml --project-name "Alpha" # Associa o cenário ao projeto especificado
   uxsentinel -P "Meu Projeto"                          # Executa todos os cenários do projeto pelo nome/slug
   uxsentinel -P "Meu Projeto" -s login                 # Executa um cenário específico dentro do projeto
@@ -305,6 +306,8 @@ visível na tela e inspecionando cada checkpoint com Inteligência Artificial Mu
   uxsentinel --mcp                                     # Inicia o servidor MCP nativo sobre stdio
   uxsentinel --version                                 # Exibe a versão instalada (ou -v)
   uxsentinel --init-config                             # Cria o arquivo de configuração em ~/.config/uxsentinel/config.yaml
+  uxsentinel --list-ollama-models                      # Lista todos os modelos instalados no Ollama local e indica compatibilidade de visão
+  uxsentinel -s scenarios/teste.yaml -m qwen2.5-vl:7b  # Sobrescreve o modelo de IA do provedor ativo para a execução
 
 Documentação completa: https://github.com/Defendi/UXSentinel""",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -334,6 +337,18 @@ Documentação completa: https://github.com/Defendi/UXSentinel""",
         "-p",
         "--provider",
         help="Sobrescreve o provedor de IA ativo (ex: gemini_cloud, gemini_sso, claude_sso, anthropic_cloud, openai_cloud, ollama_local, corporate_gateway).",
+    )
+    parser.add_argument(
+        "-m",
+        "--model",
+        type=str,
+        default=None,
+        help="Sobrescreve o modelo de IA do provedor ativo para a execução (ex: llama3.2-vision:11b, qwen2.5-vl:7b, gemini-1.5-flash).",
+    )
+    parser.add_argument(
+        "--list-ollama-models",
+        action="store_true",
+        help="Lista todos os modelos instalados no Ollama local e indica compatibilidade de visão (multimodal) para QA e encerra.",
     )
     parser.add_argument(
         "--profile",
@@ -617,6 +632,11 @@ Documentação completa: https://github.com/Defendi/UXSentinel""",
         help="Lista todos os projetos cadastrados no catálogo global (~/.config/uxsentinel/config.yaml) e seus cenários associados e encerra.",
     )
     parser.add_argument(
+        "--list-providers",
+        action="store_true",
+        help="Lista todos os provedores de LLM/IA compatíveis e o status do provedor ativo e encerra.",
+    )
+    parser.add_argument(
         "--check-ai",
         action="store_true",
         help="Testa a conectividade com o provedor de IA configurado e encerra.",
@@ -777,6 +797,42 @@ SUPPORTED_AI_PROVIDERS: list[tuple[str, str, str]] = [
     ("ollama_local", "Ollama Local (qwen2-vl:7b)", "100% offline em localhost:11434"),
     ("corporate_gateway", "Gateway Corporativo", "Proxy corporativo OpenAI compatível"),
 ]
+
+
+def list_supported_providers(cfg: GlobalConfig | None = None) -> None:
+    """Lista todos os provedores de LLM/IA compatíveis e seu status ativo."""
+    from rich.table import Table
+
+    cfg = cfg or GlobalConfig()
+
+    table = Table(title="Provedores de LLM/IA Compatíveis no UXSentinel", show_header=True)
+    table.add_column("Identificador (-p)", style="cyan bold")
+    table.add_column("Modelo Padrão", style="yellow")
+    table.add_column("Serviço / Modo")
+    table.add_column("Descrição / Autenticação", style="dim")
+    table.add_column("Status", justify="center")
+
+    all_providers = {}
+
+    for p_id, p_model, p_desc in SUPPORTED_AI_PROVIDERS:
+        prov = BUILTIN_PROVIDERS.get(p_id)
+        mode = f"{prov.service} ({prov.type})" if prov else "desconhecido"
+        all_providers[p_id] = (p_model, mode, p_desc)
+
+    for p_id, p_conf in cfg.providers.items():
+        if p_id not in all_providers:
+            mode = f"{p_conf.service} ({p_conf.type})"
+            all_providers[p_id] = (p_conf.model, mode, "Configuração customizada no config.yaml")
+
+    for p_id, (p_model, mode, p_desc) in all_providers.items():
+        is_active = p_id == cfg.active_provider
+        status = "[bold green]● Ativo[/bold green]" if is_active else "-"
+        table.add_row(p_id, p_model, mode, p_desc, status)
+
+    console.print(table)
+    console.print(
+        "\n[dim]Dica: Para alternar o provedor na execução use: uxsentinel -p <provedor> ou configure interativamente com uxsentinel config.[/dim]"
+    )
 
 
 async def _configure_ai_provider(cfg: GlobalConfig) -> None:
@@ -1318,6 +1374,100 @@ def handle_login_sso(cfg: GlobalConfig, provider_override: str | None) -> int:
         return 1
 
 
+async def handle_list_ollama_models(cfg: GlobalConfig) -> int:
+    """Lista todos os modelos instalados no Ollama local com status e metadados."""
+    from datetime import datetime
+
+    import httpx
+    from rich.table import Table
+
+    provider_cfg = cfg.providers.get("ollama_local", None)
+    base_url = "http://localhost:11434"
+    configured_model = "qwen2.5-vl:7b"
+    if provider_cfg:
+        base_url = provider_cfg.base_url or base_url
+        configured_model = provider_cfg.model or configured_model
+
+    console.print(f"🔍 Consultando Ollama em [bold cyan]{base_url}[/bold cyan]...")
+
+    try:
+        async with httpx.AsyncClient(timeout=4.0) as client:
+            resp = await client.get(f"{base_url}/api/tags")
+            resp.raise_for_status()
+            data = resp.json()
+    except Exception as e:
+        console.print("\n[bold red]❌ Ollama inatingível ou erro na consulta.[/bold red]")
+        console.print(f"Erro: {str(e)}")
+        console.print(
+            "\n[bold yellow]Dica:[/bold yellow] Verifique se o serviço do Ollama está rodando localmente."
+        )
+        console.print("Linux:   [bold]sudo systemctl start ollama[/bold]")
+        console.print("Windows: Inicie o aplicativo Ollama")
+        console.print("Mac:     [bold]ollama serve[/bold]")
+        return EXIT_ERRO_EXECUCAO
+
+    models = data.get("models", [])
+    if not models:
+        console.print("\n[bold yellow]Nenhum modelo encontrado no Ollama![/bold yellow]")
+        console.print("Baixe um modelo multimodal recomendado para uso com o UXSentinel. Exemplos:")
+        console.print("  ollama pull qwen2.5-vl:7b")
+        console.print("  ollama pull llama3.2-vision:11b")
+        return EXIT_SUCESSO
+
+    table = Table(title="Modelos Instalados no Ollama Local")
+    table.add_column("Modelo / Tag", style="bold cyan")
+    table.add_column("Tamanho", justify="right")
+    table.add_column("Capacidade de QA Visual", justify="center")
+    table.add_column("Modificado em", style="dim")
+    table.add_column("Status", justify="center")
+
+    vision_keywords = {"vl", "vision", "llava", "minicpm", "bakllava", "moondream", "pixtral"}
+
+    for m in models:
+        name = m.get("name", "")
+        size_bytes = m.get("size", 0)
+
+        # Format size
+        if size_bytes >= 1024**3:
+            size_str = f"{size_bytes / (1024**3):.1f} GB"
+        else:
+            size_str = f"{size_bytes / (1024**2):.1f} MB"
+
+        # Check vision keywords
+        lower_name = name.lower()
+        has_vision = any(kw in lower_name for kw in vision_keywords)
+
+        if has_vision:
+            vision_status = "[bold green]✓ Compatível (Visão/Multimodal)[/bold green]"
+        else:
+            vision_status = "[dim yellow]Texto apenas (sem visão)[/dim yellow]"
+
+        # Format date
+        mod_at = m.get("modified_at", "")
+        if mod_at:
+            try:
+                # Truncate fractional seconds for parsing if needed, but ISO 8601 is generally parseable by datetime.fromisoformat
+                # Ollama returns e.g. "2024-10-15T12:00:00.000000Z"
+                mod_at_clean = mod_at.replace("Z", "+00:00")
+                dt = datetime.fromisoformat(mod_at_clean)
+                mod_str = dt.strftime("%Y-%m-%d %H:%M")
+            except Exception:
+                mod_str = mod_at[:10]
+        else:
+            mod_str = "N/A"
+
+        # Configured status
+        is_configured = name == configured_model
+        status_col = "[bold green]● Configurado[/bold green]" if is_configured else ""
+
+        table.add_row(name, size_str, vision_status, mod_str, status_col)
+
+    console.print(table)
+    console.print("\n[bold yellow]Dica:[/bold yellow] Para executar usando um modelo específico, use:")
+    console.print("  [bold]uxsentinel -m nome_do_modelo:tag[/bold]\n")
+    return EXIT_SUCESSO
+
+
 async def handle_check_ai(cfg: GlobalConfig, provider_override: str | None) -> int:
     """Testa conectividade com a API de IA configurada."""
     from uxsentinel.vision.client import UnifiedVisionClient
@@ -1494,6 +1644,19 @@ async def async_main() -> int:
         list_registered_projects_cli(cfg_path)
         return EXIT_SUCESSO
 
+    if args.list_providers or args.scenario_pos in ("list-providers", "list_providers", "providers"):
+        cfg = load_config(args.config)
+        list_supported_providers(cfg)
+        return EXIT_SUCESSO
+
+    if args.list_ollama_models or args.scenario_pos in (
+        "list-ollama-models",
+        "list_ollama_models",
+        "ollama-models",
+    ):
+        cfg = load_config(args.config)
+        return await handle_list_ollama_models(cfg)
+
     cfg = load_config(args.config)
 
     if args.mcp or args.scenario_pos == "mcp":
@@ -1510,6 +1673,20 @@ async def async_main() -> int:
 
     if args.provider:
         cfg.active_provider = args.provider
+
+    if getattr(args, "model", None):
+        if cfg.active_provider not in cfg.providers:
+            from uxsentinel.core.config import BUILTIN_PROVIDERS
+
+            if cfg.active_provider in BUILTIN_PROVIDERS:
+                cfg.providers[cfg.active_provider] = BUILTIN_PROVIDERS[cfg.active_provider].model_copy()
+            else:
+                from uxsentinel.core.config import ProviderSettings
+
+                cfg.providers[cfg.active_provider] = ProviderSettings(
+                    type="api", service="anthropic", model=args.model
+                )
+        cfg.providers[cfg.active_provider].model = args.model
 
     if args.logout_sso:
         return handle_logout_sso(cfg, args.provider)

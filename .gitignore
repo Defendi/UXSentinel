@@ -56,14 +56,24 @@ Thumbs.db
 report/
 scenarios/report/
 
-# Contexto, instrucoes e artefatos locais de agentes de IA (nao versionados)
+# Contexto, instruções e artefatos locais de agentes de IA
 .gemini/
 .claude/
-.agents/
 .superpowers/
-CLAUDE.md
-AGENTS.md
-GEMINI.md
-memory.md
-docs/00_contexto_do_projeto.md
+.agents/*
+!.agents/skills/
+.agents/skills/*
+!.agents/skills/uxsentinel-guide/
+!.agents/skills/uxsentinel-guide/**
+!.agents/skills/uxsentinel-qa-tester/
+!.agents/skills/uxsentinel-qa-tester/**
+!.agents/subagents/
+.agents/subagents/*
+!.agents/subagents/uxsentinel-python-senior
+!.agents/subagents/uxsentinel-python-senior.md
+!AGENTS.md
+!CLAUDE.md
+!GEMINI.md
+!memory.md
+!docs/00_contexto_do_projeto.md
 docs/09_analise_memoria_compactada.md
