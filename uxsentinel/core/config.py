@@ -407,6 +407,43 @@ BUILTIN_PROVIDERS: dict[str, ProviderSettings] = {
         temperature=0.1,
         timeout=60,
     ),
+    "groq_cloud": ProviderSettings(
+        type="api",
+        service="groq",
+        base_url="https://api.groq.com/openai/v1",
+        model="llama-3.2-11b-vision-preview",
+        api_key="${GROQ_API_KEY}",
+    ),
+    "openrouter_cloud": ProviderSettings(
+        type="api",
+        service="openrouter",
+        base_url="https://openrouter.ai/api/v1",
+        model="meta-llama/llama-3.2-11b-vision-instruct",
+        api_key="${OPENROUTER_API_KEY}",
+        headers={"HTTP-Referer": "https://github.com/Defendi/UXSentinel", "X-Title": "UXSentinel"},
+    ),
+    "mistral_cloud": ProviderSettings(
+        type="api",
+        service="mistral",
+        base_url="https://api.mistral.ai/v1",
+        model="pixtral-12b-2409",
+        api_key="${MISTRAL_API_KEY}",
+    ),
+    "azure_openai": ProviderSettings(
+        type="api",
+        service="azure",
+        base_url="${AZURE_OPENAI_ENDPOINT}",
+        model="gpt-4o",
+        api_key="${AZURE_OPENAI_API_KEY}",
+    ),
+    "lmstudio_local": ProviderSettings(
+        type="local",
+        service="lmstudio",
+        base_url="http://localhost:1234/v1",
+        model="qwen2-vl-7b-instruct",
+        api_key="none",
+        timeout=60,
+    ),
 }
 
 

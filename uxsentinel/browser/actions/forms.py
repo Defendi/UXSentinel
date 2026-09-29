@@ -27,15 +27,18 @@ class ClickActionHandler(BaseActionHandler):
 
 class FillActionHandler(BaseActionHandler):
     async def execute(self, ctx: ActionContext) -> None:
+        from uxsentinel.scenarios.generators import resolve_dynamic_value
+
         step = ctx.step
         index = ctx.step_index
         driver = ctx.driver
         if not step.selector:
             raise ValueError(f"Passo {index}: 'fill' requer 'selector'")
         desc = step.description or f"fill {step.selector}"
+        resolved_val = resolve_dynamic_value(step.value or "")
         await driver.fill(
             step.selector,
-            step.value or "",
+            resolved_val,
             timeout=step.timeout or 10000,
             description=desc,
             step_index=index,
@@ -44,15 +47,18 @@ class FillActionHandler(BaseActionHandler):
 
 class TypeActionHandler(BaseActionHandler):
     async def execute(self, ctx: ActionContext) -> None:
+        from uxsentinel.scenarios.generators import resolve_dynamic_value
+
         step = ctx.step
         index = ctx.step_index
         driver = ctx.driver
         if not step.selector:
             raise ValueError(f"Passo {index}: 'type' requer 'selector'")
         desc = step.description or f"type {step.selector}"
+        resolved_val = resolve_dynamic_value(step.value or "")
         await driver.type_text(
             step.selector,
-            step.value or "",
+            resolved_val,
             delay_ms=40,
             timeout=step.timeout or 10000,
             description=desc,

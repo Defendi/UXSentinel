@@ -252,18 +252,48 @@ class UnifiedVisionClient:
                     resp.raise_for_status()
                     return True, f"API Anthropic respondeu com sucesso (modelo: {target_model})."
 
-            elif service in ("openai", "openai_compatible"):
+            elif service in (
+                "openai",
+                "openai_compatible",
+                "groq",
+                "openrouter",
+                "mistral",
+                "lmstudio",
+                "azure",
+            ):
                 if service == "openai" and not api_key:
                     return False, (
                         f"Chave de API ausente para o modelo '{provider.model}'. "
                         "Configure OPENAI_API_KEY no ambiente ou no config.yaml."
                     )
+                elif service == "groq" and not api_key:
+                    return False, (
+                        "Chave de API ausente para o Groq Cloud. Configure GROQ_API_KEY no ambiente ou config.yaml."
+                    )
+                elif service == "openrouter" and not api_key:
+                    return False, (
+                        "Chave de API ausente para o OpenRouter. Configure OPENROUTER_API_KEY no ambiente ou config.yaml."
+                    )
+                elif service == "mistral" and not api_key:
+                    return False, (
+                        "Chave de API ausente para o Mistral AI. Configure MISTRAL_API_KEY no ambiente ou config.yaml."
+                    )
+                elif service == "azure" and (not api_key or not provider.base_url):
+                    return False, (
+                        "Chave de API ou Endpoint ausente para o Azure OpenAI. Configure AZURE_OPENAI_API_KEY e AZURE_OPENAI_ENDPOINT."
+                    )
+
                 url = (provider.base_url or "https://api.openai.com/v1").rstrip("/") + "/chat/completions"
                 headers = {
-                    "Authorization": f"Bearer {api_key}",
                     "Content-Type": "application/json",
                     **provider.headers,
                 }
+
+                if service == "azure":
+                    headers["api-key"] = api_key
+                elif service != "lmstudio":
+                    headers["Authorization"] = f"Bearer {api_key}"
+
                 payload = {
                     "model": provider.model,
                     "max_tokens": 5,
@@ -272,7 +302,7 @@ class UnifiedVisionClient:
                 async with httpx.AsyncClient(timeout=timeout, verify=provider.verify_ssl) as client:
                     resp = await client.post(url, json=payload, headers=headers)
                     resp.raise_for_status()
-                    return True, "API OpenAI compatível respondeu com sucesso."
+                    return True, f"API {service} compatível respondeu com sucesso."
 
             elif service == "gemini":
                 auth_header = provider.headers.get("Authorization", "").strip()
@@ -387,7 +417,7 @@ class UnifiedVisionClient:
             return await self._call_anthropic(
                 provider, image_base64, user_prompt, media_type, system_prompt=system_prompt
             )
-        elif service == "openai" or service == "openai_compatible":
+        elif service in ("openai", "openai_compatible", "groq", "openrouter", "mistral", "lmstudio", "azure"):
             return await self._call_openai_compatible(
                 provider, image_base64, user_prompt, media_type, system_prompt=system_prompt
             )
@@ -523,10 +553,14 @@ class UnifiedVisionClient:
     ) -> str:
         url = (p.base_url or "https://api.openai.com/v1").rstrip("/") + "/chat/completions"
         headers = {
-            "Authorization": f"Bearer {p.api_key or ''}",
             "Content-Type": "application/json",
             **p.headers,
         }
+        if p.service == "azure":
+            headers["api-key"] = p.api_key or ""
+        elif p.service != "lmstudio":
+            headers["Authorization"] = f"Bearer {p.api_key or ''}"
+
         image_data_uri = f"data:{media_type};base64,{image_base64}"
         sys_prompt = system_prompt or QA_SYSTEM_PROMPT
 

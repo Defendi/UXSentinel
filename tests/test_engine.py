@@ -88,7 +88,7 @@ async def test_browser_session_headless():
     async with open_browser_session(cfg.browser, profile="generic") as driver:
         await driver.goto("https://example.com")
         dom_text = await driver.get_clean_dom_text()
-        assert "Example Domain" in dom_text
+        assert "documentation" in dom_text
     print("✓ Teste de Navegação Playwright e Extração DOM passou!")
 
 

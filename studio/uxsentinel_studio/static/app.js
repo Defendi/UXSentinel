@@ -3273,5 +3273,16 @@ steps:
         await loadScenarios();
     }
 
+    document.addEventListener("click", (e) => {
+        if (e.target.closest(".generator-chip")) {
+            const chip = e.target.closest(".generator-chip");
+            const funcCall = chip.getAttribute("data-gen");
+            const valInput = document.getElementById("step-field-value-fill");
+            if (valInput) {
+                valInput.value = funcCall;
+                valInput.dispatchEvent(new Event("input"));
+            }
+        }
+    });
     document.addEventListener("DOMContentLoaded", initApp);
 })();

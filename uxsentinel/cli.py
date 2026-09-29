@@ -794,7 +794,16 @@ SUPPORTED_AI_PROVIDERS: list[tuple[str, str, str]] = [
     ("claude_sso", "Claude Haiku via SSO", "Autenticação corporativa via navegador"),
     ("anthropic_cloud", "Claude 3.5 Sonnet", "API Key Anthropic (Nuvem)"),
     ("openai_cloud", "GPT-4o", "API Key OpenAI (Nuvem)"),
+    ("groq_cloud", "Llama 3.2 11B Vision", "Inferência ultra-rápida via Groq Cloud LPU"),
+    (
+        "openrouter_cloud",
+        "Llama 3.2 11B Vision (Multi-VLM)",
+        "Agregador universal OpenRouter com multi-modelos",
+    ),
+    ("mistral_cloud", "Pixtral 12B", "API Oficial Mistral AI (Visão Multimodal)"),
+    ("azure_openai", "GPT-4o (Azure)", "Endpoint corporativo Azure OpenAI"),
     ("ollama_local", "Ollama Local (qwen2-vl:7b)", "100% offline em localhost:11434"),
+    ("lmstudio_local", "LM Studio Local (1234)", "Servidor local compatível OpenAI em localhost:1234"),
     ("corporate_gateway", "Gateway Corporativo", "Proxy corporativo OpenAI compatível"),
 ]
 
@@ -877,7 +886,14 @@ async def _configure_ai_provider(cfg: GlobalConfig) -> None:
     elif any(choice == p[0] for p in SUPPORTED_AI_PROVIDERS):
         selected_provider = choice
 
-    cloud_providers = {"anthropic_cloud", "gemini_cloud", "openai_cloud"}
+    cloud_providers = {
+        "anthropic_cloud",
+        "gemini_cloud",
+        "openai_cloud",
+        "groq_cloud",
+        "openrouter_cloud",
+        "mistral_cloud",
+    }
 
     if selected_provider in cloud_providers:
         current_key = None
@@ -917,6 +933,54 @@ async def _configure_ai_provider(cfg: GlobalConfig) -> None:
         try:
             base_url = Prompt.ask("URL do Ollama", default=current_url).strip()
             model = Prompt.ask("Modelo de visão do Ollama", default=current_model).strip()
+        except (EOFError, KeyboardInterrupt):
+            return
+
+        saved_file = save_active_provider(selected_provider, base_url=base_url, model=model)
+
+    elif selected_provider == "azure_openai":
+        current_url = ""
+        current_key = None
+        if selected_provider in cfg.providers:
+            current_url = cfg.providers[selected_provider].base_url or current_url
+            current_key = cfg.providers[selected_provider].api_key
+
+        try:
+            base_url = Prompt.ask("Endpoint do Azure OpenAI", default=current_url).strip()
+        except (EOFError, KeyboardInterrupt):
+            return
+
+        has_saved_key = bool(current_key and not current_key.startswith("${"))
+        if has_saved_key:
+            console.print("[dim]API Key atual: [●●●●●●●● (configurado)][/dim]")
+            try:
+                new_key = Prompt.ask(
+                    "Nova API Key (Enter para manter atual)",
+                    password=True,
+                    default="",
+                    show_default=False,
+                ).strip()
+            except (EOFError, KeyboardInterrupt):
+                return
+            final_key = new_key if new_key else current_key
+        else:
+            try:
+                final_key = Prompt.ask("API Key", password=True, default="").strip()
+            except (EOFError, KeyboardInterrupt):
+                return
+
+        saved_file = save_active_provider(selected_provider, base_url=base_url, api_key=final_key or None)
+
+    elif selected_provider == "lmstudio_local":
+        current_url = "http://localhost:1234/v1"
+        current_model = "qwen2-vl-7b-instruct"
+        if selected_provider in cfg.providers:
+            current_url = cfg.providers[selected_provider].base_url or current_url
+            current_model = cfg.providers[selected_provider].model or current_model
+
+        try:
+            base_url = Prompt.ask("URL do LM Studio", default=current_url).strip()
+            model = Prompt.ask("Modelo de visão do LM Studio", default=current_model).strip()
         except (EOFError, KeyboardInterrupt):
             return
 

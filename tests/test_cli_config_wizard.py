@@ -239,7 +239,7 @@ async def test_interactive_config_ai_provider_flow_ollama(temp_config_file: Path
     # Fluxo: Menu IA -> 6 (ollama_local) -> URL -> Model -> Não testar -> Sair
     prompts_answers = [
         "1",  # Menu principal: IA
-        "6",  # Provedor: ollama_local
+        "ollama_local",  # Provedor: ollama_local
         "http://localhost:11434",  # URL do Ollama
         "qwen2-vl:7b",  # Modelo de visão
         "6",  # Menu principal: Sair

@@ -43,6 +43,8 @@ class AiClickActionHandler(BaseActionHandler):
 
 class AiFillActionHandler(BaseActionHandler):
     async def execute(self, ctx: ActionContext) -> None:
+        from uxsentinel.scenarios.generators import resolve_dynamic_value
+
         step = ctx.step
         index = ctx.step_index
         driver = ctx.driver
@@ -51,7 +53,7 @@ class AiFillActionHandler(BaseActionHandler):
         target = step.ai_fill or step.target or step.selector or ""
         if not target:
             raise ValueError(f"Passo {index}: 'ai_fill' requer alvo descritivo em linguagem natural")
-        val = step.value or ""
+        val = resolve_dynamic_value(step.value or "")
         desc = step.description or f"ai_fill {target}"
         sem_res = await driver.ai_fill(
             target=target,
