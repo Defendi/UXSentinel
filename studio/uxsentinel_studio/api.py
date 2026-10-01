@@ -139,6 +139,15 @@ class LoginSSORequest(BaseModel):
     provider: str
 
 
+class MergeResultsRequest(BaseModel):
+    """Payload para mesclagem de múltiplas sessões de relatório (UXS-92)."""
+
+    execution_ids: list[str] = Field(min_length=2, description="Lista de IDs de execuções para mesclar")
+    target_id: str | None = Field(
+        default=None, description="Identificador opcional para a execução consolidada"
+    )
+
+
 class GenerateScenarioRequest(BaseModel):
     """Payload para geração assistida de cenários via IA."""
 
@@ -1197,6 +1206,28 @@ async def get_result_artifact(
     except FileNotFoundError as err:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(err)) from err
     except PermissionError as err:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(err)) from err
+
+
+@router.post("/results/merge", response_model=ExecutionDetailDTO)
+async def merge_results(
+    req: MergeResultsRequest,
+    request: Request,
+    _: str = Depends(verify_studio_token),
+) -> ExecutionDetailDTO:
+    """Mescla duas ou mais sessões de auditoria em um único relatório consolidado."""
+    project_dir = get_project_dir(request)
+    output_dir = get_output_dir(project_dir)
+    service = ResultsService()
+    try:
+        return service.merge_executions(
+            execution_ids=req.execution_ids,
+            output_dir=output_dir,
+            target_id=req.target_id,
+        )
+    except FileNotFoundError as err:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(err)) from err
+    except (ValueError, PermissionError) as err:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(err)) from err
 
 

@@ -248,3 +248,64 @@ class ResultsService:
             raise FileNotFoundError(f"Artefato '{artifact_name}' não encontrado em {output_dir}")
 
         return artifact_file
+
+    def merge_executions(
+        self,
+        execution_ids: list[str],
+        output_dir: Path | str,
+        target_id: str | None = None,
+    ) -> ExecutionDetailDTO:
+        """Mescla duas ou mais execuções salvas no diretório em um relatório consolidado.
+
+        Args:
+            execution_ids: Lista contendo os identificadores das execuções a serem unificadas.
+            output_dir: Diretório raiz onde os relatórios estão localizados e onde o resultado será gravado.
+            target_id: Identificador opcional para a execução consolidada resultante.
+
+        Returns:
+            ExecutionDetailDTO com o detalhamento da execução consolidada.
+
+        Raises:
+            ValueError: Se execution_ids estiver vazia.
+            PermissionError: Se algum identificador violar a verificação de segurança de caminho.
+            FileNotFoundError: Se algum relatório de execução correspondente não existir.
+        """
+        if not execution_ids:
+            raise ValueError("A lista de execuções para mesclagem não pode estar vazia.")
+
+        for eid in execution_ids:
+            self._sanitize_path_component(eid)
+
+        if target_id is not None:
+            self._sanitize_path_component(target_id)
+
+        out_path = Path(output_dir).resolve()
+        file_paths: list[Path] = []
+        for eid in execution_ids:
+            json_file = out_path / f"{eid}_report.json"
+            if not json_file.is_file():
+                raise FileNotFoundError(f"Relatório de execução '{eid}' não encontrado em {output_dir}")
+            file_paths.append(json_file)
+
+        from uxsentinel.reporter.merger import merge_session_files
+
+        target_scenario_id = target_id if target_id is not None else None
+        merged_report, _ = merge_session_files(
+            file_paths=file_paths,
+            scenario_id=target_scenario_id,
+        )
+
+        new_id = target_id or merged_report.scenario_id
+        target_json_path = out_path / f"{new_id}_report.json"
+        dump_data = merged_report.model_dump(mode="json")
+        target_json_path.write_text(json.dumps(dump_data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+        # Opcionalmente gera o relatório HTML correspondente
+        try:
+            from uxsentinel.reporter.html_builder import save_html_report
+
+            save_html_report(merged_report, str(out_path))
+        except Exception:
+            pass
+
+        return self.get_execution(new_id, out_path)

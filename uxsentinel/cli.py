@@ -697,6 +697,21 @@ Documentação completa: https://github.com/Defendi/UXSentinel""",
         help="Diretório onde os cenários gerados e evidências do crawler serão salvos (padrão: 'scenarios/generated').",
     )
 
+    merge_group = parser.add_argument_group("Mesclagem de Sessões de Auditoria (UXS-92)")
+    merge_group.add_argument(
+        "--merge-sessions",
+        nargs="+",
+        metavar="SESSAO_JSON",
+        help="Mescla múltiplos arquivos de relatório JSON de sessão (*_report.json) em um único relatório consolidado.",
+    )
+    merge_group.add_argument(
+        "--merge-output",
+        type=str,
+        default=None,
+        metavar="DESTINO_JSON",
+        help="Caminho do arquivo ou diretório de saída consolidado para a mesclagem de sessões.",
+    )
+
     return parser
 
 
@@ -1691,10 +1706,75 @@ async def handle_crawl(args: argparse.Namespace, cfg: GlobalConfig) -> int:
     return EXIT_SUCESSO
 
 
+def handle_merge_sessions(args: argparse.Namespace) -> int:
+    """Manipula a mesclagem de arquivos de sessão de relatório JSON."""
+    from uxsentinel.reporter.merger import merge_session_files
+
+    raw_files = args.merge_sessions or []
+    if not raw_files:
+        console.print(
+            "[bold red]Erro:[/bold red] Nenhum arquivo de sessão informado para mesclagem. "
+            "Forneça um ou mais arquivos JSON após '--merge-sessions'."
+        )
+        return EXIT_ERRO_EXECUCAO
+
+    file_paths: list[Path] = []
+    for f in raw_files:
+        p = Path(f)
+        if not p.is_file():
+            console.print(
+                f"[bold red]Erro:[/bold red] Arquivo de sessão não encontrado: [yellow]{f}[/yellow]"
+            )
+            return EXIT_ERRO_EXECUCAO
+        file_paths.append(p)
+
+    try:
+        merged, saved_path = merge_session_files(
+            file_paths=file_paths,
+            output_file=args.merge_output,
+        )
+    except Exception as exc:
+        console.print(f"[bold red]Erro durante a mesclagem:[/bold red] {exc}")
+        return EXIT_ERRO_EXECUCAO
+
+    table = Table(title="[bold green]Mesclagem de Sessões de Auditoria (UXSentinel)[/bold green]")
+    table.add_column("Métrica / Detalhe", style="cyan bold")
+    table.add_column("Valor Consolidado", style="white")
+
+    files_list = "\n".join(f"• {p.name}" for p in file_paths)
+    table.add_row("Arquivos de Entrada", f"{len(file_paths)} arquivo(s):\n{files_list}")
+    table.add_row("Cenário ID / Título", f"{merged.scenario_id} - {merged.scenario_title}")
+    table.add_row("Perfil / Provedor", f"{merged.profile} / {merged.provider_used}")
+    table.add_row("Checkpoints Consolidados", str(len(merged.checkpoints)))
+    table.add_row("Total de Inconformidades", str(merged.total_issues))
+    table.add_row(
+        "Severidades (B / A / M / B)",
+        f"{merged.total_bloqueantes} / {merged.total_altas} / {merged.total_medias} / {merged.total_baixas}",
+    )
+    table.add_row("Violações Acessibilidade (A11y)", str(len(merged.a11y_violations)))
+    table.add_row(
+        "Logs de Console (Erros / Avisos)",
+        f"{merged.total_console_errors} / {merged.total_console_warnings}",
+    )
+    table.add_row("Duração Consolidada", f"{merged.duration_seconds:.2f}s")
+    table.add_row(
+        "Arquivo Consolidado Gravado",
+        f"[bold green]{saved_path}[/bold green]"
+        if saved_path
+        else "[yellow]Não persistido em disco[/yellow]",
+    )
+
+    console.print(table)
+    return EXIT_SUCESSO
+
+
 async def async_main() -> int:
     """Ponto de entrada assíncrono principal da CLI do UXSentinel."""
     parser = build_arg_parser()
     args = parser.parse_args()
+
+    if args.merge_sessions or args.scenario_pos == "merge-sessions":
+        return handle_merge_sessions(args)
 
     if args.init_config:
         return handle_init_config()
