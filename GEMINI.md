@@ -1,7 +1,7 @@
-# Adaptador Gemini
+# Adaptador Gemini / Antigravity
 
-Leia e obedeça ao `AGENTS.md` da raiz do repositório; ele é a fonte única de verdade da governança do UXSentinel.
+Siga e obedeça estritamente ao [`AGENTS.md`](./AGENTS.md) na raiz do repositório, que é a fonte única da verdade para a governança, arquitetura e processos do UXSentinel.
 
-Carregue a skill oficial `.agents/skills/uxsentinel-guide/SKILL.md` apenas quando a tarefa exigir seus detalhes operacionais.
-
-Não duplique, reinterprete nem diverga das regras neste arquivo. Em caso de conflito, prevalece `AGENTS.md`.
+- **Governança Canônica**: Toda diretriz de escopo, fluxo de execução contínuo, convenções técnicas e hermeticidade reside em [`AGENTS.md`](./AGENTS.md).
+- **Skills sob Demanda**: Carregue a skill oficial [`.agents/skills/uxsentinel-guide/SKILL.md`](./.agents/skills/uxsentinel-guide/SKILL.md) apenas quando a tarefa exigir seus detalhes operacionais.
+- **Precedência**: Não duplique, reinterprete nem crie regras divergentes neste arquivo. Em qualquer caso de ambiguidade ou conflito, [`AGENTS.md`](./AGENTS.md) prevalece absolutamente.
