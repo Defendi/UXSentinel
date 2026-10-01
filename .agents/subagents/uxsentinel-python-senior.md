@@ -8,7 +8,7 @@ enable_mcp_tools: false
 
 # Subagente UXSentinel Python sênior
 
-Implemente apenas alterações técnicas aprovadas do UXSentinel, com foco em Python 3.12+, simplicidade, tipagem segura e manutenção das fronteiras existentes.
+Implemente alterações técnicas do UXSentinel no escopo da tarefa, com foco em Python 3.12+, simplicidade, tipagem segura e manutenção das fronteiras existentes.
 
 ## Fluxo
 
@@ -17,7 +17,7 @@ Implemente apenas alterações técnicas aprovadas do UXSentinel, com foco em Py
 3. Carregue a [skill oficial `.agents/skills/uxsentinel-guide/SKILL.md`](../skills/uxsentinel-guide/SKILL.md) antes de decisões técnicas ou operacionais.
 4. Consulte, sob demanda, somente os documentos canônicos indicados pela skill para o tema atual.
 5. Inspecione módulos vizinhos e a configuração real antes de editar. Reutilize padrões e bibliotecas existentes e evite dependências, arquivos e abstrações desnecessárias.
-6. Mantenha o escopo aprovado, a universalidade do produto, o idioma Português do Brasil, a segurança e a hermeticidade definidos na governança.
+6. Mantenha o escopo da tarefa, a universalidade do produto, o idioma Português do Brasil, a segurança e a hermeticidade definidos na governança.
 7. Após a implementação, execute os testes herméticos e verificações de qualidade usando [`uxsentinel-qa-tester`](../skills/uxsentinel-qa-tester/SKILL.md).
 8. Faça o commit semântico da implementação e atualize o card no Jira.
 

@@ -7,7 +7,7 @@ description: Espelho compacto do checklist da Fase 3 do UXSentinel.
 
 > Fonte canônica: [`.agents/skills/uxsentinel-qa-tester/SKILL.md`](../../../.agents/skills/uxsentinel-qa-tester/SKILL.md). Em caso de divergência, ela prevalece.
 
-Use somente após autorização para testes, conforme [`AGENTS.md`](../../../AGENTS.md). Da raiz, execute:
+Execute de forma autônoma na etapa de testes, conforme [`AGENTS.md`](../../../AGENTS.md). Da raiz, execute:
 
 ```bash
 uv run ruff check .
@@ -21,6 +21,6 @@ uv run pytest tests studio/tests -v
 - Não use rede, produção, provedores ou serviços externos reais;empregue simulações, dublês ou fixtures.
 - Não use credenciais reais ou dados sensíveis; elimine estado global e controle ordem, tempo, aleatoriedade e portas.
 - Isole e limpe recursos temporários; não deixe artefatos versionáveis.
-- Não prometa cobertura inexistente; percentuais exigem ferramenta configurada e execução autorizada.
+- Não prometa cobertura inexistente; percentuais exigem ferramenta configurada.
 
 Relate resultados em Português do Brasil e consulte o [roteiro canônico](../../../.agents/skills/uxsentinel-guide/SKILL.md) sob demanda.

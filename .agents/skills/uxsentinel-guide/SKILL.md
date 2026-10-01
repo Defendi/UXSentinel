@@ -11,13 +11,13 @@ description: Espelho compacto do roteiro operacional canônico do UXSentinel.
 
 - O UXSentinel audita QA visual, UX e regras de negócio em aplicações web, com perfil `generic` e perfis adaptativos; clientes externos são apenas alvos.
 - `core` orquestra; `scenarios` controla YAML; `browser` executa Playwright; `vision` analisa imagens sem conhecer Playwright; `reporter` apenas apresenta. Studio e integrações permanecem periféricos.
-- Leia [`AGENTS.md`](../../../AGENTS.md) antes de agir. Alterações seguem Especificação → Implementação → Testes → Publicação → Finalização, sem pular autorizações.
+- Leia [`AGENTS.md`](../../../AGENTS.md) antes de agir. Alterações seguem o fluxo contínuo e autônomo: Especificação → Implementação → Testes → Finalização.
 - Use Português do Brasil, menor privilégio, escopo mínimo, sem segredos e com testes herméticos, rápidos e determinísticos.
 - O contrato YAML está em [docs/04](../../../docs/04_especificacao_cenarios_yaml.md); não duplique o dicionário de ações.
 
 ## Fase 3
 
-Após autorização expressa, execute da raiz:
+Na etapa de testes herméticos e qualidade, execute da raiz:
 
 ```bash
 uv run ruff check .
@@ -25,7 +25,7 @@ uv run ruff format --check .
 uv run pytest tests studio/tests -v
 ```
 
-Relate falhas, erros e ignorados; não afirme cobertura sem ferramenta autorizada. Consulte o [checklist canônico](../../../.agents/skills/uxsentinel-qa-tester/SKILL.md).
+Relate falhas, erros e ignorados; percentuais de cobertura exigem ferramenta configurada. Consulte o [checklist canônico](../../../.agents/skills/uxsentinel-qa-tester/SKILL.md).
 
 ## Referências
 
@@ -36,4 +36,5 @@ Relate falhas, erros e ignorados; não afirme cobertura sem ferramenta autorizad
 - [Perfis](../../../docs/06_plugins_e_perfis_frameworks.md)
 - [Publicação](../../../docs/07_guia_de_publicacao_e_releases.md)
 
-Publicação é fase separada: exige suíte completa, qualidade aprovada e autorização explícita. Nenhuma operação Git ou de publicação pode ser inferida de uma autorização de implementação.
+Quando a tarefa for de release, execute o fluxo único de bump, commit semântico, tag, push e pipeline após aprovação da suíte completa de testes e qualidade.
+
