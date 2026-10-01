@@ -71,6 +71,8 @@ scenarios/report/
 .agents/subagents/*
 !.agents/subagents/uxsentinel-python-senior
 !.agents/subagents/uxsentinel-python-senior.md
+!.agents/subagents/uxsentinel-review-agent
+!.agents/subagents/uxsentinel-review-agent.md
 !AGENTS.md
 !CLAUDE.md
 !GEMINI.md
