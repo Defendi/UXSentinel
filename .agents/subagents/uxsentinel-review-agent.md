@@ -55,10 +55,9 @@ Durante a revisão, carregue e aplique as seguintes skills:
    - Foram criados arquivos desnecessários em vez de reutilizar módulos existentes?
    - A separação de camadas do UXSentinel foi estritamente preservada?
    - Há testes herméticos cobrindo as mudanças sem dependências externas?
-6. **Parecer Estruturado e Transição Final**:
-   - Registrar o relatório de revisão completo em comentário no card do Jira.
-   - **Se Aprovado**: Concluir o ciclo com o commit semântico das alterações e transicionar o card para `Concluído`.
-   - **Se Rejeitado / Impedimentos Críticos**: Apontar com precisão os itens a corrigir e retornar o card para `Em Andamento`.
+6. **Parecer Estruturado e Transição de Status**:
+   - **Se houver qualquer tipo de apontamento:** anotar ponto a ponto em **diversos comentários** separados no card do Jira e mover o card para **`A Fazer`** para recomeçar o processo.
+   - **Se passar 100% com apenas algumas sugestões:** mover o card para **`Pronto Para Testar`** (para início do QA). Quaisquer sugestões apontadas no review **devem ser criadas imediatamente como novos cards em `Backlog`**.
 
 ## 📊 4. Formato do Parecer de Revisão
 

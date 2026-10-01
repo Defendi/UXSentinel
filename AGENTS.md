@@ -23,11 +23,11 @@ Este arquivo é a fonte única de verdade para agentes, subagentes e desenvolved
 
 Toda alteração deve seguir este ciclo de forma autônoma e contínua, de ponta a ponta, sem travas ou pausas para aguardar confirmações manuais intermediárias, acompanhando a evolução dos status no Jira:
 
-1. **Especificação (`A Fazer` / `Backlog`):** registrar objetivo, comportamento, restrições e critérios de aceitação no card do Jira do UXS; auditorias somente leitura são a exceção.
-2. **Implementação (`Em Andamento`):** transicionar o card para `Em Andamento` e executar a mudança via subagente especializado (`uxsentinel-python-senior`) com base no escopo e nas convenções existentes. Ao concluir o código, transicionar para `Pronto Para Testar`.
-3. **Testes Herméticos (`Testando`):** transicionar o card para `Testando` e executar a suíte completa, verificações de qualidade e todos os testes herméticos aplicáveis via `uxsentinel-qa-tester`. Ao obter 100% de sucesso, transicionar para `Pronto para Review`.
-4. **Code Review (`Revisar`):** o subagente especializado em revisão (`uxsentinel-review-agent`) assume o card, transiciona para `Revisar`, executa a etapa mandatória de planejamento com `brainstorming`, analisa qualidade, ausência de sobre-engenharia de IA e conformidade arquitetural, registrando o parecer em comentário. Se aprovado, avança para finalização; se rejeitado, retorna o card para `Em Andamento` com apontamentos.
-5. **Finalização (`Concluído`):** realizar o commit semântico da alteração, atualizar a documentação se aplicável e transicionar o card do Jira para `Concluído`.
+1. **Planejamento e Especificação (`Backlog` → `A Fazer`):** enquanto o card estiver sendo criado e planejado, permanece em `Backlog`. Assim que finalizado o planejamento (por sinalização de um agente ou humano), transiciona para `A Fazer` e aguarda início do desenvolvimento.
+2. **Desenvolvimento (`Em Andamento` → `Pronto para Review`):** ao sinalizar o início da atividade, transicionar para `Em Andamento` e executar a implementação e testes unitários via `uxsentinel-python-senior`. Ao concluir, transicionar para `Pronto para Review`.
+3. **Code Review (`Review`):** `uxsentinel-review-agent` assume o card, transiciona para `Review`, executa planejamento obrigatório com `brainstorming` e revisa o código. Se houver qualquer apontamento, anota ponto a ponto em diversos comentários e move para `A Fazer`. Se aprovado 100%, transiciona para `Pronto Para Testar` (sugestões viram novos cards em `Backlog`).
+4. **Testes Herméticos QA (`Testando`):** ao iniciar a atividade de teste, `uxsentinel-qa-tester` transiciona para `Testando` e executa a tríade hermética completa (`ruff check`, `ruff format --check`, `pytest`). Se houver apontamentos, anota ponto a ponto em diversos comentários e move para `A Fazer`. Se aprovado 100%, move para `Concluído` (sugestões viram novos cards em `Backlog`).
+5. **Finalização (`Concluído`):** realizar o commit semântico da alteração, atualizar a documentação se aplicável e fechar o ciclo.
 
 - Antes de iniciar qualquer tarefa, valide a conexão e a autenticação do MCP do Atlassian; se falhar, bloqueie o fluxo e avise o usuário.
 - O fluxo opera de ponta a ponta sem interrupções artificiais ou solicitações de permissão entre etapas para o usuário.

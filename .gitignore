@@ -67,6 +67,8 @@ scenarios/report/
 !.agents/skills/uxsentinel-guide/**
 !.agents/skills/uxsentinel-qa-tester/
 !.agents/skills/uxsentinel-qa-tester/**
+!.agents/rules/
+!.agents/rules/**
 !.agents/subagents/
 .agents/subagents/*
 !.agents/subagents/uxsentinel-python-senior
