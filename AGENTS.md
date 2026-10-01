@@ -14,31 +14,29 @@ Este arquivo é a fonte única de verdade para agentes, subagentes e desenvolved
 
 ## 2. Classificação de tarefas
 
-- **Auditoria somente leitura:** inspeção, análise ou revisão sem alteração de arquivos, cards, versões ou infraestrutura. Não exige card, implementação ou aprovação das fases; deve apenas relatar evidências e recomendações.
-- **Alteração:** qualquer mudança em código, testes, Studio, documentação, configuração ou harness. Mesmo uma alteração pequena passa por todos os gates aplicáveis.
-- **Release:** alteração de versão, tag, commit de publicação, GitHub ou PyPI. É uma etapa separada e nunca pode ser inferida de uma autorização de implementação.
+- **Auditoria somente leitura:** inspeção, análise ou revisão sem alteração de arquivos, cards, versões ou infraestrutura. Não exige card nem implementação; deve apenas relatar evidências e recomendações.
+- **Alteração:** qualquer mudança em código, testes, Studio, documentação, configuração ou harness. Segue o fluxo contínuo de ponta a ponta.
+- **Release:** alteração de versão, tag, commit de publicação, GitHub ou PyPI. É executada de ponta a ponta quando a tarefa for de release.
 - Uma auditoria somente leitura que resulte em mudança proposta continua sendo uma tarefa de alteração quando for executada.
 
-## 3. Gates de aprovação
+## 3. Fluxo de execução contínuo
 
-Toda alteração deve seguir esta ordem, sem avançar por omissão:
+Toda alteração deve seguir este ciclo de forma autônoma e contínua, de ponta a ponta, sem travas ou pausas para aguardar confirmações manuais intermediárias:
 
 1. **Especificação:** registrar o objetivo, comportamento, restrições e critérios de aceitação no card do Jira do UXS; auditorias somente leitura são a exceção.
-2. **Implementação:** aguardar aprovação explícita da especificação e executar a mudança aprovada por subagente especializado.
-3. **Testes:** aguardar autorização para testar; executar a suíte completa, verificações de qualidade e todos os testes herméticos aplicáveis.
-4. **Publicação:** aguardar autorização expressa após apresentar os resultados; somente então versionar, criar tag, publicar ou acionar o PyPI.
-5. **Finalização:** aguardar autorização após a publicação para atualizar documentação, manual aplicável, Jira e estado final do trabalho.
+2. **Implementação:** executar a mudança diretamente via subagente especializado com base no escopo e nas convenções existentes.
+3. **Testes:** executar a suíte completa, verificações de qualidade e todos os testes herméticos aplicáveis via `uxsentinel-qa-tester`.
+4. **Finalização:** commitar as alterações com mensagem semântica, atualizar a documentação se aplicável, e atualizar o Jira para o estado final do trabalho.
 
-- A aprovação deve ser explícita e por escrito; a falta de resposta não constitute autorização.
 - Antes de iniciar qualquer tarefa, valide a conexão e a autenticação do MCP do Atlassian; se falhar, bloqueie o fluxo e avise o usuário.
-- O fluxo pode ser adaptado ou excepcionado somente quando o usuário pedir explicitamente uma mudança de política.
+- O fluxo opera de ponta a ponta sem interrupções artificiais ou solicitações de permissão entre etapas para o usuário.
 
 ## 4. Subagentes e implementação
 
 - O agente principal coordena; implementações de código e mudanças técnicas devem ser delegadas a subagentes especializados.
-- O subagente deve seguir a especificação aprovada, a skill oficial e as convenções existentes; não amplie o escopo nem invente dependências.
+- O subagente deve seguir a especificação, a skill oficial e as convenções existentes; não amplie o escopo nem invente dependências.
 - Toda mudança relevante deve incluir cobertura de testes aplicável; mudanças de CLI/YAML/Studio devem manter a paridade entre esses componentes e atualizar o manual oficial conforme a documentação quando houver interface.
-- A skill [uxsentinel-qa-tester](.agents/skills/uxsentinel-qa-tester/SKILL.md) define a execução de qualidade e hermeticidade quando essa etapa for autorizada.
+- A skill [uxsentinel-qa-tester](.agents/skills/uxsentinel-qa-tester/SKILL.md) define a execução de qualidade e hermeticidade realizada durante a etapa de testes.
 
 ## 5. Hermeticidade e segurança
 
@@ -49,10 +47,9 @@ Toda alteração deve seguir esta ordem, sem avançar por omissão:
 
 ## 6. Release e manutenção
 
-- Não altere versões, crie tags, publique releases, faça push de publicação ou dispare PyPI de forma autônoma.
-- A versão só pode ser alterada depois da suíte completa, das verificações de qualidade e da autorização humana explícita.
-- Após essa autorização, siga o fluxo único de bump, commit semântico, tag, push, release e pipeline definido na [skill oficial](.agents/skills/uxsentinel-guide/SKILL.md) e no [guia de releases](docs/07_guia_de_publicacao_e_releases.md).
-- Uma tarefa de reorganização do harness não autoriza bump, commit, tag, release ou publicação.
+- Siga o fluxo de bump, commit semântico, tag, push, release e pipeline definido na [skill oficial](.agents/skills/uxsentinel-guide/SKILL.md) e no [guia de releases](docs/07_guia_de_publicacao_e_releases.md) quando a tarefa for de release.
+- A alteração de versão deve sempre passar pela suíte completa e verificações de qualidade antes de ser concluída.
+- Uma tarefa de reorganização de harness por si só não efetua bump ou release a menos que especificado.
 
 ## 7. Precedência das fontes
 

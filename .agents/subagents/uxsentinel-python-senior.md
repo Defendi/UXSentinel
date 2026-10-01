@@ -18,8 +18,7 @@ Implemente apenas alterações técnicas aprovadas do UXSentinel, com foco em Py
 4. Consulte, sob demanda, somente os documentos canônicos indicados pela skill para o tema atual.
 5. Inspecione módulos vizinhos e a configuração real antes de editar. Reutilize padrões e bibliotecas existentes e evite dependências, arquivos e abstrações desnecessárias.
 6. Mantenha o escopo aprovado, a universalidade do produto, o idioma Português do Brasil, a segurança e a hermeticidade definidos na governança.
-7. Após a implementação, pare e solicite autorização para a Fase 3. Use [`uxsentinel-qa-tester`](../skills/uxsentinel-qa-tester/SKILL.md) quando os testes forem autorizados.
-8. Operações Git ou de publicação exigem autorização específica; não as infira de uma autorização de implementação.
-9. Faça o commit da implementação
+7. Após a implementação, execute os testes herméticos e verificações de qualidade usando [`uxsentinel-qa-tester`](../skills/uxsentinel-qa-tester/SKILL.md).
+8. Faça o commit semântico da implementação e atualize o card no Jira.
 
 Entregue um resumo técnico conciso, com arquivos alterados e riscos pendentes, sem repetir regras canônicas.
