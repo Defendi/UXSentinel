@@ -19,21 +19,23 @@ Este arquivo é a fonte única de verdade para agentes, subagentes e desenvolved
 - **Release:** alteração de versão, tag, commit de publicação, GitHub ou PyPI. É executada de ponta a ponta quando a tarefa for de release.
 - Uma auditoria somente leitura que resulte em mudança proposta continua sendo uma tarefa de alteração quando for executada.
 
-## 3. Fluxo de execução contínuo
+## 3. Fluxo de execução contínuo e status no Jira
 
-Toda alteração deve seguir este ciclo de forma autônoma e contínua, de ponta a ponta, sem travas ou pausas para aguardar confirmações manuais intermediárias:
+Toda alteração deve seguir este ciclo de forma autônoma e contínua, de ponta a ponta, sem travas ou pausas para aguardar confirmações manuais intermediárias, acompanhando a evolução dos status no Jira:
 
-1. **Especificação:** registrar o objetivo, comportamento, restrições e critérios de aceitação no card do Jira do UXS; auditorias somente leitura são a exceção.
-2. **Implementação:** executar a mudança diretamente via subagente especializado com base no escopo e nas convenções existentes.
-3. **Testes:** executar a suíte completa, verificações de qualidade e todos os testes herméticos aplicáveis via `uxsentinel-qa-tester`.
-4. **Finalização:** commitar as alterações com mensagem semântica, atualizar a documentação se aplicável, e atualizar o Jira para o estado final do trabalho.
+1. **Especificação (`A Fazer` / `Backlog`):** registrar objetivo, comportamento, restrições e critérios de aceitação no card do Jira do UXS; auditorias somente leitura são a exceção.
+2. **Implementação (`Em Andamento`):** transicionar o card para `Em Andamento` e executar a mudança via subagente especializado (`uxsentinel-python-senior`) com base no escopo e nas convenções existentes. Ao concluir o código, transicionar para `Pronto Para Testar`.
+3. **Testes Herméticos (`Testando`):** transicionar o card para `Testando` e executar a suíte completa, verificações de qualidade e todos os testes herméticos aplicáveis via `uxsentinel-qa-tester`. Ao obter 100% de sucesso, transicionar para `Pronto para Review`.
+4. **Code Review (`Revisar`):** o subagente especializado em revisão (`uxsentinel-review-agent`) assume o card, transiciona para `Revisar`, executa a etapa mandatória de planejamento com `brainstorming`, analisa qualidade, ausência de sobre-engenharia de IA e conformidade arquitetural, registrando o parecer em comentário. Se aprovado, avança para finalização; se rejeitado, retorna o card para `Em Andamento` com apontamentos.
+5. **Finalização (`Concluído`):** realizar o commit semântico da alteração, atualizar a documentação se aplicável e transicionar o card do Jira para `Concluído`.
 
 - Antes de iniciar qualquer tarefa, valide a conexão e a autenticação do MCP do Atlassian; se falhar, bloqueie o fluxo e avise o usuário.
 - O fluxo opera de ponta a ponta sem interrupções artificiais ou solicitações de permissão entre etapas para o usuário.
+- Cada transição de fase relevante deve manter o card do Jira documentado com comentários resumindo o progresso.
 
 ## 4. Subagentes e implementação
 
-- O agente principal coordena; implementações de código e mudanças técnicas devem ser delegadas a subagentes especializados.
+- O agente principal coordena; implementações de código são delegadas a `uxsentinel-python-senior` e o code review a `uxsentinel-review-agent`.
 - O subagente deve seguir a especificação, a skill oficial e as convenções existentes; não amplie o escopo nem invente dependências.
 - Toda mudança relevante deve incluir cobertura de testes aplicável; mudanças de CLI/YAML/Studio devem manter a paridade entre esses componentes e atualizar o manual oficial conforme a documentação quando houver interface.
 - A skill [uxsentinel-qa-tester](.agents/skills/uxsentinel-qa-tester/SKILL.md) define a execução de qualidade e hermeticidade realizada durante a etapa de testes.

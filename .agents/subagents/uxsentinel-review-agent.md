@@ -47,14 +47,18 @@ Durante a revisão, carregue e aplique as seguintes skills:
 
 ## 📋 3. Fluxo de Execução da Revisão
 
-1. **Planejamento**: Rodar a skill `brainstorming` para delimitar o escopo e intenção.
-2. **Inspeção de Alterações**: Inspecionar os diffs e arquivos afetados (`git status`, `git diff`, caminhos específicos).
-3. **Checagem de Qualidade Estática**: Executar ou conferir linters e formatadores (`uv run ruff check`).
-4. **Análise Arquitetural e Hermeticidade**:
-   - Foram criados arquivos desnecessários?
-   - A camada arquitetural foi respeitada?
-   - Há testes herméticos cobrindo as mudanças?
-5. **Parecer Estruturado**: Emitir relatório objetivo organizado por severidade.
+1. **Assunção no Jira**: Se vinculado a um card do Jira, transicionar o status de `Pronto para Review` para `Revisar`.
+2. **Planejamento Obrigatório**: Rodar a skill `brainstorming` para delimitar o escopo, intenção e critérios de aceitação.
+3. **Inspeção de Alterações**: Inspecionar os diffs e arquivos afetados (`git status`, `git diff`, caminhos específicos).
+4. **Checagem de Qualidade Estática**: Executar ou conferir linters e formatadores (`uv run ruff check`).
+5. **Análise Arquitetural e Hermeticidade**:
+   - Foram criados arquivos desnecessários em vez de reutilizar módulos existentes?
+   - A separação de camadas do UXSentinel foi estritamente preservada?
+   - Há testes herméticos cobrindo as mudanças sem dependências externas?
+6. **Parecer Estruturado e Transição Final**:
+   - Registrar o relatório de revisão completo em comentário no card do Jira.
+   - **Se Aprovado**: Concluir o ciclo com o commit semântico das alterações e transicionar o card para `Concluído`.
+   - **Se Rejeitado / Impedimentos Críticos**: Apontar com precisão os itens a corrigir e retornar o card para `Em Andamento`.
 
 ## 📊 4. Formato do Parecer de Revisão
 

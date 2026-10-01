@@ -11,7 +11,7 @@ description: Espelho compacto do roteiro operacional canônico do UXSentinel.
 
 - O UXSentinel audita QA visual, UX e regras de negócio em aplicações web, com perfil `generic` e perfis adaptativos; clientes externos são apenas alvos.
 - `core` orquestra; `scenarios` controla YAML; `browser` executa Playwright; `vision` analisa imagens sem conhecer Playwright; `reporter` apenas apresenta. Studio e integrações permanecem periféricos.
-- Leia [`AGENTS.md`](../../../AGENTS.md) antes de agir. Alterações seguem o fluxo contínuo e autônomo: Especificação → Implementação → Testes → Finalização.
+- Leia [`AGENTS.md`](../../../AGENTS.md) antes de agir. Alterações seguem o ciclo no Jira: Especificação (`A Fazer`) → Implementação (`Em Andamento` / `Pronto Para Testar`) → Testes (`Testando`) → Review (`Pronto para Review` / `Revisar`) → Finalização (`Concluído`).
 - Use Português do Brasil, menor privilégio, escopo mínimo, sem segredos e com testes herméticos, rápidos e determinísticos.
 - O contrato YAML está em [docs/04](../../../docs/04_especificacao_cenarios_yaml.md); não duplique o dicionário de ações.
 

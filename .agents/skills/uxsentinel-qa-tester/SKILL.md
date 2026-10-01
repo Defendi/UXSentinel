@@ -7,7 +7,7 @@ description: Espelho compacto do checklist da Fase 3 do UXSentinel.
 
 > Fonte canônica: [`.agents/skills/uxsentinel-qa-tester/SKILL.md`](../../../.agents/skills/uxsentinel-qa-tester/SKILL.md). Em caso de divergência, ela prevalece.
 
-Execute de forma autônoma na etapa de testes, conforme [`AGENTS.md`](../../../AGENTS.md). Da raiz, execute:
+Execute na etapa de testes herméticos e qualidade (status `Testando` no Jira), transicionando para `Pronto para Review` ao obter 100% de sucesso, conforme [`AGENTS.md`](../../../AGENTS.md). Da raiz, execute:
 
 ```bash
 uv run ruff check .
