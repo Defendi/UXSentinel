@@ -54,6 +54,7 @@ Toda alteração deve seguir rigorosamente as regras e transições documentadas
 
 - Siga o fluxo de bump, commit semântico, tag, push, release e pipeline definido na [skill oficial](.agents/skills/uxsentinel-guide/SKILL.md) e no [guia de releases](docs/07_guia_de_publicacao_e_releases.md) quando a tarefa for de release.
 - A alteração de versão deve sempre passar pela suíte completa e verificações de qualidade antes de ser concluída.
+- É responsabilidade mandatória do agente acompanhar a execução das esteiras de CI/CD (GitHub Actions) até o término (status de sucesso) e validar a disponibilidade efetiva dos pacotes no PyPI antes de considerar a tarefa de release concluída.
 - Uma tarefa de reorganização de harness por si só não efetua bump ou release a menos que especificado.
 
 ## 7. Precedência das fontes
