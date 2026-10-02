@@ -43,6 +43,7 @@ class ActionContext:
     scenario_exceptions: ScenarioExceptions | None = None
     agent: Any | None = None
     event_bus: Any | None = None
+    next_step_id: str | None = None
 
     @property
     def console(self) -> Console:

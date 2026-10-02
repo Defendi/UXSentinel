@@ -11,7 +11,7 @@ except ImportError:
 
 from typing import Any
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from uxsentinel.browser.telemetry import (
     ConsoleLogEntry,
@@ -314,7 +314,22 @@ class ScenarioExceptions(BaseModel):
         return False
 
 
+class ScenarioLoopOverflowError(RuntimeError):
+    """Lançado quando o limite máximo de saltos em um cenário é excedido (salvaguarda anti-loop)."""
+
+    pass
+
+
+class ScenarioFlowError(RuntimeError):
+    """Lançado quando há erro semântico de fluxo ou alvo de salto inexistente."""
+
+    pass
+
+
 class StepAction(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    id: str | None = Field(default=None, alias="step_id")
     action: str
     selector: str | None = None
     value: str | None = None
@@ -329,10 +344,23 @@ class StepAction(BaseModel):
     ai_assert: str | None = None
     ai_action: str | None = None
     target: str | None = None
+    then_jump_to: str | None = None
+    else_jump_to: str | None = None
+    condition: dict[str, Any] | str | bool | None = None
+    element_present: str | None = None
+    element_visible: str | None = None
+    text_visible: str | None = None
+    url_contains: str | None = None
+    js_expression: str | None = None
     skip: bool = False
     exceptions: ScenarioExceptions | None = None
 
+    @property
+    def step_id(self) -> str | None:
+        return self.id
+
     @field_validator(
+        "id",
         "value",
         "selector",
         "url",
@@ -344,6 +372,8 @@ class StepAction(BaseModel):
         "ai_assert",
         "ai_action",
         "target",
+        "then_jump_to",
+        "else_jump_to",
         mode="before",
     )
     @classmethod
@@ -376,6 +406,7 @@ class Scenario(BaseModel):
     css: bool | None = None
     markdown: bool | None = None
     fail_fast: bool | None = None
+    max_jumps: int | None = 50
     update_baseline: bool | None = None
     baseline_dir: str | None = None
     diff_threshold: float | None = None

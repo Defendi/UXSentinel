@@ -4,7 +4,23 @@ from pathlib import Path
 
 import yaml
 
-from uxsentinel.core.models import Scenario, ScenarioExceptions, StepAction
+from uxsentinel.core.models import (
+    Scenario,
+    ScenarioExceptions,
+    ScenarioLoopOverflowError,
+    StepAction,
+)
+
+__all__ = [
+    "IGNORED_YAML_FILENAMES",
+    "Scenario",
+    "ScenarioExceptions",
+    "ScenarioLoopOverflowError",
+    "StepAction",
+    "is_valid_scenario_file",
+    "load_scenario",
+    "parse_scenario_exceptions",
+]
 
 ENV_VAR_PATTERN = re.compile(r"\$\{([A-Za-z0-9_]+)(?::-([^}]*))?\}")
 
@@ -204,12 +220,24 @@ def load_scenario(
         )
 
     steps: list[StepAction] = []
+    seen_step_ids: set[str] = set()
+
     for pos, s in enumerate(steps_raw, start=1):
         if not isinstance(s, dict):
             raise ValueError(
                 f"Cenário inválido em '{file_path}': o passo {pos} deve ser um mapeamento "
                 f"com 'action', mas veio como {type(s).__name__} ({s!r})."
             )
+
+        step_id_raw = s.get("id") or s.get("step_id")
+        step_id: str | None = None
+        if step_id_raw is not None:
+            step_id = str(step_id_raw).strip()
+            if step_id in seen_step_ids:
+                raise ValueError(
+                    f"Cenário inválido em '{file_path}': identificador de passo duplicado '{step_id}' no passo {pos}."
+                )
+            seen_step_ids.add(step_id)
 
         action = s.get("action", "")
         ai_click_val = s.get("ai_click")
@@ -228,6 +256,11 @@ def load_scenario(
                 action = "ai_assert"
             elif ai_action_val is not None:
                 action = "ai_action"
+            elif s.get("jump_to") is not None or s.get("saltar_para") is not None:
+                action = "jump_to"
+                target_val = target_val or s.get("jump_to") or s.get("saltar_para")
+            elif s.get("branch") is not None or s.get("desvio") is not None:
+                action = "branch"
 
         # Garante que target e os campos específicos estejam sincronizados
         target = target_val
@@ -243,6 +276,18 @@ def load_scenario(
         elif action == "ai_action":
             target = target or ai_action_val or s.get("description")
             ai_action_val = ai_action_val or target
+        elif action in ("jump_to", "jump", "saltar_para", "pular_para"):
+            target = target or s.get("then_jump_to") or s.get("to") or s.get("jump_to")
+
+        then_jump_to_val = s.get("then_jump_to")
+        else_jump_to_val = s.get("else_jump_to")
+        condition_val = s.get("if") if s.get("if") is not None else (s.get("condition") or s.get("condicao"))
+
+        element_present_val = s.get("element_present") or s.get("element_exists") or s.get("seletor_presente")
+        element_visible_val = s.get("element_visible") or s.get("is_visible") or s.get("elemento_visivel")
+        text_visible_val = s.get("text_visible") or s.get("has_text") or s.get("texto_visivel")
+        url_contains_val = s.get("url_contains") or s.get("url_contem")
+        js_expression_val = s.get("js_expression") or s.get("javascript") or s.get("eval")
 
         skip_raw = s.get("skip", s.get("ignore", s.get("ignorar", s.get("disabled", False))))
         skip_val = False
@@ -256,6 +301,7 @@ def load_scenario(
 
         steps.append(
             StepAction(
+                id=step_id,
                 action=action,
                 selector=s.get("selector"),
                 value=s.get("value"),
@@ -270,10 +316,47 @@ def load_scenario(
                 ai_assert=ai_assert_val,
                 ai_action=ai_action_val,
                 target=target,
+                then_jump_to=then_jump_to_val,
+                else_jump_to=else_jump_to_val,
+                condition=condition_val,
+                element_present=element_present_val,
+                element_visible=element_visible_val,
+                text_visible=text_visible_val,
+                url_contains=url_contains_val,
+                js_expression=js_expression_val,
                 skip=skip_val,
                 exceptions=step_exceptions,
             )
         )
+
+    # Validação estática de destinos de saltos (jump_to e branch)
+    for pos, st in enumerate(steps, start=1):
+        act = st.action.lower().strip()
+        if act in ("jump_to", "jump", "saltar_para", "pular_para"):
+            tgt = st.target or st.then_jump_to
+            if not tgt:
+                raise ValueError(
+                    f"Cenário inválido em '{file_path}': passo {pos} com ação '{st.action}' não possui 'target' especificado."
+                )
+            if tgt not in seen_step_ids:
+                raise ValueError(
+                    f"Cenário inválido em '{file_path}': passo {pos} com ação '{st.action}' aponta para target '{tgt}' inexistente no cenário."
+                )
+        elif act in ("branch", "desvio", "ramificar", "condition"):
+            then_tgt = st.then_jump_to or st.target
+            else_tgt = st.else_jump_to
+            if not then_tgt and not else_tgt:
+                raise ValueError(
+                    f"Cenário inválido em '{file_path}': passo {pos} com ação '{st.action}' deve especificar ao menos 'then_jump_to' (ou 'target') ou 'else_jump_to'."
+                )
+            if then_tgt and then_tgt not in seen_step_ids:
+                raise ValueError(
+                    f"Cenário inválido em '{file_path}': passo {pos} com ação '{st.action}' aponta para target '{then_tgt}' inexistente no cenário."
+                )
+            if else_tgt and else_tgt not in seen_step_ids:
+                raise ValueError(
+                    f"Cenário inválido em '{file_path}': passo {pos} com ação '{st.action}' aponta para else_target '{else_tgt}' inexistente no cenário."
+                )
 
     headless_raw = parsed_dict.get("headless")
     headless_val: bool | None = None
@@ -361,6 +444,14 @@ def load_scenario(
         except Exception:
             pass
 
+    max_jumps_raw = parsed_dict.get("max_jumps") or parsed_dict.get("limite_saltos")
+    max_jumps_val: int = 50
+    if max_jumps_raw is not None:
+        try:
+            max_jumps_val = int(max_jumps_raw)
+        except (ValueError, TypeError):
+            max_jumps_val = 50
+
     return Scenario(
         id=parsed_dict.get("id", path.stem),
         title=parsed_dict.get("title", path.stem),
@@ -374,6 +465,7 @@ def load_scenario(
         axe=axe_val,
         css=css_val,
         fail_fast=fail_fast_val,
+        max_jumps=max_jumps_val,
         viewports=viewports_val,
         exceptions=scenario_exceptions,
         steps=steps,

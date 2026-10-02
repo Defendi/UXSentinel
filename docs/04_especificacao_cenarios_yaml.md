@@ -225,3 +225,121 @@ exceptions:
 ```
 O parser inteligente do UXSentinel extrai automaticamente os seletores iniciados em `#` ou `.`, textos entre aspas para a lista de termos autorizados e regras completas para o prompt dos avaliadores cognitivos.
 
+---
+
+## 6. Controle de Fluxo Condicional e Desvios (`id`, `jump_to`, `branch`, `if`)
+
+A partir do **UXS-101**, o UXSentinel suporta roteamentos dinâmicos, bifurcações e desvios incondicionais diretamente nos cenários YAML.
+
+### 6.1 Identificadores de Passos (`id` / `step_id`)
+Cada passo na lista `steps` pode receber um identificador único via chave `id` (ou `step_id`):
+```yaml
+steps:
+  - id: "passo_login"
+    action: "goto"
+    url: "/login"
+
+  - id: "preencher_usuario"
+    action: "fill"
+    selector: "#user"
+    value: "admin"
+```
+> ⚠️ **Validação Estrita de Unicidade**: O parser e a validação do UXSentinel rejeitam cenários com `id` duplicados antes do início do navegador.
+
+### 6.2 Desvio Incondicional (`jump_to`)
+A ação `jump_to` redireciona o fluxo de execução para o passo cujo `id` corresponde ao informado em `target`:
+```yaml
+steps:
+  - id: "inicio"
+    action: "goto"
+    url: "/home"
+
+  - action: "jump_to"
+    target: "passo_final"
+    description: "Pula etapas intermediárias"
+
+  - id: "etapa_intermediaria"
+    action: "click"
+    selector: "#btn-ignorado"
+
+  - id: "passo_final"
+    action: "checkpoint"
+    name: "conclusao"
+    expected_behavior: "Tela final renderizada com sucesso."
+```
+> 🛡️ **Validação Pré-Execução**: Se o `target` apontar para um `id` que não existe no cenário, a execução é abortada estaticamente com erro claro de validação.
+
+### 6.3 Controle Condicional com `branch`
+A ação `branch` avalia o estado da página em runtime e bifurca a execução:
+- Se **verdadeira**: salta para o passo indicado em `then_jump_to` (ou `target`).
+- Se **falsa**: salta para `else_jump_to` (se fornecido) ou prossegue sequencialmente.
+
+```yaml
+steps:
+  - id: "verificar_banner"
+    action: "branch"
+    element_present: "#modal-promocional"
+    then_jump_to: "fechar_banner"
+    else_jump_to: "fluxo_padrao"
+
+  - id: "fechar_banner"
+    action: "click"
+    selector: "#modal-promocional .close"
+    description: "Fecha modal antes de prosseguir"
+
+  - id: "fluxo_padrao"
+    action: "click"
+    selector: "#botao-principal"
+```
+
+Condições nativas suportadas:
+| Condição | Parâmetro | Descrição |
+| :--- | :--- | :--- |
+| `element_present` / `element_exists` | Seletor CSS / XPath | `True` se o elemento existir no DOM. |
+| `element_visible` / `is_visible` | Seletor CSS / XPath | `True` se o elemento estiver visível na viewport. |
+| `element_not_present` | Seletor CSS / XPath | `True` se o elemento estiver ausente do DOM. |
+| `element_not_visible` | Seletor CSS / XPath | `True` se o elemento estiver invisível/oculto. |
+| `text_visible` / `has_text` | Texto procurado | `True` se o texto estiver visível na página. |
+| `text_not_visible` | Texto procurado | `True` se o texto não for encontrado ou estiver oculto. |
+| `url_contains` | Trecho de URL | `True` se a URL atual contiver a string especificada. |
+| `url_equals` | URL completa | `True` se a URL atual corresponder exatamente ao valor. |
+| `javascript` / `js_expression` | Expressão JS | Avalia script no navegador e retorna valor booleano. |
+
+### 6.4 Condicional Declarada no Passo (`if`)
+Qualquer passo pode receber uma cláusula `if: { ... }`. Caso a condição não seja atendida, o passo é ignorado silenciosamente e a esteira prossegue para o próximo passo sequencial:
+```yaml
+steps:
+  # Clica no botão de fechar modal apenas se o modal estiver presente
+  - id: "fechar_se_aberto"
+    action: "click"
+    selector: ".modal-dialog .btn-close"
+    if:
+      element_present: ".modal-dialog"
+
+  # Salto condicional usando if
+  - action: "jump_to"
+    target: "area_autenticada"
+    if:
+      url_contains: "/dashboard"
+```
+
+### 6.5 Salvaguarda Anti-Loop Infinito (`max_jumps`)
+Para evitar travamentos com loops de saltos acidentais, o UXSentinel mantém um contador de iterações (`jump_count`):
+- O limite máximo padrão é de **50 saltos** por viewport.
+- Pode ser customizado no cabeçalho do cenário através da propriedade `max_jumps` (ou `limite_saltos`).
+- Se o limite for excedido, a execução lança `ScenarioLoopOverflowError` imediatamente.
+
+```yaml
+version: "1.0"
+id: "cenario_com_limite_customizado"
+title: "Fluxo de Tentativas Controladas"
+max_jumps: 10   # Limite estrito de até 10 saltos
+steps:
+  - id: "tentar_novamente"
+    action: "click"
+    selector: "#btn-retry"
+  - action: "branch"
+    element_not_present: ".sucesso"
+    then_jump_to: "tentar_novamente"
+```
+

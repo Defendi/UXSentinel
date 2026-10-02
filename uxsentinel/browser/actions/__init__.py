@@ -16,6 +16,12 @@ from uxsentinel.browser.actions.assertions import (
 )
 from uxsentinel.browser.actions.checkpoint import CheckpointActionHandler
 from uxsentinel.browser.actions.context import ActionContext, BaseActionHandler
+from uxsentinel.browser.actions.flow import (
+    BranchActionHandler,
+    JumpToActionHandler,
+    evaluate_condition,
+    evaluate_step_condition,
+)
 from uxsentinel.browser.actions.forms import (
     ClearActionHandler,
     ClickActionHandler,
@@ -146,6 +152,13 @@ class ActionRegistry:
         # Checkpoints visuais
         self.register("checkpoint", CheckpointActionHandler())
 
+        # Controle de Fluxo e Desvios (UXS-101)
+        jump_handler = JumpToActionHandler()
+        self.register(["jump_to", "jump", "saltar_para", "pular_para"], jump_handler)
+
+        branch_handler = BranchActionHandler()
+        self.register(["branch", "desvio", "ramificar"], branch_handler)
+
 
 default_action_registry = ActionRegistry()
 
@@ -153,5 +166,9 @@ __all__ = [
     "ActionContext",
     "ActionRegistry",
     "BaseActionHandler",
+    "BranchActionHandler",
+    "JumpToActionHandler",
     "default_action_registry",
+    "evaluate_condition",
+    "evaluate_step_condition",
 ]

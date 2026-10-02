@@ -21,10 +21,10 @@ Este arquivo é a fonte única de verdade para agentes, subagentes e desenvolved
 
 ## 3. Fluxo de execução contínuo e status no Jira
 
-Toda alteração deve seguir este ciclo de forma autônoma e contínua, de ponta a ponta, sem travas ou pausas para aguardar confirmações manuais intermediárias, acompanhando a evolução dos status no Jira:
+Toda alteração deve seguir rigorosamente as regras e transições documentadas em [`.agents/rules/jira-card-lifecycle.md`](.agents/rules/jira-card-lifecycle.md), operando de forma autônoma e contínua, de ponta a ponta, sem travas ou pausas para aguardar confirmações manuais intermediárias:
 
 1. **Planejamento e Especificação (`Backlog` → `A Fazer`):** enquanto o card estiver sendo criado e planejado, permanece em `Backlog`. Assim que finalizado o planejamento (por sinalização de um agente ou humano), transiciona para `A Fazer` e aguarda início do desenvolvimento.
-2. **Desenvolvimento (`Em Andamento` → `Pronto para Review`):** ao sinalizar o início da atividade, transicionar para `Em Andamento` e executar a implementação e testes unitários via `uxsentinel-python-senior`. Ao concluir, transicionar para `Pronto para Review`.
+2. **Desenvolvimento (`Em Andamento` → `Pronto para Review`):** ao sinalizar o início da atividade, transicionar para `Em Andamento` e executar a implementação e testes unitários delegando obrigatoriamente a `uxsentinel-python-senior`. Ao concluir, transicionar para `Pronto para Review`.
 3. **Code Review (`Review`):** `uxsentinel-review-agent` assume o card, transiciona para `Review`, executa planejamento obrigatório com `brainstorming` e revisa o código. Se houver qualquer apontamento, anota ponto a ponto em diversos comentários e move para `A Fazer`. Se aprovado 100%, transiciona para `Pronto Para Testar` (sugestões viram novos cards em `Backlog`).
 4. **Testes Herméticos QA (`Testando`):** ao iniciar a atividade de teste, `uxsentinel-qa-tester` transiciona para `Testando` e executa a tríade hermética completa (`ruff check`, `ruff format --check`, `pytest`). Se houver apontamentos, anota ponto a ponto em diversos comentários e move para `A Fazer`. Se aprovado 100%, move para `Concluído` (sugestões viram novos cards em `Backlog`).
 5. **Finalização (`Concluído`):** realizar o commit semântico da alteração, atualizar a documentação se aplicável e fechar o ciclo.
@@ -35,7 +35,10 @@ Toda alteração deve seguir este ciclo de forma autônoma e contínua, de ponta
 
 ## 4. Subagentes e implementação
 
-- O agente principal coordena; implementações de código são delegadas a `uxsentinel-python-senior` e o code review a `uxsentinel-review-agent`.
+- O **agente principal atua unicamente como orquestrador** e despachante; ele é estritamente proibido de inspecionar código com objetivo de programar ou editar arquivos de código diretamente.
+- Implementações de código e testes unitários são delegadas exclusivamente ao subagente `uxsentinel-python-senior`.
+- O code review é delegado exclusivamente ao subagente `uxsentinel-review-agent`.
+- Os testes de qualidade e hermeticidade são delegados exclusivamente ao subagente `uxsentinel-qa-tester`.
 - O subagente deve seguir a especificação, a skill oficial e as convenções existentes; não amplie o escopo nem invente dependências.
 - Toda mudança relevante deve incluir cobertura de testes aplicável; mudanças de CLI/YAML/Studio devem manter a paridade entre esses componentes e atualizar o manual oficial conforme a documentação quando houver interface.
 - A skill [uxsentinel-qa-tester](.agents/skills/uxsentinel-qa-tester/SKILL.md) define a execução de qualidade e hermeticidade realizada durante a etapa de testes.
@@ -57,7 +60,7 @@ Toda alteração deve seguir este ciclo de forma autônoma e contínua, de ponta
 
 1. `AGENTS.md` é a política canônica deste repositório.
 2. A skill oficial é a referência operacional detalhada e deve ser carregada apenas sob demanda.
-3. `CLAUDE.md` e `GEMINI.md` são adaptadores mínimos que remetem a este arquivo, sem criar regras próprias.
+3. `CLAUDE.md`, `GEMINI.md` e `OPENCODE.md` são adaptadores mínimos que remetem a este arquivo, sem criar regras próprias.
 4. A documentação técnica explica domínios e processos, mas não substitui esta governança.
 5. Uma instrução explícita do usuário pode mudar a política somente para a tarefa e somente quando isso for declarado; as proteções de segurança e os gates não são presumidos removidos.
 6. Em caso de conflito entre adaptadores, skills ou referências, prevalece `AGENTS.md`; nunca mantenha uma cópia divergente da política.

@@ -36,6 +36,7 @@ class StepDTO(BaseModel):
 
     index: int
     action: str
+    id: str | None = None
     selector: str | None = None
     value: str | None = None
     description: str | None = None
@@ -43,14 +44,21 @@ class StepDTO(BaseModel):
     name: str | None = None
     expected_behavior: str | None = None
     timeout: int | None = None
+    target: str | None = None
+    then_jump_to: str | None = None
+    else_jump_to: str | None = None
 
     @field_validator(
+        "id",
         "value",
         "selector",
         "url",
         "description",
         "name",
         "expected_behavior",
+        "target",
+        "then_jump_to",
+        "else_jump_to",
         mode="before",
     )
     @classmethod
@@ -415,6 +423,7 @@ class ScenarioService:
         steps_dto = [
             StepDTO(
                 index=idx + 1,
+                id=step.id,
                 action=step.action,
                 selector=step.selector,
                 value=step.value,
@@ -423,6 +432,9 @@ class ScenarioService:
                 name=step.name,
                 expected_behavior=step.expected_behavior,
                 timeout=step.timeout,
+                target=step.target,
+                then_jump_to=step.then_jump_to,
+                else_jump_to=step.else_jump_to,
             )
             for idx, step in enumerate(sc.steps)
         ]
@@ -489,6 +501,24 @@ class ScenarioService:
             )
             return ValidationResult(valid=False, errors=errors)
 
+        seen_step_ids: set[str] = set()
+        for idx, step in enumerate(steps, start=1):
+            if not isinstance(step, dict):
+                continue
+            step_id_raw = step.get("id") or step.get("step_id")
+            if step_id_raw is not None:
+                step_id_str = str(step_id_raw).strip()
+                if step_id_str in seen_step_ids:
+                    errors.append(
+                        StepError(
+                            step_index=idx,
+                            field="id",
+                            message=f"Passo {idx} possui identificador duplicado '{step_id_str}'. Cada passo deve possuir identificador único.",
+                        )
+                    )
+                else:
+                    seen_step_ids.add(step_id_str)
+
         for idx, step in enumerate(steps, start=1):
             if not isinstance(step, dict):
                 errors.append(
@@ -500,6 +530,12 @@ class ScenarioService:
                 )
                 continue
             action = step.get("action")
+            if not action:
+                if step.get("jump_to") is not None or step.get("saltar_para") is not None:
+                    action = "jump_to"
+                elif step.get("branch") is not None or step.get("desvio") is not None:
+                    action = "branch"
+
             if not action:
                 errors.append(
                     StepError(
@@ -527,6 +563,59 @@ class ScenarioService:
                         message=f"Ação '{action}' no passo {idx} requer 'selector' ou 'target'.",
                     )
                 )
+
+            if action in ("jump_to", "jump", "saltar_para", "pular_para"):
+                target = (
+                    step.get("target")
+                    or step.get("then_jump_to")
+                    or step.get("to")
+                    or step.get("jump_to")
+                    or step.get("saltar_para")
+                )
+                if not target:
+                    errors.append(
+                        StepError(
+                            step_index=idx,
+                            field="target",
+                            message=f"Ação '{action}' no passo {idx} requer 'target'.",
+                        )
+                    )
+                elif str(target).strip() not in seen_step_ids:
+                    errors.append(
+                        StepError(
+                            step_index=idx,
+                            field="target",
+                            message=f"Ação '{action}' no passo {idx} aponta para alvo inexistente '{target}'.",
+                        )
+                    )
+
+            elif action in ("branch", "desvio", "ramificar", "condition"):
+                then_target = step.get("then_jump_to") or step.get("target")
+                else_target = step.get("else_jump_to")
+                if not then_target and not else_target:
+                    errors.append(
+                        StepError(
+                            step_index=idx,
+                            field="branch",
+                            message=f"Ação '{action}' no passo {idx} requer ao menos 'then_jump_to' (ou 'target') ou 'else_jump_to'.",
+                        )
+                    )
+                if then_target and str(then_target).strip() not in seen_step_ids:
+                    errors.append(
+                        StepError(
+                            step_index=idx,
+                            field="then_jump_to",
+                            message=f"Ação '{action}' no passo {idx} aponta para 'then_jump_to' inexistente '{then_target}'.",
+                        )
+                    )
+                if else_target and str(else_target).strip() not in seen_step_ids:
+                    errors.append(
+                        StepError(
+                            step_index=idx,
+                            field="else_jump_to",
+                            message=f"Ação '{action}' no passo {idx} aponta para 'else_jump_to' inexistente '{else_target}'.",
+                        )
+                    )
 
         return ValidationResult(valid=len(errors) == 0, errors=errors)
 

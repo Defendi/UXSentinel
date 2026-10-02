@@ -1,5 +1,6 @@
 import shutil
 import time
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
@@ -16,6 +17,7 @@ from rich.progress import (
 from rich.table import Table
 
 from uxsentinel.browser.actions import ActionContext, default_action_registry
+from uxsentinel.browser.actions.flow import evaluate_step_condition
 from uxsentinel.browser.axe_runner import (
     AxeRunner,
     calculate_a11y_score,
@@ -48,6 +50,7 @@ from uxsentinel.core.models import (
     IssueSeverity,
     Scenario,
     ScenarioExceptions,
+    ScenarioLoopOverflowError,
     StepAction,
     TestReport,
     ViewportConfig,
@@ -63,6 +66,17 @@ from uxsentinel.vision.diff import compare_images
 from uxsentinel.vision.inspector import ScreenInspector
 
 console = Console()
+
+
+@dataclass
+class StepExecutionStatus:
+    """Resultado da execução de um passo com suporte a desvio de fluxo."""
+
+    should_continue: bool
+    jump_target: str | None = None
+
+    def __bool__(self) -> bool:
+        return self.should_continue
 
 
 class UXSentinelAgent:
@@ -118,6 +132,46 @@ class UXSentinelAgent:
     def last_execution_result(self, value: ExecutionResult | None) -> None:
         self._last_execution_result = value
 
+    def _validate_scenario_flow(self, scenario: Scenario) -> None:
+        """Valida estaticamente identificadores e destinos de saltos do cenário antes do browser."""
+        seen_ids: set[str] = set()
+        for idx, step in enumerate(scenario.steps, start=1):
+            if step.id:
+                s_id = step.id.strip()
+                if s_id in seen_ids:
+                    raise ValueError(
+                        f"Cenário '{scenario.id}' inválido: identificador de passo duplicado '{s_id}' no passo {idx}."
+                    )
+                seen_ids.add(s_id)
+
+        for idx, step in enumerate(scenario.steps, start=1):
+            act = step.action.lower().strip()
+            if act in ("jump_to", "jump", "saltar_para", "pular_para"):
+                tgt = step.target or step.then_jump_to
+                if not tgt:
+                    raise ValueError(
+                        f"Cenário '{scenario.id}' inválido: passo {idx} com ação '{step.action}' requer 'target'."
+                    )
+                if tgt.strip() not in seen_ids:
+                    raise ValueError(
+                        f"Cenário '{scenario.id}' inválido: passo {idx} com ação '{step.action}' aponta para target '{tgt}' inexistente no cenário."
+                    )
+            elif act in ("branch", "desvio", "ramificar", "condition"):
+                then_tgt = step.then_jump_to or step.target
+                else_tgt = step.else_jump_to
+                if not then_tgt and not else_tgt:
+                    raise ValueError(
+                        f"Cenário '{scenario.id}' inválido: passo {idx} com ação '{step.action}' deve especificar ao menos 'then_jump_to' (ou 'target') ou 'else_jump_to'."
+                    )
+                if then_tgt and then_tgt.strip() not in seen_ids:
+                    raise ValueError(
+                        f"Cenário '{scenario.id}' inválido: passo {idx} com ação '{step.action}' aponta para target '{then_tgt}' inexistente no cenário."
+                    )
+                if else_tgt and else_tgt.strip() not in seen_ids:
+                    raise ValueError(
+                        f"Cenário '{scenario.id}' inválido: passo {idx} com ação '{step.action}' aponta para else_target '{else_tgt}' inexistente no cenário."
+                    )
+
     async def run_scenario(
         self,
         scenario: Scenario,
@@ -136,6 +190,7 @@ class UXSentinelAgent:
         fail_fast_override: bool | None = None,
         event_bus: EventBus | None = None,
     ) -> TestReport:
+        self._validate_scenario_flow(scenario)
         profile = scenario.profile or "generic"
         start_time = time.time()
         bus = event_bus or self.event_bus
@@ -417,6 +472,9 @@ class UXSentinelAgent:
                 multi_vp = len(effective_viewports) > 1
                 total_work = len(scenario.steps) * len(effective_viewports)
                 interrupted = False
+                id_to_index = {
+                    step.id.strip(): i for i, step in enumerate(scenario.steps) if step.id and step.id.strip()
+                }
 
                 if effective_headless and total_work > 0:
                     with Progress(
@@ -437,17 +495,24 @@ class UXSentinelAgent:
                             elif hasattr(driver, "page") and hasattr(driver.page, "set_viewport_size"):
                                 await driver.page.set_viewport_size({"width": vp.width, "height": vp.height})
 
-                            for idx, step in enumerate(scenario.steps, start=1):
+                            current_idx = 0
+                            jump_count = 0
+                            max_jumps = scenario.max_jumps if scenario.max_jumps is not None else 50
+
+                            while current_idx < len(scenario.steps):
+                                step = scenario.steps[current_idx]
+                                step_display_index = current_idx + 1
                                 action_desc = (
-                                    step.description or f"{step.action} {step.selector or step.url or ''}"
+                                    step.description
+                                    or f"{step.action} {step.selector or step.url or step.target or ''}"
                                 )
                                 vp_tag = f" [{vp.name}]" if multi_vp else ""
                                 progress.update(
                                     task_id,
-                                    description=f"[cyan]Passo {idx:02d}/{len(scenario.steps):02d}{vp_tag}: [white]{action_desc[:35]}",
+                                    description=f"[cyan]Passo {step_display_index:02d}/{len(scenario.steps):02d}{vp_tag}: [white]{action_desc[:35]}",
                                 )
-                                should_continue = await self._execute_step_guarded(
-                                    idx,
+                                status = await self._execute_step_guarded(
+                                    step_display_index,
                                     step,
                                     driver,
                                     scenario,
@@ -466,9 +531,24 @@ class UXSentinelAgent:
                                     event_bus=bus,
                                 )
                                 progress.advance(task_id)
-                                if not should_continue:
+                                if not status:
                                     interrupted = True
                                     break
+
+                                if status.jump_target:
+                                    jump_count += 1
+                                    if jump_count > max_jumps:
+                                        raise ScenarioLoopOverflowError(
+                                            f"Limite máximo de {max_jumps} saltos excedido no cenário '{scenario.id}'. "
+                                            f"Possível loop infinito detectado."
+                                        )
+                                    if status.jump_target not in id_to_index:
+                                        raise ValueError(
+                                            f"Passo {step_display_index} tentou saltar para o identificador inexistente '{status.jump_target}'."
+                                        )
+                                    current_idx = id_to_index[status.jump_target]
+                                else:
+                                    current_idx += 1
                 else:
                     for vp in effective_viewports:
                         if interrupted:
@@ -482,9 +562,15 @@ class UXSentinelAgent:
                         elif hasattr(driver, "page") and hasattr(driver.page, "set_viewport_size"):
                             await driver.page.set_viewport_size({"width": vp.width, "height": vp.height})
 
-                        for idx, step in enumerate(scenario.steps, start=1):
-                            should_continue = await self._execute_step_guarded(
-                                idx,
+                        current_idx = 0
+                        jump_count = 0
+                        max_jumps = scenario.max_jumps if scenario.max_jumps is not None else 50
+
+                        while current_idx < len(scenario.steps):
+                            step = scenario.steps[current_idx]
+                            step_display_index = current_idx + 1
+                            status = await self._execute_step_guarded(
+                                step_display_index,
                                 step,
                                 driver,
                                 scenario,
@@ -500,9 +586,38 @@ class UXSentinelAgent:
                                 effective_diff_threshold=effective_diff_threshold,
                                 event_bus=bus,
                             )
-                            if not should_continue:
+                            if not status:
                                 interrupted = True
                                 break
+
+                            if status.jump_target:
+                                jump_count += 1
+                                if jump_count > max_jumps:
+                                    raise ScenarioLoopOverflowError(
+                                        f"Limite máximo de {max_jumps} saltos excedido no cenário '{scenario.id}'. "
+                                        f"Possível loop infinito detectado."
+                                    )
+                                if status.jump_target not in id_to_index:
+                                    raise ValueError(
+                                        f"Passo {step_display_index} tentou saltar para o identificador inexistente '{status.jump_target}'."
+                                    )
+                                current_idx = id_to_index[status.jump_target]
+                            else:
+                                current_idx += 1
+
+        except ScenarioLoopOverflowError as exc:
+            console.print(f"[bold red]❌ Limite de saltos excedido (loop infinito):[/bold red] {exc}")
+            report.error_message = str(exc)
+            report.success = False
+            scenario_failed_emitted = True
+            await bus.publish(
+                ExecutionEvent(
+                    event_type=EventType.SCENARIO_FAILED,
+                    scenario_id=scenario.id,
+                    data={"error": str(exc)},
+                )
+            )
+            raise
 
         except Exception as exc:
             console.print(f"[bold red]❌ Erro fatal na execução do cenário:[/bold red] {exc}")
@@ -687,8 +802,9 @@ class UXSentinelAgent:
             )
 
         initial_cp_count = len(report.checkpoints)
+        next_target: str | None = None
         try:
-            await self._execute_step(
+            next_target = await self._execute_step(
                 index,
                 step,
                 driver,
@@ -764,8 +880,8 @@ class UXSentinelAgent:
                 p_console.print(
                     "\n[bold red]⛔ FALHA GRAVE DETECTADA: Interrompendo execução imediatamente (--fail-fast ativo).[/bold red]\n"
                 )
-                return False
-            return True
+                return StepExecutionStatus(should_continue=False, jump_target=None)
+            return StepExecutionStatus(should_continue=True, jump_target=None)
 
         # Verifica se o passo executado (ex: assert_*, ai_assert ou checkpoint) gerou falha grave
         new_cps = report.checkpoints[initial_cp_count:]
@@ -800,7 +916,7 @@ class UXSentinelAgent:
                 p_console.print(
                     "\n[bold red]⛔ FALHA GRAVE DETECTADA: Interrompendo execução imediatamente (--fail-fast ativo).[/bold red]\n"
                 )
-                return False
+                return StepExecutionStatus(should_continue=False, jump_target=None)
 
         if bus:
             await bus.publish(
@@ -814,7 +930,7 @@ class UXSentinelAgent:
                 )
             )
 
-        return True
+        return StepExecutionStatus(should_continue=True, jump_target=next_target)
 
     async def _execute_step(
         self,
@@ -835,7 +951,7 @@ class UXSentinelAgent:
         effective_diff_threshold: float = 0.1,
         event_bus: EventBus | None = None,
         **kwargs,
-    ) -> None:
+    ) -> str | None:
         p_console = progress.console if progress is not None else console
         bus = event_bus or kwargs.get("event_bus") or getattr(self, "event_bus", None)
         action = step.action.lower().strip()
@@ -845,7 +961,7 @@ class UXSentinelAgent:
             p_console.print(
                 f"  [yellow]⏭️ Passo {index:02d} pulado (marcado como exceção/skip):[/yellow] [dim]{desc}[/dim]{vp_tag}"
             )
-            return
+            return None
 
         if scenario.exceptions:
             target_match = step.selector or step.target or step.ai_click or step.ai_fill or ""
@@ -859,7 +975,7 @@ class UXSentinelAgent:
                     p_console.print(
                         f"  [yellow]⏭️ Passo {index:02d} ignorado (seletor '{target_match}' na cláusula de exceções)[/yellow]{vp_tag}"
                     )
-                    return
+                    return None
                 if any(
                     e.strip().lower() in target_clean or target_clean in e.strip().lower()
                     for e in scenario.exceptions.ignored_elements
@@ -868,7 +984,16 @@ class UXSentinelAgent:
                     p_console.print(
                         f"  [yellow]⏭️ Passo {index:02d} ignorado (elemento '{target_match}' na cláusula de exceções)[/yellow]{vp_tag}"
                     )
-                    return
+                    return None
+
+        # Avaliação de condição declarada no passo ('if' / 'condition')
+        if action not in ("branch", "desvio", "ramificar", "condition"):
+            condition_met = await evaluate_step_condition(step, driver)
+            if not condition_met:
+                p_console.print(
+                    f"  [yellow]⏭️ Passo {index:02d} pulado (condição 'if' não satisfeita):[/yellow] [dim]{desc}[/dim]{vp_tag}"
+                )
+                return None
 
         if action in ("ai_click", "ai_fill", "ai_assert", "ai_action"):
             ai_target = (
@@ -937,6 +1062,8 @@ class UXSentinelAgent:
                     p_console.print(
                         f"      [dim]💡 Sugestão para o arquivo YAML: {ev.yaml_fix_suggestion}[/dim]"
                     )
+
+        return ctx.next_step_id
 
     async def _handle_checkpoint(
         self,
